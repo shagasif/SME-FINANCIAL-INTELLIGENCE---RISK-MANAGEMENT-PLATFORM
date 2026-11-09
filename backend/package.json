@@ -9,21 +9,21 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "nest build",
-    "start": "nest start",
-    "start:dev": "nest start --watch",
+    "build": "node ./node_modules/@nestjs/cli/bin/nest.js build",
+    "start": "node ./node_modules/@nestjs/cli/bin/nest.js start",
+    "start:dev": "node ./node_modules/@nestjs/cli/bin/nest.js start --watch",
     "start:prod": "node dist/main.js",
-    "lint": "eslint \"{src,test}/**/*.ts\"",
-    "lint:fix": "eslint \"{src,test}/**/*.ts\" --fix",
-    "format": "prettier --write \"{src,test}/**/*.ts\"",
-    "format:check": "prettier --check \"{src,test}/**/*.ts\"",
+    "lint": "node ./node_modules/eslint/bin/eslint.js \"{src,test}/**/*.ts\"",
+    "lint:fix": "node ./node_modules/eslint/bin/eslint.js \"{src,test}/**/*.ts\" --fix",
+    "format": "node ./node_modules/prettier/bin/prettier.cjs --write \"{src,test}/**/*.ts\"",
+    "format:check": "node ./node_modules/prettier/bin/prettier.cjs --check \"{src,test}/**/*.ts\"",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
     "test:e2e": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config ./jest.e2e.config.js",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "prisma:deploy": "prisma migrate deploy",
-    "prisma:studio": "prisma studio",
-    "postinstall": "prisma generate"
+    "prisma:generate": "node ./node_modules/prisma/build/index.js generate",
+    "prisma:migrate": "node ./node_modules/prisma/build/index.js migrate dev",
+    "prisma:deploy": "node ./node_modules/prisma/build/index.js migrate deploy",
+    "prisma:studio": "node ./node_modules/prisma/build/index.js studio",
+    "postinstall": "node ./node_modules/prisma/build/index.js generate"
   },
   "dependencies": {
     "@nestjs/common": "^12.3.2",

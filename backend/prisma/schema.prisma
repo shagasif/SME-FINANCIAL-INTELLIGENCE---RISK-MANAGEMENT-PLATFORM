@@ -1,15 +1,11 @@
 // ============================================================================
 // AI-Powered SME Financial Intelligence & Risk Management Platform
-// Prisma Schema (Phase 1 Foundation)
+// Complete PostgreSQL Prisma Schema (Phases 2-10)
 // ============================================================================
-// NOTE:
-// Phase 1 initializes the PostgreSQL provider, Prisma Client generator, and
-// database readiness verification only.
-//
-// Future domain models (Organizations, FinancialAccounts, FinancialTransactions,
-// Invoices, Budgets, CashFlowForecasts, FinMemorySnapshots, RiskAlerts, and
-// AuditEvents) will be added in subsequent phases using decimal-safe types
-// (@db.Decimal(19, 4)) and explicit currency ISO-4217 codes.
+// Monetary Precision Rule:
+// Every authoritative monetary column uses PostgreSQL NUMERIC(19, 4)
+// (@db.Decimal(19, 4)) paired with explicit ISO-4217 currency codes.
+// Unsafe binary floating-point types are never used for financial values.
 // ============================================================================
 
 generator client {
@@ -20,4 +16,921 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum RoleType {
+  PLATFORM_ADMIN
+  BUSINESS_OWNER
+  FINANCE_MANAGER
+  ACCOUNTANT
+  OPERATIONS_MANAGER
+  FINANCIAL_ANALYST
+  AUDITOR
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+  REVOKED
+}
+
+enum DataSourceType {
+  MANUAL_ENTRY
+  CSV_IMPORT
+  SYNTHETIC_SEED
+  SYSTEM_GENERATED
+}
+
+enum ImportBatchStatus {
+  PENDING_PREVIEW
+  VALIDATED
+  COMMITTED
+  FAILED
+  CANCELLED
+}
+
+enum AccountType {
+  BANK
+  CASH
+  ACCOUNTS_RECEIVABLE
+  ACCOUNTS_PAYABLE
+  CREDIT_CARD
+  SHORT_TERM_DEBT
+  REVENUE
+  EXPENSE
+  ASSET
+  LIABILITY
+  EQUITY
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+  TRANSFER
+}
+
+enum RecurrenceFrequency {
+  NONE
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  QUARTERLY
+  ANNUALLY
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  VOID
+}
+
+enum BillStatus {
+  DRAFT
+  OPEN
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  VOID
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  CASH
+  CARD
+  CHEQUE
+  DIRECT_DEBIT
+  OTHER
+}
+
+enum BudgetPeriodType {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+enum BudgetStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum ForecastScenarioType {
+  BASE
+  OPTIMISTIC
+  CONSERVATIVE
+}
+
+enum RiskAlertType {
+  UNUSUAL_AMOUNT
+  UNUSUAL_FREQUENCY
+  TIMING_CHANGE
+  CATEGORY_SHIFT
+  DUPLICATE_CANDIDATE
+  CASH_SHORTFALL
+  OVERDUE_RECEIVABLE
+  BUDGET_OVERRUN
+}
+
+enum RiskSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RiskAlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  INVESTIGATING
+  ESCALATED
+  DISMISSED
+  RESOLVED
+}
+
+enum ReviewTargetType {
+  RISK_ALERT
+  IMPORT_BATCH
+  SCENARIO_DECISION
+  AGENT_RECOMMENDATION
+  BUDGET_REVISION
+  CONSEQUENTIAL_EXPORT
+}
+
+enum ReviewActionType {
+  ACKNOWLEDGE
+  DISMISS
+  INVESTIGATE
+  ESCALATE
+  APPROVE
+  REJECT
+}
+
+enum AgentType {
+  SUPERVISOR_ORCHESTRATOR
+  FINANCE_DATA_ANALYST
+  CASH_FLOW_FORECASTING
+  EXPENSE_ANOMALY_DETECTION
+  FINANCIAL_RISK_ASSESSMENT
+  SCENARIO_PLANNING
+  STRATEGIC_RECOMMENDATION
+  FINANCIAL_REPORTING
+  VERIFIER_AI
+}
+
+enum ExecutionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+  TIMED_OUT
+  BLOCKED_BY_SANDBOX
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REQUIRES_HUMAN_REVIEW
+}
+
+enum ReportType {
+  BUSINESS_HEALTH
+  CASH_FLOW
+  EXPENSE
+  BUDGET
+  RISK
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// ============================================================================
+// 1. USERS, SESSIONS & PASSWORD RECOVERY
+// ============================================================================
+
+model User {
+  id                String   @id @default(uuid())
+  email             String   @unique
+  passwordHash      String
+  fullName          String
+  isPlatformAdmin   Boolean  @default(false)
+  isActive          Boolean  @default(true)
+  lastLoginAt       DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  memberships       OrganizationMembership[]
+  sessions          Session[]
+  passwordResets    PasswordResetToken[]
+  reviewDecisions   ReviewDecision[]
+  workflowRuns      WorkflowRun[]
+  auditEvents       AuditEvent[]
+  notifications     Notification[]
+  assignedTasks     FollowUpTask[]           @relation("AssignedTasks")
+  createdTasks      FollowUpTask[]           @relation("CreatedTasks")
+
+  @@index([email])
+}
+
+model Session {
+  id             String   @id @default(uuid())
+  userId         String
+  tokenHash      String   @unique
+  organizationId String?
+  ipAddress      String?
+  userAgent      String?
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  createdAt      DateTime @default(now())
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([tokenHash])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+// ============================================================================
+// 2. ORGANIZATIONS & ROLE-BASED MEMBERSHIPS
+// ============================================================================
+
+model Organization {
+  id                   String   @id @default(uuid())
+  name                 String
+  slug                 String   @unique
+  registrationNumber   String?
+  industry             String?
+  baseCurrency         String   @default("USD") @db.VarChar(3)
+  fiscalYearStartMonth Int      @default(1)
+  isSyntheticDemo      Boolean  @default(false)
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  memberships          OrganizationMembership[]
+  dataSources          DataSource[]
+  importBatches        ImportBatch[]
+  financialAccounts    FinancialAccount[]
+  transactions         FinancialTransaction[]
+  invoices             Invoice[]
+  bills                Bill[]
+  paymentRecords       PaymentRecord[]
+  budgets              Budget[]
+  metricSnapshots      FinancialMetricSnapshot[]
+  cashFlowForecasts    CashFlowForecast[]
+  scenarios            Scenario[]
+  riskAlerts           RiskAlert[]
+  reviewDecisions      ReviewDecision[]
+  workflowRuns         WorkflowRun[]
+  agentRuns            AgentRun[]
+  reports              ReportRecord[]
+  notifications        Notification[]
+  followUpTasks        FollowUpTask[]
+  auditEvents          AuditEvent[]
+
+  @@index([slug])
+}
+
+model OrganizationMembership {
+  id             String           @id @default(uuid())
+  organizationId String
+  userId         String
+  role           RoleType
+  status         MembershipStatus @default(ACTIVE)
+  department     String?
+  joinedAt       DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([organizationId, role])
+  @@index([userId])
+}
+
+// ============================================================================
+// 3. DATA SOURCES & CSV IMPORT BATCHES
+// ============================================================================
+
+model DataSource {
+  id             String         @id @default(uuid())
+  organizationId String
+  name           String
+  type           DataSourceType
+  description    String?
+  isSynthetic    Boolean        @default(false)
+  metadata       Json?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  importBatches  ImportBatch[]
+  transactions   FinancialTransaction[]
+
+  @@index([organizationId, type])
+}
+
+model ImportBatch {
+  id                 String            @id @default(uuid())
+  organizationId     String
+  dataSourceId       String?
+  accountId          String?
+  uploadedByUserId   String
+  fileName           String
+  fileChecksum       String
+  fileSizeBytes      Int
+  status             ImportBatchStatus @default(PENDING_PREVIEW)
+  columnMapping      Json
+  totalRows          Int               @default(0)
+  validRowsCount     Int               @default(0)
+  errorRowsCount     Int               @default(0)
+  duplicateRowsCount Int               @default(0)
+  committedRowsCount Int               @default(0)
+  previewRows        Json
+  rowErrors          Json
+  duplicateRows      Json
+  sanitizationNotes  Json?
+  confirmedAt        DateTime?
+  confirmedByUserId  String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  dataSource         DataSource?       @relation(fields: [dataSourceId], references: [id], onDelete: SetNull)
+  transactions       FinancialTransaction[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, fileChecksum])
+}
+
+// ============================================================================
+// 4. FINANCIAL ACCOUNTS & TRANSACTIONS
+// ============================================================================
+
+model FinancialAccount {
+  id             String      @id @default(uuid())
+  organizationId String
+  code           String
+  name           String
+  type           AccountType
+  currency       String      @default("USD") @db.VarChar(3)
+  openingBalance Decimal     @default(0) @db.Decimal(19, 4)
+  currentBalance Decimal     @default(0) @db.Decimal(19, 4)
+  institution    String?
+  isLiquid       Boolean     @default(true)
+  isArchived     Boolean     @default(false)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  transactions   FinancialTransaction[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, type, isArchived])
+}
+
+model FinancialTransaction {
+  id                  String              @id @default(uuid())
+  organizationId      String
+  accountId           String
+  dataSourceId        String?
+  importBatchId       String?
+  type                TransactionType
+  amount              Decimal             @db.Decimal(19, 4)
+  currency            String              @default("USD") @db.VarChar(3)
+  transactionDate     DateTime
+  description         String
+  category            String
+  subcategory         String?
+  department          String?
+  counterparty        String?
+  reference           String?
+  isRecurring         Boolean             @default(false)
+  recurrenceFrequency RecurrenceFrequency @default(NONE)
+  isCostOfGoodsSold   Boolean             @default(false)
+  isSynthetic         Boolean             @default(false)
+  isArchived          Boolean             @default(false)
+  duplicateHash       String?
+  metadata            Json?
+  createdByUserId     String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  account             FinancialAccount    @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  dataSource          DataSource?         @relation(fields: [dataSourceId], references: [id], onDelete: SetNull)
+  importBatch         ImportBatch?        @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+  paymentRecords      PaymentRecord[]
+
+  @@index([organizationId, transactionDate])
+  @@index([organizationId, type, category])
+  @@index([organizationId, duplicateHash])
+  @@index([organizationId, isArchived])
+}
+
+// ============================================================================
+// 5. INVOICES, SUPPLIER BILLS & PAYMENT RECORDS
+// ============================================================================
+
+model Invoice {
+  id                 String        @id @default(uuid())
+  organizationId     String
+  invoiceNumber      String
+  customerName       String
+  customerEmail      String?
+  category           String        @default("Sales Revenue")
+  department         String?
+  issueDate          DateTime
+  dueDate            DateTime
+  currency           String        @default("USD") @db.VarChar(3)
+  totalAmount        Decimal       @db.Decimal(19, 4)
+  paidAmount         Decimal       @default(0) @db.Decimal(19, 4)
+  outstandingBalance Decimal       @db.Decimal(19, 4)
+  status             InvoiceStatus @default(ISSUED)
+  notes              String?
+  isArchived         Boolean       @default(false)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  payments           PaymentRecord[]
+
+  @@unique([organizationId, invoiceNumber])
+  @@index([organizationId, status, dueDate])
+}
+
+model Bill {
+  id                 String          @id @default(uuid())
+  organizationId     String
+  billNumber         String
+  supplierName       String
+  supplierEmail      String?
+  category           String          @default("Operating Expense")
+  department         String?
+  issueDate          DateTime
+  dueDate            DateTime
+  currency           String          @default("USD") @db.VarChar(3)
+  totalAmount        Decimal         @db.Decimal(19, 4)
+  paidAmount         Decimal         @default(0) @db.Decimal(19, 4)
+  outstandingBalance Decimal         @db.Decimal(19, 4)
+  status             BillStatus      @default(OPEN)
+  notes              String?
+  isArchived         Boolean         @default(false)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  payments           PaymentRecord[]
+
+  @@unique([organizationId, billNumber])
+  @@index([organizationId, status, dueDate])
+}
+
+model PaymentRecord {
+  id             String                @id @default(uuid())
+  organizationId String
+  invoiceId      String?
+  billId         String?
+  transactionId  String?
+  amount         Decimal               @db.Decimal(19, 4)
+  currency       String                @default("USD") @db.VarChar(3)
+  paymentDate    DateTime
+  method         PaymentMethod         @default(BANK_TRANSFER)
+  reference      String?
+  notes          String?
+  recordedById   String?
+  createdAt      DateTime              @default(now())
+
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invoice        Invoice?              @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  bill           Bill?                 @relation(fields: [billId], references: [id], onDelete: Cascade)
+  transaction    FinancialTransaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, paymentDate])
+  @@index([invoiceId])
+  @@index([billId])
+}
+
+// ============================================================================
+// 6. BUDGETS, BUDGET LINES & REVISION HISTORY
+// ============================================================================
+
+model Budget {
+  id             String           @id @default(uuid())
+  organizationId String
+  name           String
+  periodType     BudgetPeriodType
+  startDate      DateTime
+  endDate        DateTime
+  currency       String           @default("USD") @db.VarChar(3)
+  totalAllocated Decimal          @default(0) @db.Decimal(19, 4)
+  status         BudgetStatus     @default(ACTIVE)
+  version        Int              @default(1)
+  notes          String?
+  createdById    String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lines          BudgetLine[]
+  revisions      BudgetRevision[]
+
+  @@index([organizationId, periodType, startDate, endDate])
+}
+
+model BudgetLine {
+  id              String   @id @default(uuid())
+  budgetId        String
+  category        String
+  department      String   @default("General")
+  allocatedAmount Decimal  @db.Decimal(19, 4)
+  alertThreshold  Decimal  @default(90.0000) @db.Decimal(19, 4)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  budget          Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  @@unique([budgetId, category, department])
+  @@index([budgetId])
+}
+
+model BudgetRevision {
+  id                String   @id @default(uuid())
+  budgetId          String
+  version           Int
+  previousAllocated Decimal  @db.Decimal(19, 4)
+  newAllocated      Decimal  @db.Decimal(19, 4)
+  changeSummary     String
+  snapshotLines     Json
+  revisedByUserId   String?
+  createdAt         DateTime @default(now())
+
+  budget            Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  @@index([budgetId, version])
+}
+
+// ============================================================================
+// 7. FINMEMORY HISTORICAL FINANCIAL METRIC SNAPSHOTS
+// ============================================================================
+
+model FinancialMetricSnapshot {
+  id                   String   @id @default(uuid())
+  organizationId       String
+  periodKey            String   // e.g. "2026-10" or "2026-Q3"
+  periodStart          DateTime
+  periodEnd            DateTime
+  currency             String   @default("USD") @db.VarChar(3)
+  formulaVersion       String   @default("v1.0.0")
+  completenessScore    Decimal  @db.Decimal(19, 4)
+  totalRevenue         Decimal  @db.Decimal(19, 4)
+  totalExpenses        Decimal  @db.Decimal(19, 4)
+  operatingCashFlow    Decimal  @db.Decimal(19, 4)
+  closingCashBalance   Decimal  @db.Decimal(19, 4)
+  workingCapital       Decimal  @db.Decimal(19, 4)
+  currentRatio         Decimal? @db.Decimal(19, 4)
+  quickRatio           Decimal? @db.Decimal(19, 4)
+  grossMarginPct       Decimal? @db.Decimal(19, 4)
+  expenseGrowthPct     Decimal? @db.Decimal(19, 4)
+  cashRunwayMonths     Decimal? @db.Decimal(19, 4)
+  budgetVariancePct    Decimal? @db.Decimal(19, 4)
+  overdueReceivables   Decimal  @default(0) @db.Decimal(19, 4)
+  overduePayables      Decimal  @default(0) @db.Decimal(19, 4)
+  metricsPayload       Json
+  sourceRecordIds      Json     // { transactionIds: [], invoiceIds: [], billIds: [], budgetIds: [] }
+  dataLimitations      Json
+  recurringPatterns    Json?
+  forecastComparison   Json?
+  historicalInsights   Json?
+  assumptionsAndNotes  Json?
+  createdAt            DateTime @default(now())
+
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, periodKey])
+  @@index([organizationId, periodStart, periodEnd])
+}
+
+// ============================================================================
+// 8. CASH-FLOW FORECASTING & FORECAST ITEMS
+// ============================================================================
+
+model CashFlowForecast {
+  id                     String               @id @default(uuid())
+  organizationId         String
+  horizonDays            Int                  // 7, 30, 60, or 90
+  scenarioType           ForecastScenarioType @default(BASE)
+  version                Int                  @default(1)
+  currency               String               @default("USD") @db.VarChar(3)
+  generatedAt            DateTime             @default(now())
+  startDate              DateTime
+  endDate                DateTime
+  openingCashBalance     Decimal              @db.Decimal(19, 4)
+  projectedInflows       Decimal              @db.Decimal(19, 4)
+  projectedOutflows      Decimal              @db.Decimal(19, 4)
+  projectedClosingCash   Decimal              @db.Decimal(19, 4)
+  minimumProjectedCash   Decimal              @db.Decimal(19, 4)
+  minimumCashDate        DateTime?
+  hasLiquidityWarning    Boolean              @default(false)
+  uncertaintyBandPct     Decimal              @default(10.0000) @db.Decimal(19, 4)
+  assumptions            Json
+  sourceRecordIds        Json
+  dataLimitations        Json?
+  actualComparison       Json?
+  createdByUserId        String?
+
+  organization           Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  items                  ForecastItem[]
+  scenarios              Scenario[]
+
+  @@index([organizationId, horizonDays, scenarioType, version])
+}
+
+model ForecastItem {
+  id                 String           @id @default(uuid())
+  forecastId         String
+  projectionDate     DateTime
+  expectedInflow     Decimal          @db.Decimal(19, 4)
+  expectedOutflow    Decimal          @db.Decimal(19, 4)
+  recurringInflow    Decimal          @default(0) @db.Decimal(19, 4)
+  recurringOutflow   Decimal          @default(0) @db.Decimal(19, 4)
+  netCashFlow        Decimal          @db.Decimal(19, 4)
+  cumulativeBalance  Decimal          @db.Decimal(19, 4)
+  optimisticBalance  Decimal          @db.Decimal(19, 4)
+  conservativeBalance Decimal         @db.Decimal(19, 4)
+  drivers            Json
+
+  forecast           CashFlowForecast @relation(fields: [forecastId], references: [id], onDelete: Cascade)
+
+  @@index([forecastId, projectionDate])
+}
+
+// ============================================================================
+// 9. SCENARIO PLANNING & RESULTS
+// ============================================================================
+
+model Scenario {
+  id                        String            @id @default(uuid())
+  organizationId            String
+  baselineForecastId        String
+  name                      String
+  description               String?
+  customerPaymentDelayDays  Int               @default(0)
+  salesGrowthPct            Decimal           @default(0) @db.Decimal(19, 4)
+  operatingCostChangePct    Decimal           @default(0) @db.Decimal(19, 4)
+  supplierPaymentTimingDays Int               @default(0)
+  createdByUserId           String?
+  createdAt                 DateTime          @default(now())
+
+  organization              Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  baselineForecast          CashFlowForecast  @relation(fields: [baselineForecastId], references: [id], onDelete: Cascade)
+  results                   ScenarioResult[]
+
+  @@index([organizationId, createdAt])
+}
+
+model ScenarioResult {
+  id                        String   @id @default(uuid())
+  scenarioId                String
+  baselineClosingCash       Decimal  @db.Decimal(19, 4)
+  scenarioClosingCash       Decimal  @db.Decimal(19, 4)
+  netCashImpact             Decimal  @db.Decimal(19, 4)
+  baselineMinimumCash       Decimal  @db.Decimal(19, 4)
+  scenarioMinimumCash       Decimal  @db.Decimal(19, 4)
+  triggersLiquidityWarning  Boolean  @default(false)
+  runwayImpactMonths        Decimal? @db.Decimal(19, 4)
+  dailyComparisons          Json
+  impactSummary             Json
+  createdAt                 DateTime @default(now())
+
+  scenario                  Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+
+  @@index([scenarioId])
+}
+
+// ============================================================================
+// 10. ANOMALY DETECTION, FINANCIAL RISK ALERTS & REVIEW DECISIONS
+// ============================================================================
+
+model RiskAlert {
+  id                  String          @id @default(uuid())
+  organizationId      String
+  type                RiskAlertType
+  severity            RiskSeverity
+  reviewPriority      Int             @default(2) // 1 (Highest) to 4 (Low)
+  status              RiskAlertStatus @default(OPEN)
+  title               String
+  explanation         String
+  detectionMethod     String
+  metricValue         Decimal?        @db.Decimal(19, 4)
+  thresholdValue      Decimal?        @db.Decimal(19, 4)
+  supportingRecordIds Json
+  nonFraudDisclaimer  String          @default("Statistical or rule-based anomaly signal for human review; not a determination of confirmed fraud.")
+  detectedAt          DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  organization        Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  reviewDecisions     ReviewDecision[]
+
+  @@index([organizationId, status, severity])
+  @@index([organizationId, type])
+}
+
+model ReviewDecision {
+  id               String           @id @default(uuid())
+  organizationId   String
+  targetType       ReviewTargetType
+  targetId         String
+  riskAlertId      String?
+  action           ReviewActionType
+  reviewerUserId   String
+  reviewerNotes    String
+  previousStatus   String?
+  newStatus        String?
+  metadata         Json?
+  createdAt        DateTime         @default(now())
+
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  riskAlert        RiskAlert?       @relation(fields: [riskAlertId], references: [id], onDelete: SetNull)
+  reviewer         User             @relation(fields: [reviewerUserId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, targetType, targetId])
+  @@index([riskAlertId])
+}
+
+// ============================================================================
+// 11. MULTI-AGENT WORKFLOW RUNS & AGENT RUNS
+// ============================================================================
+
+model WorkflowRun {
+  id                  String             @id @default(uuid())
+  organizationId      String
+  requestedByUserId   String
+  prompt              String
+  taskClassification  String
+  selectedAgents      Json
+  executionMode       String             @default("SEQUENTIAL_AND_PARALLEL")
+  status              ExecutionStatus    @default(PENDING)
+  verificationStatus  VerificationStatus @default(PENDING)
+  humanReviewRequired Boolean            @default(false)
+  preHookLog          Json?
+  duringHookLog       Json?
+  postHookLog         Json?
+  errorHookLog        Json?
+  synthesizedResult   Json?
+  verifierReport      Json?
+  sourceRecordIds     Json?
+  modelUsageSummary   Json?
+  durationMs          Int?
+  startedAt           DateTime           @default(now())
+  completedAt         DateTime?
+
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestedBy         User               @relation(fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  agentRuns           AgentRun[]
+
+  @@index([organizationId, status, startedAt])
+}
+
+model AgentRun {
+  id                String          @id @default(uuid())
+  workflowRunId     String
+  organizationId    String
+  agentType         AgentType
+  sandboxId         String
+  loadedSkills      Json?
+  allowedTools      Json
+  invokedTools      Json
+  mcpToolCalls      Json?
+  blockedOperations Json?
+  modelUsage        Json?
+  status            ExecutionStatus @default(PENDING)
+  inputContext      Json
+  outputPayload     Json?
+  evidenceCitations Json?
+  errorDetails      String?
+  durationMs        Int?
+  startedAt         DateTime        @default(now())
+  completedAt       DateTime?
+
+  workflowRun       WorkflowRun     @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+  organization      Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([workflowRunId, agentType])
+  @@index([organizationId, status])
+}
+
+// ============================================================================
+// 12. REPORTS, NOTIFICATIONS, FOLLOW-UP TASKS & AUDIT EVENTS
+// ============================================================================
+
+model ReportRecord {
+  id              String       @id @default(uuid())
+  organizationId  String
+  type            ReportType
+  title           String
+  periodStart     DateTime
+  periodEnd       DateTime
+  currency        String       @default("USD") @db.VarChar(3)
+  summaryMetrics  Json
+  narrativeBody   Json
+  sourceRecordIds Json
+  exportFormats   Json         // ["JSON", "CSV", "PDF_READY"]
+  generatedById   String?
+  createdAt       DateTime     @default(now())
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, type, createdAt])
+}
+
+model Notification {
+  id             String       @id @default(uuid())
+  organizationId String
+  userId         String?
+  title          String
+  message        String
+  severity       RiskSeverity @default(MEDIUM)
+  category       String
+  isRead         Boolean      @default(false)
+  linkPath       String?
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId, isRead])
+}
+
+model FollowUpTask {
+  id              String       @id @default(uuid())
+  organizationId  String
+  title           String
+  description     String
+  status          TaskStatus   @default(OPEN)
+  priority        RiskSeverity @default(MEDIUM)
+  dueDate         DateTime?
+  assignedToId    String?
+  createdById     String
+  relatedEntityId String?
+  relatedType     String?
+  completedAt     DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignedTo      User?        @relation("AssignedTasks", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdBy       User         @relation("CreatedTasks", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, status, priority])
+}
+
+model AuditEvent {
+  id             String        @id @default(uuid())
+  organizationId String?
+  actorUserId    String?
+  actorRole      String?
+  action         String
+  resourceType   String
+  resourceId     String?
+  status         String        @default("SUCCESS") // SUCCESS | DENIED | BLOCKED_BY_SANDBOX | ERROR
+  ipAddress      String?
+  details        Json?
+  integrityHash  String?
+  createdAt      DateTime      @default(now())
+
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  actor          User?         @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([action, status])
 }
