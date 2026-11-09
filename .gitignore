@@ -1,0 +1,60 @@
+# ============================================================================
+# AI-Powered SME Financial Intelligence & Risk Management Platform
+# Root Git Ignore Configuration
+# ============================================================================
+
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Build & compilation outputs
+dist/
+*/dist/
+dist-ssr/
+build/
+*.tsbuildinfo
+
+# Prisma generated client
+backend/src/generated/
+
+# Environment variables & secrets (NEVER commit real .env files)
+.env
+.env.*
+!.env.example
+!*/.env.example
+
+# Logs & runtime diagnostics
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Test & coverage artifacts
+coverage/
+*/coverage/
+.nyc_output/
+
+# Local databases & storage
+*.db
+*.sqlite
+*.sqlite3
+postgres-data/
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

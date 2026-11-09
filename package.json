@@ -1,0 +1,45 @@
+{
+  "name": "ai-powered-sme-financial-intelligence",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-Powered SME Financial Intelligence & Risk Management Platform - Phase 1 Foundation",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "scripts": {
+    "dev:backend": "npm --prefix backend run start:dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build:backend": "npm --prefix backend run build",
+    "build:frontend": "npm --prefix frontend run build",
+    "build": "npm run build:backend && npm run build:frontend",
+    "lint:backend": "npm --prefix backend run lint",
+    "lint:frontend": "npm --prefix frontend run lint",
+    "lint": "npm run lint:backend && npm run lint:frontend",
+    "format:backend": "npm --prefix backend run format",
+    "format:frontend": "npm --prefix frontend run format",
+    "format": "npm run format:backend && npm run format:frontend",
+    "format:check": "npm --prefix backend run format:check && npm --prefix frontend run format:check",
+    "test:backend": "npm --prefix backend run test",
+    "test:backend:e2e": "npm --prefix backend run test:e2e",
+    "test:frontend": "npm --prefix frontend run test",
+    "test": "npm run test:backend && npm run test:frontend",
+    "prisma:generate": "npm --prefix backend run prisma:generate",
+    "prisma:migrate": "npm --prefix backend run prisma:migrate",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down"
+  },
+  "keywords": [
+    "sme-finance",
+    "financial-intelligence",
+    "risk-management",
+    "finmemory",
+    "nestjs",
+    "react",
+    "typescript",
+    "prisma",
+    "postgresql",
+    "tailwindcss"
+  ],
+  "license": "UNLICENSED"
+}

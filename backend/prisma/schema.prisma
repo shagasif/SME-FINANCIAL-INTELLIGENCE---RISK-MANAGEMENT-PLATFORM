@@ -1,0 +1,23 @@
+// ============================================================================
+// AI-Powered SME Financial Intelligence & Risk Management Platform
+// Prisma Schema (Phase 1 Foundation)
+// ============================================================================
+// NOTE:
+// Phase 1 initializes the PostgreSQL provider, Prisma Client generator, and
+// database readiness verification only.
+//
+// Future domain models (Organizations, FinancialAccounts, FinancialTransactions,
+// Invoices, Budgets, CashFlowForecasts, FinMemorySnapshots, RiskAlerts, and
+// AuditEvents) will be added in subsequent phases using decimal-safe types
+// (@db.Decimal(19, 4)) and explicit currency ISO-4217 codes.
+// ============================================================================
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
