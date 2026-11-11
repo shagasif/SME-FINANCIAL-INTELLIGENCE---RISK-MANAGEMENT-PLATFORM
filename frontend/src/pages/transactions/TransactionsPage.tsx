@@ -1,125 +1,80 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   AlertCircle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   Building2,
   FileSpreadsheet,
+  ListChecks,
   Plus,
   RefreshCw,
   Search,
   ShieldAlert,
+  TrendingDown,
+  TrendingUp,
+  Wallet,
+  X,
 } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
-import { apiGet, ApiClientError } from '../../services/apiClient';
+import { apiGet, ApiClientError, authStorage } from '../../services/apiClient';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Skeleton } from '../../components/ui/LoadingSpinner';
-import { formatCurrency, formatDate } from '../../utils/formatters';
+import {
+  formatCurrency,
+  formatDate,
+  formatSignedCurrency,
+  resolveReportingCurrency,
+} from '../../utils/formatters';
 import type { FinancialAccount, FinancialTransaction } from '../../types/financial.types';
 import { CsvImportModal } from './CsvImportModal';
 import { NewTransactionModal } from './NewTransactionModal';
 import { ManageAccountsModal } from './ManageAccountsModal';
-import { DEFAULT_DEMO_ORG } from '../../config/demo.config';
 
-const DEFAULT_ACCOUNTS: FinancialAccount[] = [
-  {
-    id: 'acc-001',
-    organizationId: DEFAULT_DEMO_ORG.id,
-    name: 'Primary Operating Account',
-    accountType: 'BANK',
-    currency: 'PKR',
-    openingBalance: '1000000.00',
-    currentBalance: '1248500.00',
-    isArchived: false,
-    createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-11-10T00:00:00.000Z',
-  },
-  {
-    id: 'acc-002',
-    organizationId: DEFAULT_DEMO_ORG.id,
-    name: 'Payroll Reserve',
-    accountType: 'BANK',
-    currency: 'PKR',
-    openingBalance: '200000.00',
-    currentBalance: '250000.00',
-    isArchived: false,
-    createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-11-10T00:00:00.000Z',
-  },
-];
+export type TransactionSortField =
+  | 'transactionDate'
+  | 'description'
+  | 'type'
+  | 'amount'
+  | 'category'
+  | 'counterparty';
 
-const DEFAULT_TRANSACTIONS: FinancialTransaction[] = [
-  {
-    id: 'tx-001',
-    organizationId: DEFAULT_DEMO_ORG.id,
-    accountId: 'acc-001',
-    date: '2026-11-09T14:30:00.000Z',
-    amount: '45000.00',
-    type: 'INCOME',
-    category: 'Enterprise Subscription',
-    description: 'Q4 Enterprise SaaS License - Northstar Tech',
-    referenceNumber: 'INV-2026-881',
-    isArchived: false,
-    createdAt: '2026-11-09T14:30:00.000Z',
-    updatedAt: '2026-11-09T14:30:00.000Z',
-  },
-  {
-    id: 'tx-002',
-    organizationId: DEFAULT_DEMO_ORG.id,
-    accountId: 'acc-001',
-    date: '2026-11-08T09:15:00.000Z',
-    amount: '-18500.00',
-    type: 'EXPENSE',
-    category: 'Cloud Infrastructure',
-    description: 'Google Cloud Platform Monthly Hosting & AI GPU compute',
-    referenceNumber: 'GCP-99412',
-    isArchived: false,
-    createdAt: '2026-11-08T09:15:00.000Z',
-    updatedAt: '2026-11-08T09:15:00.000Z',
-  },
-  {
-    id: 'tx-003',
-    organizationId: DEFAULT_DEMO_ORG.id,
-    accountId: 'acc-001',
-    date: '2026-11-07T16:45:00.000Z',
-    amount: '28000.00',
-    type: 'INCOME',
-    category: 'Consulting Revenue',
-    description: 'Autonomous Financial Risk Intelligence Retainer',
-    referenceNumber: 'INV-2026-880',
-    isArchived: false,
-    createdAt: '2026-11-07T16:45:00.000Z',
-    updatedAt: '2026-11-07T16:45:00.000Z',
-  },
-  {
-    id: 'tx-004',
-    organizationId: DEFAULT_DEMO_ORG.id,
-    accountId: 'acc-001',
-    date: '2026-11-06T11:20:00.000Z',
-    amount: '-12400.00',
-    type: 'EXPENSE',
-    category: 'Payroll & Benefits',
-    description: 'Bi-weekly Financial Engineering Contractor Dispatches',
-    referenceNumber: 'PAY-1102',
-    isArchived: false,
-    createdAt: '2026-11-06T11:20:00.000Z',
-    updatedAt: '2026-11-06T11:20:00.000Z',
-  },
-  {
-    id: 'tx-005',
-    organizationId: DEFAULT_DEMO_ORG.id,
-    accountId: 'acc-001',
-    date: '2026-11-05T13:10:00.000Z',
-    amount: '-4200.00',
-    type: 'EXPENSE',
-    category: 'Software & Tools',
-    description: 'Regulatory Audit Trail & Compliance Software',
-    referenceNumber: 'SOFT-441',
-    isArchived: false,
-    createdAt: '2026-11-05T13:10:00.000Z',
-    updatedAt: '2026-11-05T13:10:00.000Z',
-  },
-];
+export type SortOrder = 'asc' | 'desc';
+
+interface CurrencySummaryBreakdown {
+  currency: string;
+  totalTransactions: number;
+  incomeCount: number;
+  expenseCount: number;
+  transferCount: number;
+  totalIncome: string;
+  totalExpenses: string;
+  netCashMovement: string;
+}
+
+interface TransactionSummary {
+  totalTransactions: number;
+  incomeCount: number;
+  expenseCount: number;
+  transferCount: number;
+  currency: string | null;
+  isComplete?: boolean;
+  missingCurrencies?: string[];
+  appliedRates?: Array<{
+    fromCurrency: string;
+    toCurrency: string;
+    rate: string;
+    effectiveDate: string;
+    source: string;
+  }>;
+  hasMixedCurrencies: boolean;
+  totalIncome: string | null;
+  totalExpenses: string | null;
+  netCashMovement: string | null;
+  byCurrency: CurrencySummaryBreakdown[];
+}
 
 interface TransactionListResponse {
   items: FinancialTransaction[];
@@ -129,19 +84,27 @@ interface TransactionListResponse {
     limit: number;
     totalPages: number;
   };
+  summary?: TransactionSummary;
 }
 
 export function TransactionsPage() {
-  const { activeOrg, isAuditor, canMutateLedger } = useAuth();
+  const { activeOrg, isLoading: isAuthLoading, isAuditor, canMutateLedger } = useAuth();
+
+  const hasToken = Boolean(authStorage.getToken());
+  const effectiveOrg = activeOrg || null;
+  const activeOrgId = effectiveOrg?.id ?? null;
 
   const [transactions, setTransactions] = useState<FinancialTransaction[]>([]);
   const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 15, total: 0, totalPages: 1 });
+  const [summary, setSummary] = useState<TransactionSummary | null>(null);
 
-  // Filters
+  // Filters & sorting
   const [search, setSearch] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [selectedType, setSelectedType] = useState('');
+  const [sortBy, setSortBy] = useState<TransactionSortField>('transactionDate');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [reloadKey, setReloadKey] = useState(0);
 
   // Modals
@@ -150,75 +113,101 @@ export function TransactionsPage() {
   const [isAccountsModalOpen, setIsAccountsModalOpen] = useState(false);
 
   // Loading & error
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState<boolean>(() => Boolean(activeOrgId));
   const [error, setError] = useState<string | null>(null);
 
-  const effectiveOrg = activeOrg || DEFAULT_DEMO_ORG;
-  const activeOrgId = effectiveOrg.id;
-
   const handleRefresh = useCallback(() => {
+    setError(null);
     setIsLoading(true);
     setReloadKey((prev) => prev + 1);
   }, []);
 
+  const handleSort = useCallback(
+    (field: TransactionSortField) => {
+      if (sortBy === field) {
+        setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+      } else {
+        setSortBy(field);
+        setSortOrder(field === 'transactionDate' || field === 'amount' ? 'desc' : 'asc');
+      }
+      setPagination((p) => ({ ...p, page: 1 }));
+    },
+    [sortBy],
+  );
+
   // Fetch Accounts
   useEffect(() => {
+    if (hasToken && (isAuthLoading || !activeOrgId)) return;
     if (!activeOrgId) return;
 
+    const controller = new AbortController();
     let isMounted = true;
-    apiGet<FinancialAccount[]>(`/v1/organizations/${activeOrgId}/accounts`)
+
+    apiGet<FinancialAccount[]>(`/v1/organizations/${activeOrgId}/accounts`, controller.signal)
       .then((accs) => {
-        if (!isMounted) return;
+        if (!isMounted || controller.signal.aborted) return;
         setAccounts(Array.isArray(accs) ? accs : []);
       })
       .catch(() => {
-        if (!isMounted) return;
-        setAccounts((prev) => (prev.length > 0 ? prev : activeOrg ? [] : DEFAULT_ACCOUNTS));
+        if (!isMounted || controller.signal.aborted) return;
+        setAccounts([]);
       });
 
     return () => {
       isMounted = false;
+      controller.abort();
     };
-  }, [activeOrgId, activeOrg]);
+  }, [activeOrgId, hasToken, isAuthLoading]);
 
-  // Fetch Transactions
+  // Fetch Transactions (with AbortController to eliminate concurrent search/filter race conditions)
   useEffect(() => {
+    if (hasToken && (isAuthLoading || !activeOrgId)) return;
     if (!activeOrgId) return;
 
+    const controller = new AbortController();
     let isMounted = true;
 
     const params = new URLSearchParams();
     params.set('page', String(pagination.page));
     params.set('limit', String(pagination.limit));
+    params.set('sortBy', sortBy);
+    params.set('sortOrder', sortOrder);
     if (search.trim()) params.set('search', search.trim());
     if (selectedAccountId) params.set('accountId', selectedAccountId);
     if (selectedType) params.set('type', selectedType);
 
     apiGet<TransactionListResponse>(
       `/v1/organizations/${activeOrgId}/transactions?${params.toString()}`,
+      controller.signal,
     )
       .then((res) => {
-        if (!isMounted) return;
+        if (!isMounted || controller.signal.aborted) return;
+        setError(null);
         setTransactions(res.items || []);
         if (res.pagination) {
           setPagination(res.pagination);
         }
+        setSummary(res.summary ?? null);
       })
       .catch((err: unknown) => {
-        if (!isMounted) return;
-        setTransactions((prev) => (prev.length > 0 ? prev : DEFAULT_TRANSACTIONS));
+        if (!isMounted || controller.signal.aborted) return;
+        setTransactions([]);
+        setSummary(null);
         if (err instanceof ApiClientError) {
           setError(err.message);
         } else {
-          setError('Failed to fetch transactions from live API. Displaying verified demo baseline.');
+          setError('Failed to fetch financial transactions from live API. Please try again.');
         }
       })
       .finally(() => {
-        if (isMounted) setIsLoading(false);
+        if (isMounted && !controller.signal.aborted) {
+          setIsLoading(false);
+        }
       });
 
     return () => {
       isMounted = false;
+      controller.abort();
     };
   }, [
     activeOrgId,
@@ -227,13 +216,22 @@ export function TransactionsPage() {
     search,
     selectedAccountId,
     selectedType,
+    sortBy,
+    sortOrder,
     reloadKey,
+    hasToken,
+    isAuthLoading,
   ]);
 
-  const currency = effectiveOrg.baseCurrency || 'PKR';
+  const currency = resolveReportingCurrency(effectiveOrg?.baseCurrency);
+  const isPageLoading = (hasToken && (isAuthLoading || !activeOrg)) || isLoading;
 
   const safeAccounts = Array.isArray(accounts) ? accounts : [];
   const accountMap = Object.fromEntries(safeAccounts.map((a) => [a.id, a]));
+  const summaryCurrency = resolveReportingCurrency(effectiveOrg?.baseCurrency, summary?.currency);
+  const isSummaryIncomplete = summary?.isComplete === false;
+  const nativeBreakdowns = (summary?.byCurrency ?? []).filter((b) => b.currency !== summaryCurrency);
+
   const accountFilterOptions = [
     { value: '', label: 'All Accounts' },
     ...safeAccounts.map((a) => ({
@@ -249,6 +247,47 @@ export function TransactionsPage() {
     { value: 'TRANSFER', label: 'Transfers Only' },
   ];
 
+  const renderSortIcon = (field: TransactionSortField) => {
+    if (sortBy !== field) {
+      return <ArrowUpDown className="w-3 h-3 opacity-40" />;
+    }
+    return sortOrder === 'asc' ? (
+      <ArrowUp className="w-3 h-3 text-[var(--accent-teal)]" />
+    ) : (
+      <ArrowDown className="w-3 h-3 text-[var(--accent-teal)]" />
+    );
+  };
+
+  const renderSortableHeader = (
+    field: TransactionSortField,
+    label: string,
+    alignRight = false,
+  ) => {
+    const isActive = sortBy === field;
+    return (
+      <th
+        className={`py-3 px-4 font-semibold ${alignRight ? 'text-right' : ''}`}
+        aria-sort={isActive ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}
+      >
+        <button
+          type="button"
+          onClick={() => handleSort(field)}
+          className={`inline-flex items-center gap-1 uppercase tracking-wider hover:text-[var(--text-primary)] transition-colors cursor-pointer ${
+            alignRight ? 'justify-end ml-auto' : ''
+          } ${isActive ? 'text-[var(--text-primary)]' : ''}`}
+        >
+          <span>{label}</span>
+          {renderSortIcon(field)}
+        </button>
+      </th>
+    );
+  };
+
+  const netCashNumeric =
+    summary?.netCashMovement !== null && summary?.netCashMovement !== undefined
+      ? Number.parseFloat(summary.netCashMovement)
+      : null;
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -258,7 +297,7 @@ export function TransactionsPage() {
             Financial Ledger & Transactions
           </h1>
           <p className="text-xs text-[var(--text-muted)] mt-1">
-            Authoritative double-entry transaction record and automated CSV ingestion pipeline
+            Authoritative transaction record and automated financial statement ingestion pipeline
           </p>
         </div>
 
@@ -290,7 +329,7 @@ export function TransactionsPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => setIsCsvModalOpen(true)}
-                title="Import CSV Statement"
+                title="Import Financial File"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 mr-1.5 text-[var(--accent-teal)]" />
                 Import File
@@ -327,6 +366,40 @@ export function TransactionsPage() {
         </div>
       )}
 
+      {/* Unassigned Active Organization Notice */}
+      {hasToken && !isAuthLoading && !activeOrg && (
+        <div
+          role="status"
+          className="flex items-start gap-3 p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200 text-xs"
+        >
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+          <div>
+            <span className="font-semibold block mb-0.5">No Active Organization Membership</span>
+            <span className="leading-relaxed opacity-90">
+              Your account currently does not belong to an active organization. Please contact your
+              platform administrator or organization owner.
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Unauthenticated Sign-In Notice */}
+      {!hasToken && !isAuthLoading && !activeOrg && (
+        <div
+          role="status"
+          className="flex items-start gap-3 p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200 text-xs"
+        >
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+          <div>
+            <span className="font-semibold block mb-0.5">Authentication Required</span>
+            <span className="leading-relaxed opacity-90">
+              Please sign in to inspect your organization&apos;s live financial ledger and account
+              balances.
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Error alert */}
       {error && (
         <div
@@ -342,6 +415,163 @@ export function TransactionsPage() {
           </Button>
         </div>
       )}
+
+      {/* Ledger Summary Cards (4 KPI Cards backed by full-dataset DB aggregates) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {/* Card 1: Total Transactions */}
+        <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)]">
+          <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-1">
+            <span className="font-semibold">Total Transactions</span>
+            <ListChecks className="w-4 h-4 text-[var(--accent-teal)]" />
+          </div>
+          {isPageLoading && !summary ? (
+            <Skeleton className="h-7 w-20 my-1" />
+          ) : (
+            <div className="text-xl font-bold font-mono text-[var(--text-primary)]">
+              {summary ? summary.totalTransactions : pagination.total}
+            </div>
+          )}
+          <div className="text-[11px] text-[var(--text-muted)] mt-1">
+            {summary
+              ? `${summary.incomeCount} income • ${summary.expenseCount} expenses`
+              : 'Across all matching ledger pages'}
+          </div>
+        </div>
+
+        {/* Card 2: Total Income */}
+        <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)]">
+          <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-1">
+            <span className="font-semibold">Total Income ({summaryCurrency})</span>
+            <TrendingUp className="w-4 h-4 text-emerald-500" />
+          </div>
+          {isPageLoading && !summary ? (
+            <Skeleton className="h-7 w-32 my-1" />
+          ) : isSummaryIncomplete ? (
+            <div className="space-y-0.5">
+              <div className="text-sm font-bold text-amber-600 dark:text-amber-400">
+                Incomplete ({summary?.missingCurrencies?.join(', ')})
+              </div>
+              {nativeBreakdowns.map((b) => (
+                <div
+                  key={b.currency}
+                  className="text-xs font-mono text-[var(--text-secondary)]"
+                >
+                  Native: {formatCurrency(b.totalIncome, b.currency)}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-xl font-bold font-mono text-[var(--status-ok-text)]">
+              {summary && summary.totalIncome !== null
+                ? formatCurrency(summary.totalIncome, summaryCurrency)
+                : '—'}
+            </div>
+          )}
+          <div className="text-[11px] text-[var(--text-muted)] mt-1">
+            {summary ? `${summary.incomeCount} inflow records` : 'Filtered inflows'}
+            {!isSummaryIncomplete && nativeBreakdowns.length > 0 && (
+              <span className="block truncate font-mono text-[10px] opacity-85">
+                Native:{' '}
+                {nativeBreakdowns
+                  .map((b) => formatCurrency(b.totalIncome, b.currency))
+                  .join(' • ')}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Card 3: Total Expenses */}
+        <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)]">
+          <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-1">
+            <span className="font-semibold">Total Expenses ({summaryCurrency})</span>
+            <TrendingDown className="w-4 h-4 text-rose-500" />
+          </div>
+          {isPageLoading && !summary ? (
+            <Skeleton className="h-7 w-32 my-1" />
+          ) : isSummaryIncomplete ? (
+            <div className="space-y-0.5">
+              <div className="text-sm font-bold text-amber-600 dark:text-amber-400">
+                Incomplete ({summary?.missingCurrencies?.join(', ')})
+              </div>
+              {nativeBreakdowns.map((b) => (
+                <div
+                  key={b.currency}
+                  className="text-xs font-mono text-[var(--text-secondary)]"
+                >
+                  Native: {formatCurrency(b.totalExpenses, b.currency)}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-xl font-bold font-mono text-[var(--text-primary)]">
+              {summary && summary.totalExpenses !== null
+                ? formatCurrency(summary.totalExpenses, summaryCurrency)
+                : '—'}
+            </div>
+          )}
+          <div className="text-[11px] text-[var(--text-muted)] mt-1">
+            {summary ? `${summary.expenseCount} outflow records` : 'Filtered outflows'}
+            {!isSummaryIncomplete && nativeBreakdowns.length > 0 && (
+              <span className="block truncate font-mono text-[10px] opacity-85">
+                Native:{' '}
+                {nativeBreakdowns
+                  .map((b) => formatCurrency(b.totalExpenses, b.currency))
+                  .join(' • ')}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Card 4: Net Cash Movement */}
+        <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)]">
+          <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-1">
+            <span className="font-semibold">Net Cash Movement ({summaryCurrency})</span>
+            <Wallet className="w-4 h-4 text-[var(--accent-teal)]" />
+          </div>
+          {isPageLoading && !summary ? (
+            <Skeleton className="h-7 w-32 my-1" />
+          ) : isSummaryIncomplete ? (
+            <div className="space-y-0.5">
+              <div className="text-sm font-bold text-amber-600 dark:text-amber-400">
+                Missing FX rate: {summary?.missingCurrencies?.join(', ')} → {summaryCurrency}
+              </div>
+              {nativeBreakdowns.map((b) => (
+                <div
+                  key={b.currency}
+                  className="text-xs font-mono text-[var(--text-secondary)]"
+                >
+                  Native: {formatSignedCurrency(b.netCashMovement, b.currency)}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div
+              className={`text-xl font-bold font-mono ${
+                netCashNumeric !== null && netCashNumeric < 0
+                  ? 'text-red-600 dark:text-red-400'
+                  : 'text-[var(--status-ok-text)]'
+              }`}
+            >
+              {summary && summary.netCashMovement !== null
+                ? formatSignedCurrency(summary.netCashMovement, summaryCurrency)
+                : '—'}
+            </div>
+          )}
+          <div className="text-[11px] text-[var(--text-muted)] mt-1">
+            {isSummaryIncomplete
+              ? 'Consolidated total unavailable without FX rate'
+              : 'Income minus expenses'}
+            {!isSummaryIncomplete && nativeBreakdowns.length > 0 && (
+              <span className="block truncate font-mono text-[10px] opacity-85">
+                Native:{' '}
+                {nativeBreakdowns
+                  .map((b) => formatSignedCurrency(b.netCashMovement, b.currency))
+                  .join(' • ')}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Account Balances Strip */}
       {safeAccounts.length > 0 ? (
@@ -385,7 +615,7 @@ export function TransactionsPage() {
             );
           })}
         </div>
-      ) : (
+      ) : activeOrgId && !isPageLoading ? (
         <div className="p-4 rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--surface-card)] text-center space-y-2">
           <p className="text-xs text-[var(--text-muted)]">
             No financial accounts found. Create your Operating, Payroll, Savings, or Cash account to
@@ -396,7 +626,7 @@ export function TransactionsPage() {
             Create Financial Account
           </Button>
         </div>
-      )}
+      ) : null}
 
       {/* Filters Bar */}
       <div className="p-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs flex flex-col md:flex-row items-center gap-3">
@@ -407,9 +637,25 @@ export function TransactionsPage() {
             type="text"
             placeholder="Search by description, counterparty, or category..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 w-full"
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPagination((p) => ({ ...p, page: 1 }));
+            }}
+            className="pl-9 pr-8 w-full"
           />
+          {search && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearch('');
+                setPagination((p) => ({ ...p, page: 1 }));
+              }}
+              aria-label="Clear search"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-3 w-full md:w-auto">
@@ -443,17 +689,17 @@ export function TransactionsPage() {
           <table className="w-full text-xs text-left">
             <thead className="bg-[var(--surface-elevated)]/60 text-[var(--text-muted)] uppercase text-[10px] tracking-wider border-b border-[var(--border-subtle)]">
               <tr>
-                <th className="py-3 px-4 font-semibold">Date</th>
-                <th className="py-3 px-4 font-semibold">Description</th>
+                {renderSortableHeader('transactionDate', 'Date')}
+                {renderSortableHeader('description', 'Description')}
                 <th className="py-3 px-4 font-semibold">Account</th>
-                <th className="py-3 px-4 font-semibold">Category</th>
-                <th className="py-3 px-4 font-semibold">Counterparty</th>
-                <th className="py-3 px-4 font-semibold">Type</th>
-                <th className="py-3 px-4 font-semibold text-right">Amount</th>
+                {renderSortableHeader('category', 'Category')}
+                {renderSortableHeader('counterparty', 'Counterparty')}
+                {renderSortableHeader('type', 'Type')}
+                {renderSortableHeader('amount', 'Amount', true)}
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border-subtle)]">
-              {isLoading && transactions.length === 0 ? (
+              {isPageLoading && transactions.length === 0 ? (
                 Array.from({ length: 6 }).map((_, i) => (
                   <tr key={i}>
                     <td colSpan={7} className="py-3 px-4">
@@ -568,15 +814,17 @@ export function TransactionsPage() {
         isOpen={isAccountsModalOpen}
         onClose={() => setIsAccountsModalOpen(false)}
         accounts={safeAccounts}
-        orgId={effectiveOrg.id}
+        orgId={activeOrgId || ''}
         defaultCurrency={currency}
         onSuccess={() => {
           handleRefresh();
-          apiGet<FinancialAccount[]>(`/v1/organizations/${activeOrgId}/accounts`)
-            .then((accs) => {
-              setAccounts(Array.isArray(accs) ? accs : []);
-            })
-            .catch(() => {});
+          if (activeOrgId) {
+            apiGet<FinancialAccount[]>(`/v1/organizations/${activeOrgId}/accounts`)
+              .then((accs) => {
+                setAccounts(Array.isArray(accs) ? accs : []);
+              })
+              .catch(() => {});
+          }
         }}
       />
 
@@ -585,7 +833,7 @@ export function TransactionsPage() {
         isOpen={isCsvModalOpen}
         onClose={() => setIsCsvModalOpen(false)}
         accounts={safeAccounts}
-        orgId={effectiveOrg.id}
+        orgId={activeOrgId || ''}
         onSuccess={handleRefresh}
       />
 
@@ -594,7 +842,7 @@ export function TransactionsPage() {
         isOpen={isNewTxModalOpen}
         onClose={() => setIsNewTxModalOpen(false)}
         accounts={safeAccounts}
-        orgId={effectiveOrg.id}
+        orgId={activeOrgId || ''}
         onSuccess={handleRefresh}
       />
     </div>

@@ -42,6 +42,35 @@ export function formatCurrency(
 }
 
 /**
+ * Formats a monetary value with an explicit '+' prefix for strictly positive numbers.
+ */
+export function formatSignedCurrency(
+  amount: string | number | null | undefined,
+  currency = 'USD',
+  fractionDigits = 2,
+): string {
+  if (amount === null || amount === undefined) {
+    return '—';
+  }
+  const num = typeof amount === 'number' ? amount : Number.parseFloat(String(amount));
+  if (Number.isNaN(num)) {
+    return String(amount);
+  }
+  const formatted = formatCurrency(num, currency, fractionDigits);
+  return num > 0 ? `+${formatted}` : formatted;
+}
+
+/**
+ * Resolves consolidated reporting currency strictly using Organization.baseCurrency as the source of truth.
+ */
+export function resolveReportingCurrency(
+  orgBaseCurrency?: string | null,
+  fallbackCurrency?: string | null,
+): string {
+  return (orgBaseCurrency || fallbackCurrency || 'USD').trim().toUpperCase();
+}
+
+/**
  * Formats a percentage value with +/- sign if requested.
  */
 export function formatPercentage(

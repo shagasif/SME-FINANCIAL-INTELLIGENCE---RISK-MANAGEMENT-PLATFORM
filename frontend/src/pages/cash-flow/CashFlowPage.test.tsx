@@ -134,5 +134,110 @@ describe('CashFlowPage Component', () => {
 
     expect(screen.getByText('Auditor Mode Active')).toBeInTheDocument();
     expect(screen.queryByText('Generate Forecast')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByText(/No Cash-Flow Forecast Generated \(30-Day Horizon\)/i),
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/\$1,248,500\.00/)).not.toBeInTheDocument();
+  });
+
+  it('shows empty state without demo fallback figures when no forecasts exist', async () => {
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'usr-star',
+        email: 'shagasif83@gmail.com',
+        fullName: 'Shagufta Asif',
+        isPlatformAdmin: false,
+      },
+      activeOrg: {
+        id: 'a46568cf-61d4-4508-b545-f07d25d32256',
+        name: 'star',
+        slug: 'star',
+        baseCurrency: 'USD',
+        role: RoleType.BUSINESS_OWNER,
+      },
+      memberships: [],
+      activeRole: RoleType.BUSINESS_OWNER,
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      switchOrganization: vi.fn(),
+      hasRole: () => true,
+      canMutateLedger: true,
+      canManageBudgets: true,
+      canRunAiWorkflows: true,
+      canExportReports: true,
+      isAuditor: false,
+    });
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({
+        success: true,
+        data: [],
+      }),
+    });
+
+    render(<CashFlowPage />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/No Cash-Flow Forecast Generated \(30-Day Horizon\)/i),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Generate 30-Day Forecast/i })).toBeInTheDocument();
+    });
+
+    // Must never display Apex demo fallback figures
+    expect(screen.queryByText(/1,248,500/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/1,285,000/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/108,000/)).not.toBeInTheDocument();
+  });
+
+  it('displays error state without substituting demo figures when forecast fetch fails', async () => {
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'usr-star',
+        email: 'shagasif83@gmail.com',
+        fullName: 'Shagufta Asif',
+        isPlatformAdmin: false,
+      },
+      activeOrg: {
+        id: 'a46568cf-61d4-4508-b545-f07d25d32256',
+        name: 'star',
+        slug: 'star',
+        baseCurrency: 'USD',
+        role: RoleType.BUSINESS_OWNER,
+      },
+      memberships: [],
+      activeRole: RoleType.BUSINESS_OWNER,
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      switchOrganization: vi.fn(),
+      hasRole: () => true,
+      canMutateLedger: true,
+      canManageBudgets: true,
+      canRunAiWorkflows: true,
+      canExportReports: true,
+      isAuditor: false,
+    });
+
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('Network unavailable'));
+
+    render(<CashFlowPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(/Unable to reach backend API/i);
+      expect(
+        screen.getByText(/No Cash-Flow Forecast Generated \(30-Day Horizon\)/i),
+      ).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText(/1,248,500/)).not.toBeInTheDocument();
   });
 });

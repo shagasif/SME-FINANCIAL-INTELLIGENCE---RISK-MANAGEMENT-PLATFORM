@@ -16,11 +16,11 @@ import {
   Wallet,
 } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
-import { apiGet, ApiClientError } from '../../services/apiClient';
+import { apiGet, ApiClientError, authStorage } from '../../services/apiClient';
 import { Button } from '../../components/ui/Button';
 import { StatCard } from '../../components/ui/StatCard';
 import { Skeleton } from '../../components/ui/LoadingSpinner';
-import { formatCurrency, formatDate } from '../../utils/formatters';
+import { formatCurrency, formatDate, resolveReportingCurrency } from '../../utils/formatters';
 import type { FinancialTransaction } from '../../types/financial.types';
 import {
   RiskAlertSeverity,
@@ -265,6 +265,11 @@ interface MetricResult<T = string | null> {
   value: T;
   unit: string;
   formula: string;
+  currency?: string;
+  reportingPeriod?: {
+    startDate: string;
+    endDate: string;
+  };
   dataLimitations: string[];
   components?: Record<string, string>;
 }
@@ -313,34 +318,39 @@ interface TransactionListResponse {
 }
 
 export function OverviewDashboardPage() {
-  const { activeOrg, isAuditor, canMutateLedger, canRunAiWorkflows } = useAuth();
+  const { activeOrg, isLoading: isAuthLoading, isAuditor, canMutateLedger, canRunAiWorkflows } = useAuth();
 
-  const [metricsData, setMetricsData] = useState<AnalyticsMetricsResponse | null>(null);
-  const [recentTransactions, setRecentTransactions] = useState<FinancialTransaction[]>([]);
-  const [riskAlerts, setRiskAlerts] = useState<RiskAlert[]>([]);
+  const hasToken = Boolean(authStorage.getToken());
+  // Never fall back to DEFAULT_DEMO_ORG for authenticated users with no confirmed active org
+  const effectiveOrg = activeOrg || (hasToken ? null : DEFAULT_DEMO_ORG);
+  const activeOrgId = effectiveOrg?.id ?? null;
+
+  const [metricsData, setMetricsData] = useState<AnalyticsMetricsResponse | null>(() =>
+    hasToken ? null : DEFAULT_METRICS,
+  );
+  const [recentTransactions, setRecentTransactions] = useState<FinancialTransaction[]>(() =>
+    hasToken ? [] : DEFAULT_TRANSACTIONS,
+  );
+  const [riskAlerts, setRiskAlerts] = useState<RiskAlert[]>(() =>
+    hasToken ? [] : DEFAULT_RISK_ALERTS,
+  );
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [reloadKey, setReloadKey] = useState<number>(0);
 
-  const effectiveOrg = activeOrg || DEFAULT_DEMO_ORG;
-  const activeOrgId = effectiveOrg.id;
-
   const handleRefresh = useCallback(() => {
+    setError(null);
     setIsLoading(true);
     setReloadKey((prev) => prev + 1);
   }, []);
 
   useEffect(() => {
+    // Suppress API requests while authentication/session hydration is incomplete
+    if (hasToken && (isAuthLoading || !activeOrgId)) return;
     if (!activeOrgId) return;
 
     let isMounted = true;
-    Promise.resolve().then(() => {
-      if (isMounted) {
-        setIsLoading(true);
-        setError(null);
-      }
-    });
 
     Promise.all([
       apiGet<AnalyticsMetricsResponse>(`/v1/organizations/${activeOrgId}/analytics/metrics`),
@@ -349,6 +359,7 @@ export function OverviewDashboardPage() {
     ])
       .then(([metricsRes, txsRes, alertsRes]) => {
         if (!isMounted) return;
+        setError(null);
         setMetricsData(metricsRes);
         setRecentTransactions(txsRes.items || []);
         setRiskAlerts(alertsRes || []);
@@ -375,9 +386,9 @@ export function OverviewDashboardPage() {
     return () => {
       isMounted = false;
     };
-  }, [activeOrgId, reloadKey]);
+  }, [activeOrgId, reloadKey, hasToken, isAuthLoading]);
 
-  const currency = effectiveOrg.baseCurrency || 'USD';
+  const currency = resolveReportingCurrency(effectiveOrg?.baseCurrency, metricsData?.currency);
   const metrics = metricsData?.metrics;
 
   // Derive metrics safely
@@ -386,11 +397,16 @@ export function OverviewDashboardPage() {
   const workingCapital = metrics?.workingCapital?.value;
   const quickRatio = metrics?.quickRatio?.value;
 
-  // Compute liquid cash from working capital components or default to 0
-  const liquidCash =
-    metrics?.quickRatio?.components?.liquidCash ||
-    metrics?.workingCapital?.components?.currentAssets ||
-    '0.00';
+  // Compute liquid cash strictly from converted Organization.baseCurrency components (null when FX incomplete)
+  const isCashIncomplete =
+    metrics?.cashRunway?.status === 'UNSUPPORTED_MISSING_DATA' &&
+    Boolean(metrics?.cashRunway?.dataLimitations?.[0]?.includes('missing exchange rate'));
+  const liquidCash = isCashIncomplete
+    ? null
+    : metrics?.cashRunway?.components?.liquidCashBalance ||
+      metrics?.quickRatio?.components?.liquidCash ||
+      metrics?.workingCapital?.components?.currentAssets ||
+      '0.00';
 
   const isAlertActive = (a: RiskAlert) =>
     a.status === RiskAlertStatus.NEW ||
@@ -511,7 +527,11 @@ export function OverviewDashboardPage() {
               value={formatCurrency(liquidCash, currency)}
               subtitle="Unencumbered operating cash"
               icon={<Wallet className="w-5 h-5" />}
-              dataLimitation={metrics?.quickRatio?.dataLimitations?.[0]}
+              dataLimitation={
+                isCashIncomplete
+                  ? metrics?.cashRunway?.dataLimitations?.[0]
+                  : metrics?.quickRatio?.dataLimitations?.[0]
+              }
             />
 
             {/* Card 2: Cash Runway */}
@@ -540,8 +560,12 @@ export function OverviewDashboardPage() {
             {/* Card 3: Operating Cash Flow */}
             <StatCard
               title="Operating Cash Flow (30d)"
-              value={formatCurrency(ocf, currency)}
-              subtitle="Cash receipts minus cash payments"
+              value={formatCurrency(ocf, metrics?.operatingCashFlow?.currency || currency)}
+              subtitle={
+                metrics?.operatingCashFlow?.reportingPeriod
+                  ? `Inflows minus outflows (${formatDate(metrics.operatingCashFlow.reportingPeriod.startDate)} – ${formatDate(metrics.operatingCashFlow.reportingPeriod.endDate)})`
+                  : 'Cash receipts minus cash payments'
+              }
               icon={<DollarSign className="w-5 h-5" />}
               change={
                 ocf
@@ -818,7 +842,10 @@ export function OverviewDashboardPage() {
                             }
                           >
                             {isIncome ? '+' : isExpense ? '-' : ''}
-                            {formatCurrency(tx.amount, currency)}
+                            {formatCurrency(
+                              tx.amount,
+                              tx.currency || tx.account?.currency || currency,
+                            )}
                           </span>
                         </td>
                       </tr>

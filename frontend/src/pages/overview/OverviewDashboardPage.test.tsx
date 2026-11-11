@@ -254,4 +254,203 @@ describe('OverviewDashboardPage Component', () => {
       ).toBeInTheDocument();
     });
   });
+
+  it('formats KPI cards in Organization.baseCurrency (USD) while preserving native transaction currency in Recent Ledger rows', async () => {
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'usr-star',
+        email: 'shagasif83@gmail.com',
+        fullName: 'Shagufta Asif',
+        isPlatformAdmin: false,
+      },
+      activeOrg: {
+        id: 'org-star',
+        name: 'star',
+        slug: 'star',
+        baseCurrency: 'USD',
+        role: RoleType.BUSINESS_OWNER,
+      },
+      memberships: [],
+      activeRole: RoleType.BUSINESS_OWNER,
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      switchOrganization: vi.fn(),
+      hasRole: () => true,
+      canMutateLedger: true,
+      canManageBudgets: true,
+      canRunAiWorkflows: true,
+      canExportReports: true,
+      isAuditor: false,
+    });
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((req: RequestInfo | URL) => {
+      const url = req.toString();
+      const jsonHeader = { 'Content-Type': 'application/json' };
+      if (url.includes('/analytics/metrics')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              organizationId: 'org-star',
+              currency: 'USD',
+              metrics: {
+                operatingCashFlow: {
+                  metricKey: 'operatingCashFlow',
+                  name: 'Operating Cash Flow',
+                  status: 'COMPUTED',
+                  value: '2054.0423',
+                  unit: 'CURRENCY',
+                  currency: 'USD',
+                  reportingPeriod: {
+                    startDate: '2026-10-12T00:00:00.000Z',
+                    endDate: '2026-11-11T23:59:59.999Z',
+                  },
+                  dataLimitations: [],
+                },
+                cashRunway: {
+                  metricKey: 'cashRunway',
+                  name: 'Cash Runway',
+                  status: 'UNSUPPORTED_MISSING_DATA',
+                  value: null,
+                  unit: 'MONTHS',
+                  currency: 'USD',
+                  components: { liquidCashBalance: '9453.7154' },
+                  dataLimitations: [],
+                },
+              },
+            }),
+            { status: 200, headers: jsonHeader },
+          ),
+        );
+      }
+      if (url.includes('/transactions')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: 'tx-pkr-1',
+                  organizationId: 'org-star',
+                  accountId: 'acc-pkr',
+                  type: 'INCOME',
+                  amount: '275000.0000',
+                  currency: 'PKR',
+                  transactionDate: '2026-10-28T00:00:00.000Z',
+                  category: 'Sales Revenue',
+                  description: 'Wholesale order - invoice WH-260',
+                  account: { id: 'acc-pkr', name: 'Business Savings Reserve', currency: 'PKR' },
+                },
+              ],
+            }),
+            { status: 200, headers: jsonHeader },
+          ),
+        );
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200, headers: jsonHeader }));
+    });
+
+    render(
+      <BrowserRouter>
+        <OverviewDashboardPage />
+      </BrowserRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('$9,453.72')).toBeInTheDocument();
+      expect(screen.getByText('$2,054.04')).toBeInTheDocument();
+      expect(screen.getByText(/\+PKR\s*275,000\.00/i)).toBeInTheDocument();
+    });
+  });
+
+  it('marks consolidated KPI metrics incomplete and surfaces missing exchange rate warnings when FX data is missing', async () => {
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'usr-star',
+        email: 'shagasif83@gmail.com',
+        fullName: 'Shagufta Asif',
+        isPlatformAdmin: false,
+      },
+      activeOrg: {
+        id: 'org-star',
+        name: 'star',
+        slug: 'star',
+        baseCurrency: 'USD',
+        role: RoleType.BUSINESS_OWNER,
+      },
+      memberships: [],
+      activeRole: RoleType.BUSINESS_OWNER,
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      switchOrganization: vi.fn(),
+      hasRole: () => true,
+      canMutateLedger: true,
+      canManageBudgets: true,
+      canRunAiWorkflows: true,
+      canExportReports: true,
+      isAuditor: false,
+    });
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((req: RequestInfo | URL) => {
+      const url = req.toString();
+      const jsonHeader = { 'Content-Type': 'application/json' };
+      if (url.includes('/analytics/metrics')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              organizationId: 'org-star',
+              currency: 'USD',
+              conversionContext: {
+                baseCurrency: 'USD',
+                isComplete: false,
+                missingCurrencies: ['AED'],
+                appliedRates: [],
+              },
+              metrics: {
+                operatingCashFlow: {
+                  metricKey: 'operatingCashFlow',
+                  name: 'Operating Cash Flow',
+                  status: 'UNSUPPORTED_MISSING_DATA',
+                  value: null,
+                  unit: 'CURRENCY',
+                  currency: 'USD',
+                  dataLimitations: ['Calculation incomplete due to missing exchange rate(s): AED -> USD.'],
+                },
+                cashRunway: {
+                  metricKey: 'cashRunway',
+                  name: 'Cash Runway',
+                  status: 'UNSUPPORTED_MISSING_DATA',
+                  value: null,
+                  unit: 'MONTHS',
+                  currency: 'USD',
+                  components: { liquidCashBalance: '0.0000' },
+                  dataLimitations: ['Calculation incomplete due to missing exchange rate(s): AED -> USD.'],
+                },
+              },
+            }),
+            { status: 200, headers: jsonHeader },
+          ),
+        );
+      }
+      if (url.includes('/transactions')) {
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }), { status: 200, headers: jsonHeader }));
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200, headers: jsonHeader }));
+    });
+
+    render(
+      <BrowserRouter>
+        <OverviewDashboardPage />
+      </BrowserRouter>,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText(/Calculation incomplete due to missing exchange rate\(s\): AED -> USD/i)
+          .length,
+      ).toBeGreaterThanOrEqual(2);
+    });
+  });
 });

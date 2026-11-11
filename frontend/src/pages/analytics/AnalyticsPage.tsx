@@ -16,139 +16,35 @@ import { apiGet, ApiClientError } from '../../services/apiClient';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Skeleton } from '../../components/ui/LoadingSpinner';
-import { formatCurrency, formatPercentage } from '../../utils/formatters';
-import type { AllMetricsResponse, DeterministicMetricResult } from '../../types/analytics.types';
-import { DEFAULT_DEMO_ORG } from '../../config/demo.config';
+import { formatCurrency, formatPercentage, resolveReportingCurrency } from '../../utils/formatters';
+import type {
+  AllMetricsResponse,
+  DeterministicMetricResult,
+  MetricReportingPeriod,
+  MetricSourceRecordIds,
+} from '../../types/analytics.types';
 
-const DEFAULT_ANALYTICS_METRICS: AllMetricsResponse = {
-  organizationId: DEFAULT_DEMO_ORG.id,
-  reportingPeriod: {
-    startDate: '2026-10-11T00:00:00.000Z',
-    endDate: '2026-11-10T00:00:00.000Z',
-  },
-  metrics: {
-    operatingCashFlow: {
-      metricName: 'Operating Cash Flow',
-      status: 'CALCULATED',
-      value: '42500.0000',
-      unit: 'CURRENCY',
-      formula: 'CashInflows - CashOutflows',
-      formulaVersion: 'v1.0.0-decimal',
-      reportingPeriod: '2026-10-11 to 2026-11-10',
-      currency: 'USD',
-      sourceRecordIds: [],
-      dataLimitations: [],
-    },
-    cashRunway: {
-      metricName: 'Cash Runway',
-      status: 'CALCULATED',
-      value: '8.4',
-      unit: 'MONTHS',
-      formula: 'LiquidCash / MonthlyBurn',
-      formulaVersion: 'v1.0.0-decimal',
-      reportingPeriod: '2026-10-11 to 2026-11-10',
-      currency: 'USD',
-      sourceRecordIds: [],
-      dataLimitations: [],
-    },
-    currentRatio: {
-      metricName: 'Current Ratio',
-      status: 'CALCULATED',
-      value: '2.1400',
-      unit: 'RATIO',
-      formula: 'Assets / Liabilities',
-      formulaVersion: 'v1.0.0-decimal',
-      reportingPeriod: '2026-10-11 to 2026-11-10',
-      currency: 'USD',
-      sourceRecordIds: [],
-      dataLimitations: [],
-    },
-    quickRatio: {
-      metricName: 'Quick Ratio',
-      status: 'CALCULATED',
-      value: '1.6500',
-      unit: 'RATIO',
-      formula: '(Cash + AR) / Liabilities',
-      formulaVersion: 'v1.0.0-decimal',
-      reportingPeriod: '2026-10-11 to 2026-11-10',
-      currency: 'USD',
-      sourceRecordIds: [],
-      dataLimitations: [],
-    },
-    workingCapital: {
-      metricName: 'Working Capital',
-      status: 'CALCULATED',
-      value: '385000.0000',
-      unit: 'CURRENCY',
-      formula: 'CurrentAssets - CurrentLiabilities',
-      formulaVersion: 'v1.0.0-decimal',
-      reportingPeriod: '2026-10-11 to 2026-11-10',
-      currency: 'USD',
-      sourceRecordIds: [],
-      dataLimitations: [],
-    },
-    grossMargin: {
-      metricName: 'Gross Profit Margin',
-      status: 'CALCULATED',
-      value: '44.8',
-      unit: 'PERCENTAGE',
-      formula: 'GrossProfit / TotalRevenue * 100',
-      formulaVersion: 'v1.0.0-decimal',
-      reportingPeriod: '2026-10-11 to 2026-11-10',
-      currency: 'USD',
-      sourceRecordIds: [],
-      dataLimitations: [],
-    },
-    expenseGrowth: {
-      metricName: 'Expense Growth Rate',
-      status: 'CALCULATED',
-      value: '3.2',
-      unit: 'PERCENTAGE',
-      formula: '(ExpensesCurrent - ExpensesPrior) / ExpensesPrior * 100',
-      formulaVersion: 'v1.0.0-decimal',
-      reportingPeriod: '2026-10-11 to 2026-11-10',
-      currency: 'USD',
-      sourceRecordIds: [],
-      dataLimitations: [],
-    },
-    budgetVariance: {
-      metricName: 'Overall Budget Variance',
-      status: 'CALCULATED',
-      value: '-4.1',
-      unit: 'PERCENTAGE',
-      formula: '(ActualExpenses - BudgetedExpenses) / BudgetedExpenses * 100',
-      formulaVersion: 'v1.0.0-decimal',
-      reportingPeriod: '2026-10-11 to 2026-11-10',
-      currency: 'USD',
-      sourceRecordIds: [],
-      dataLimitations: [],
-    },
-    receivableAging: {
-      metricName: 'Accounts Receivable Aging',
-      status: 'CALCULATED',
-      value: '195500.0000',
-      unit: 'CURRENCY',
-      formula: 'Sum(UnpaidInvoices by AgeBucket)',
-      formulaVersion: 'v1.0.0-decimal',
-      reportingPeriod: '2026-10-11 to 2026-11-10',
-      currency: 'USD',
-      sourceRecordIds: [],
-      dataLimitations: [],
-    },
-    payableAging: {
-      metricName: 'Accounts Payable Aging',
-      status: 'CALCULATED',
-      value: '116500.0000',
-      unit: 'CURRENCY',
-      formula: 'Sum(UnpaidBills by AgeBucket)',
-      formulaVersion: 'v1.0.0-decimal',
-      reportingPeriod: '2026-10-11 to 2026-11-10',
-      currency: 'USD',
-      sourceRecordIds: [],
-      dataLimitations: [],
-    },
-  },
-};
+function isMetricComputed(status?: DeterministicMetricResult['status']): boolean {
+  return status === 'COMPUTED' || status === 'CALCULATED';
+}
+
+function formatReportingPeriodLabel(period?: MetricReportingPeriod): string {
+  if (!period) return 'Current Scope';
+  if (typeof period === 'string') return period;
+  return `${period.startDate.slice(0, 10)} to ${period.endDate.slice(0, 10)}`;
+}
+
+function flattenSourceRecordIds(raw?: MetricSourceRecordIds): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  const ids: string[] = [];
+  for (const list of Object.values(raw)) {
+    if (Array.isArray(list)) {
+      ids.push(...list);
+    }
+  }
+  return Array.from(new Set(ids));
+}
 
 interface MetricMeta {
   key: keyof AllMetricsResponse['metrics'];
@@ -236,7 +132,7 @@ const METRIC_DEFINITIONS: MetricMeta[] = [
 ];
 
 export function AnalyticsPage() {
-  const { activeOrg } = useAuth();
+  const { activeOrg, isLoading: isAuthLoading } = useAuth();
 
   const [dateRange, setDateRange] = useState(() => {
     const end = new Date();
@@ -261,11 +157,10 @@ export function AnalyticsPage() {
   } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
-  const effectiveOrg = activeOrg || DEFAULT_DEMO_ORG;
-  const activeOrgId = effectiveOrg.id;
+  const activeOrgId = activeOrg?.id;
 
   useEffect(() => {
-    if (!activeOrgId) return;
+    if (isAuthLoading || !activeOrgId) return;
 
     let isMounted = true;
     const query = new URLSearchParams({
@@ -283,13 +178,11 @@ export function AnalyticsPage() {
       })
       .catch((err) => {
         if (!isMounted) return;
-        setMetricsData((prev) => prev || DEFAULT_ANALYTICS_METRICS);
+        setMetricsData(null);
         if (err instanceof ApiClientError) {
           setError(err.message);
         } else {
-          setError(
-            'Failed to fetch financial metrics from live API. Displaying verified demo baseline.',
-          );
+          setError('Failed to fetch financial metrics from live API.');
         }
       })
       .finally(() => {
@@ -299,7 +192,7 @@ export function AnalyticsPage() {
     return () => {
       isMounted = false;
     };
-  }, [activeOrgId, dateRange.startDate, dateRange.endDate, reloadKey]);
+  }, [activeOrgId, dateRange.startDate, dateRange.endDate, reloadKey, isAuthLoading]);
 
   const handleRefresh = () => {
     setIsLoading(true);
@@ -325,14 +218,30 @@ export function AnalyticsPage() {
   };
 
   const formatMetricValue = (meta: MetricMeta, result?: DeterministicMetricResult) => {
-    if (!result || result.status !== 'CALCULATED' || result.value === null) {
+    if (!result || !isMetricComputed(result.status) || result.value === null || result.value === undefined) {
       return '—';
     }
-    const val = parseFloat(result.value);
-    if (isNaN(val)) return result.value;
+
+    const reportingCurrency = resolveReportingCurrency(
+      activeOrg?.baseCurrency,
+      result.currency || metricsData?.currency,
+    );
+
+    // Handle structured SCHEDULE aging metric payloads from backend
+    if (typeof result.value === 'object') {
+      if (result.value.isComplete === false) {
+        return 'Incomplete';
+      }
+      const total = Number.parseFloat(result.value.totalOutstanding ?? '0');
+      if (Number.isNaN(total)) return '—';
+      return formatCurrency(total, reportingCurrency);
+    }
+
+    const val = typeof result.value === 'number' ? result.value : Number.parseFloat(result.value);
+    if (Number.isNaN(val)) return String(result.value);
 
     if (meta.isCurrency) {
-      return formatCurrency(val, result.currency || activeOrg?.baseCurrency || 'USD');
+      return formatCurrency(val, reportingCurrency);
     }
     if (meta.isPercentage) {
       return formatPercentage(val);
@@ -341,36 +250,41 @@ export function AnalyticsPage() {
       return `${val.toFixed(2)}x`;
     }
     if (meta.isDays) {
+      if (result.unit === 'MONTHS') {
+        return `${val.toFixed(1)} months`;
+      }
       return `${val.toFixed(1)} ${result.unit || 'days'}`;
     }
     return `${val} ${result.unit || ''}`;
   };
 
-  const getStatusBadge = (status: DeterministicMetricResult['status']) => {
-    switch (status) {
-      case 'CALCULATED':
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-            <CheckCircle2 className="h-3 w-3" />
-            Deterministic
-          </span>
-        );
-      case 'INSUFFICIENT_DATA':
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-            <AlertTriangle className="h-3 w-3" />
-            Insufficient Data
-          </span>
-        );
-      case 'UNSUPPORTED':
-      default:
-        return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-gray-500/10 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
-            <AlertCircle className="h-3 w-3" />
-            Unsupported
-          </span>
-        );
+  const getStatusBadge = (
+    status: DeterministicMetricResult['status'],
+    dataLimitations?: string[],
+  ) => {
+    if (isMetricComputed(status)) {
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+          <CheckCircle2 className="h-3 w-3" />
+          Deterministic
+        </span>
+      );
     }
+    if (status === 'UNSUPPORTED_MISSING_DATA' || status === 'INSUFFICIENT_DATA') {
+      const hasMissingFx = dataLimitations?.some((l) => /missing exchange rate/i.test(l));
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+          <AlertTriangle className="h-3 w-3" />
+          {hasMissingFx ? 'Incomplete FX' : 'Insufficient Data'}
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-gray-500/10 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
+        <AlertCircle className="h-3 w-3" />
+        Unsupported
+      </span>
+    );
   };
 
   const categories = ['ALL', 'Liquidity', 'Profitability', 'Efficiency', 'Operational'];
@@ -493,6 +407,20 @@ export function AnalyticsPage() {
         </div>
       )}
 
+      {metricsData?.conversionContext && !metricsData.conversionContext.isComplete && (
+        <div
+          role="status"
+          className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <span>
+            Consolidated {metricsData.conversionContext.baseCurrency} metrics are partially
+            incomplete due to missing exchange rate(s) for:{' '}
+            <strong>{metricsData.conversionContext.missingCurrencies.join(', ')}</strong>.
+          </span>
+        </div>
+      )}
+
       {/* Metrics Grid */}
       {isLoading ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -516,7 +444,8 @@ export function AnalyticsPage() {
           {filteredMetrics.map((meta) => {
             const result = metricsData?.metrics?.[meta.key];
             const isExpanded = Boolean(expandedCards[meta.key]);
-            const isCalculated = result?.status === 'CALCULATED';
+            const isCalculated = isMetricComputed(result?.status);
+            const citationIds = flattenSourceRecordIds(result?.sourceRecordIds);
 
             return (
               <div
@@ -529,7 +458,7 @@ export function AnalyticsPage() {
                     <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--brand-primary)]">
                       {meta.category}
                     </span>
-                    {getStatusBadge(result?.status || 'UNSUPPORTED')}
+                    {getStatusBadge(result?.status || 'UNSUPPORTED', result?.dataLimitations)}
                   </div>
 
                   {/* Metric Name */}
@@ -547,10 +476,16 @@ export function AnalyticsPage() {
                     </span>
                     {isCalculated && result?.reportingPeriod && (
                       <span className="text-[11px] text-[var(--text-muted)]">
-                        ({result.reportingPeriod})
+                        ({formatReportingPeriodLabel(result.reportingPeriod)})
                       </span>
                     )}
                   </div>
+
+                  {!isCalculated && result?.dataLimitations && result.dataLimitations.length > 0 && (
+                    <p className="mt-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-800 dark:text-amber-300 leading-snug">
+                      {result.dataLimitations[0]}
+                    </p>
+                  )}
 
                   {/* Formula Preview */}
                   {result?.formula && (
@@ -573,19 +508,19 @@ export function AnalyticsPage() {
                             Source Record IDs:
                           </span>
                           <span className="font-mono text-[11px] text-[var(--text-primary)] font-semibold">
-                            {result.sourceRecordIds?.length || 0} records
+                            {citationIds.length} records
                           </span>
                         </div>
-                        {result.sourceRecordIds && result.sourceRecordIds.length > 0 && (
+                        {citationIds.length > 0 && (
                           <div className="mt-1.5 max-h-24 overflow-y-auto rounded bg-[var(--surface-subtle)] p-1.5 font-mono text-[10px] text-[var(--text-muted)] space-y-0.5 border border-[var(--border-subtle)]">
-                            {result.sourceRecordIds.slice(0, 10).map((id, i) => (
+                            {citationIds.slice(0, 10).map((id, i) => (
                               <div key={i} className="truncate">
                                 • {id}
                               </div>
                             ))}
-                            {result.sourceRecordIds.length > 10 && (
+                            {citationIds.length > 10 && (
                               <div className="text-[10px] text-[var(--brand-primary)] font-semibold pt-0.5">
-                                + {result.sourceRecordIds.length - 10} more records
+                                + {citationIds.length - 10} more records
                               </div>
                             )}
                           </div>
@@ -667,7 +602,12 @@ export function AnalyticsPage() {
                   {formatMetricValue(inspectMetric.meta, inspectMetric.result)}
                 </div>
               </div>
-              <div>{getStatusBadge(inspectMetric.result.status)}</div>
+              <div>
+                {getStatusBadge(
+                  inspectMetric.result.status,
+                  inspectMetric.result.dataLimitations,
+                )}
+              </div>
             </div>
 
             <div className="space-y-1">
@@ -684,38 +624,47 @@ export function AnalyticsPage() {
               <div className="rounded-lg border border-[var(--border-subtle)] p-2.5">
                 <span className="text-[10px] text-[var(--text-muted)] block">Reporting Period</span>
                 <span className="font-semibold text-[var(--text-primary)]">
-                  {inspectMetric.result.reportingPeriod || 'Current Scope'}
+                  {formatReportingPeriodLabel(inspectMetric.result.reportingPeriod)}
                 </span>
               </div>
               <div className="rounded-lg border border-[var(--border-subtle)] p-2.5">
                 <span className="text-[10px] text-[var(--text-muted)] block">Currency Base</span>
                 <span className="font-semibold text-[var(--text-primary)]">
-                  {inspectMetric.result.currency || activeOrg?.baseCurrency || 'USD'}
+                  {resolveReportingCurrency(
+                    activeOrg?.baseCurrency,
+                    inspectMetric.result.currency || metricsData?.currency,
+                  )}
                 </span>
               </div>
             </div>
 
             <div>
-              <label className="text-[11px] font-semibold text-[var(--text-secondary)] block mb-1">
-                Source Citations ({inspectMetric.result.sourceRecordIds?.length || 0} Ledger
-                Records):
-              </label>
-              <div className="max-h-40 overflow-y-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-subtle)] p-2.5 font-mono text-[10px] text-[var(--text-muted)] space-y-1">
-                {inspectMetric.result.sourceRecordIds?.length ? (
-                  inspectMetric.result.sourceRecordIds.map((id, index) => (
-                    <div key={index} className="flex items-center justify-between">
-                      <span>{id}</span>
-                      <span className="text-[9px] text-[var(--brand-primary)]">
-                        Verified Citation
-                      </span>
+              {(() => {
+                const modalIds = flattenSourceRecordIds(inspectMetric.result.sourceRecordIds);
+                return (
+                  <>
+                    <label className="text-[11px] font-semibold text-[var(--text-secondary)] block mb-1">
+                      Source Citations ({modalIds.length} Ledger Records):
+                    </label>
+                    <div className="max-h-40 overflow-y-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-subtle)] p-2.5 font-mono text-[10px] text-[var(--text-muted)] space-y-1">
+                      {modalIds.length ? (
+                        modalIds.map((id, index) => (
+                          <div key={index} className="flex items-center justify-between">
+                            <span>{id}</span>
+                            <span className="text-[9px] text-[var(--brand-primary)]">
+                              Verified Citation
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="italic text-[var(--text-muted)]">
+                          No underlying transaction IDs cited for this metric period.
+                        </p>
+                      )}
                     </div>
-                  ))
-                ) : (
-                  <p className="italic text-[var(--text-muted)]">
-                    No underlying transaction IDs cited for this metric period.
-                  </p>
-                )}
-              </div>
+                  </>
+                );
+              })()}
             </div>
 
             <div>

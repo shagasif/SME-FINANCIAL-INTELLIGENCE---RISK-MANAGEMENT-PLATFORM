@@ -97,4 +97,126 @@ describe('AnalyticsPage Component', () => {
 
     expect(screen.getByText('Days Sales Outstanding (DSO)')).toBeInTheDocument();
   });
+
+  it('renders backend COMPUTED metrics, SCHEDULE aging values, and UNSUPPORTED_MISSING_DATA incomplete FX warnings cleanly', async () => {
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'usr-star',
+        email: 'shagasif83@gmail.com',
+        fullName: 'Shagufta Asif',
+        isPlatformAdmin: false,
+      },
+      activeOrg: {
+        id: 'a46568cf-61d4-4508-b545-f07d25d32256',
+        name: 'star',
+        slug: 'star',
+        baseCurrency: 'USD',
+        role: RoleType.BUSINESS_OWNER,
+      },
+      memberships: [],
+      activeRole: RoleType.BUSINESS_OWNER,
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      switchOrganization: vi.fn(),
+      hasRole: () => true,
+      canMutateLedger: true,
+      canManageBudgets: true,
+      canRunAiWorkflows: true,
+      canExportReports: true,
+      isAuditor: false,
+    });
+
+    const backendPayload = {
+      organizationId: 'a46568cf-61d4-4508-b545-f07d25d32256',
+      currency: 'USD',
+      reportingPeriod: {
+        startDate: '2026-10-12T00:00:00.000Z',
+        endDate: '2026-11-11T23:59:59.999Z',
+      },
+      conversionContext: {
+        baseCurrency: 'USD',
+        isComplete: false,
+        missingCurrencies: ['EUR'],
+        appliedRates: [],
+      },
+      metrics: {
+        operatingCashFlow: {
+          metricKey: 'operatingCashFlow',
+          name: 'Operating Cash Flow',
+          status: 'COMPUTED',
+          value: '2054.0423',
+          unit: 'CURRENCY',
+          formula: 'OperatingCashFlow = CashInflows - CashOutflows',
+          formulaVersion: 'v1.0.0-decimal',
+          reportingPeriod: {
+            startDate: '2026-10-12T00:00:00.000Z',
+            endDate: '2026-11-11T23:59:59.999Z',
+          },
+          currency: 'USD',
+          sourceRecordIds: { transactionIds: ['tx-1', 'tx-2'] },
+          dataLimitations: [],
+        },
+        workingCapital: {
+          metricKey: 'workingCapital',
+          name: 'Net Working Capital',
+          status: 'UNSUPPORTED_MISSING_DATA',
+          value: null,
+          unit: 'CURRENCY',
+          formula: 'WorkingCapital = CurrentAssets - CurrentLiabilities',
+          formulaVersion: 'v1.0.0-decimal',
+          reportingPeriod: {
+            startDate: '2026-10-12T00:00:00.000Z',
+            endDate: '2026-11-11T23:59:59.999Z',
+          },
+          currency: 'USD',
+          sourceRecordIds: { accountIds: ['acc-1'] },
+          dataLimitations: ['Calculation incomplete due to missing exchange rate(s): EUR -> USD.'],
+        },
+        receivableAging: {
+          metricKey: 'receivableAging',
+          name: 'Accounts Receivable Aging',
+          status: 'COMPUTED',
+          value: {
+            totalOutstanding: '1250.0000',
+            totalOverdue: '0.0000',
+            isComplete: true,
+            missingCurrencies: [],
+          },
+          unit: 'SCHEDULE',
+          formula: 'DaysOverdue = floor((AsOfDate - DueDate) / 1 day)',
+          formulaVersion: 'v1.0.0-decimal',
+          reportingPeriod: {
+            startDate: '2026-10-12T00:00:00.000Z',
+            endDate: '2026-11-11T23:59:59.999Z',
+          },
+          currency: 'USD',
+          sourceRecordIds: { invoiceIds: ['inv-1'] },
+          dataLimitations: [],
+        },
+      },
+    };
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => backendPayload,
+    });
+
+    render(<AnalyticsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('$2,054.04')).toBeInTheDocument();
+      expect(screen.getByText('$1,250.00')).toBeInTheDocument();
+      expect(screen.getByText(/Incomplete FX/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Calculation incomplete due to missing exchange rate\(s\): EUR -> USD/i),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/missing exchange rate\(s\) for:/i),
+      ).toBeInTheDocument();
+    });
+  });
 });

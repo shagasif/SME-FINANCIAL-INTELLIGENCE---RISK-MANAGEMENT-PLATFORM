@@ -18,8 +18,7 @@ import { StatCard } from '../../components/ui/StatCard';
 import { Select } from '../../components/ui/Select';
 import { Modal } from '../../components/ui/Modal';
 import { Skeleton } from '../../components/ui/LoadingSpinner';
-import { formatCurrency, formatDate } from '../../utils/formatters';
-import { DEFAULT_DEMO_ORG } from '../../config/demo.config';
+import { formatCurrency, formatDate, resolveReportingCurrency } from '../../utils/formatters';
 
 interface CashFlowProjectionItem {
   id?: string;
@@ -53,55 +52,8 @@ interface CashFlowForecast {
   createdAt: string;
 }
 
-const DEFAULT_FORECASTS: CashFlowForecast[] = [
-  {
-    id: 'fc-001',
-    horizonDays: 30,
-    scenarioType: 'BASE',
-    version: 1,
-    currency: 'USD',
-    startDate: '2026-11-10T00:00:00.000Z',
-    endDate: '2026-12-10T00:00:00.000Z',
-    openingCashBalance: '1248500.00',
-    projectedInflows: '108000.00',
-    projectedOutflows: '71500.00',
-    projectedClosingCash: '1285000.00',
-    minimumProjectedCash: '1210000.00',
-    minimumCashDate: '2026-11-20T00:00:00.000Z',
-    hasLiquidityWarning: false,
-    uncertaintyBandPct: '5.0',
-    items: [
-      {
-        id: 'fci-1',
-        projectionDate: '2026-11-15T00:00:00.000Z',
-        expectedInflow: '45000.00',
-        expectedOutflow: '18500.00',
-        netCashFlow: '26500.00',
-        cumulativeBalance: '1275000.00',
-      },
-      {
-        id: 'fci-2',
-        projectionDate: '2026-11-22T00:00:00.000Z',
-        expectedInflow: '28000.00',
-        expectedOutflow: '24000.00',
-        netCashFlow: '4000.00',
-        cumulativeBalance: '1279000.00',
-      },
-      {
-        id: 'fci-3',
-        projectionDate: '2026-11-30T00:00:00.000Z',
-        expectedInflow: '35000.00',
-        expectedOutflow: '29000.00',
-        netCashFlow: '6000.00',
-        cumulativeBalance: '1285000.00',
-      },
-    ],
-    createdAt: '2026-11-10T00:00:00.000Z',
-  },
-];
-
 export function CashFlowPage() {
-  const { activeOrg, isAuditor, hasRole } = useAuth();
+  const { activeOrg, isAuditor, hasRole, isLoading: isAuthLoading } = useAuth();
 
   const [forecasts, setForecasts] = useState<CashFlowForecast[]>([]);
   const [selectedHorizon, setSelectedHorizon] = useState<7 | 30 | 60 | 90>(30);
@@ -121,8 +73,7 @@ export function CashFlowPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
-  const effectiveOrg = activeOrg || DEFAULT_DEMO_ORG;
-  const activeOrgId = effectiveOrg.id;
+  const activeOrgId = activeOrg?.id;
   const canGenerate =
     !isAuditor &&
     hasRole([
@@ -139,7 +90,7 @@ export function CashFlowPage() {
 
   // Fetch Forecasts List
   useEffect(() => {
-    if (!activeOrgId) return;
+    if (isAuthLoading || !activeOrgId) return;
 
     let isMounted = true;
     apiGet<CashFlowForecast[]>(
@@ -147,35 +98,34 @@ export function CashFlowPage() {
     )
       .then((res) => {
         if (!isMounted) return;
-        const list = res && res.length > 0 ? res : DEFAULT_FORECASTS;
+        setError(null);
+        const list = Array.isArray(res) ? res : [];
         setForecasts(list);
         if (list.length > 0) {
-          // Select latest forecast
           const latest = list[0];
-          // If items not included in list, fetch detail
           if (latest.items && latest.items.length > 0) {
             setActiveForecast(latest);
           } else {
-            apiGet<CashFlowForecast>(
-              `/v1/organizations/${activeOrgId}/forecasts/${latest.id}`,
-            ).then((det) => {
-              if (isMounted) setActiveForecast(det);
-            });
+            apiGet<CashFlowForecast>(`/v1/organizations/${activeOrgId}/forecasts/${latest.id}`)
+              .then((det) => {
+                if (isMounted) setActiveForecast(det);
+              })
+              .catch(() => {
+                if (isMounted) setActiveForecast(latest);
+              });
           }
         } else {
-          setActiveForecast(DEFAULT_FORECASTS[0]);
+          setActiveForecast(null);
         }
       })
       .catch((err: unknown) => {
         if (!isMounted) return;
-        setForecasts((prev) => (prev.length > 0 ? prev : DEFAULT_FORECASTS));
-        setActiveForecast((prev) => prev || DEFAULT_FORECASTS[0]);
+        setForecasts([]);
+        setActiveForecast(null);
         if (err instanceof ApiClientError) {
           setError(err.message);
         } else {
-          setError(
-            'Failed to fetch cash flow forecasts from live API. Displaying verified demo baseline.',
-          );
+          setError('Failed to fetch cash flow forecasts from live API.');
         }
       })
       .finally(() => {
@@ -185,7 +135,7 @@ export function CashFlowPage() {
     return () => {
       isMounted = false;
     };
-  }, [activeOrgId, selectedHorizon, reloadKey]);
+  }, [activeOrgId, selectedHorizon, reloadKey, isAuthLoading]);
 
   // Handle Generate Forecast Submit
   const handleGenerateForecast = async (e: FormEvent) => {
@@ -218,7 +168,7 @@ export function CashFlowPage() {
     }
   };
 
-  const currency = effectiveOrg.baseCurrency || 'USD';
+  const currency = resolveReportingCurrency(activeOrg?.baseCurrency, activeForecast?.currency);
 
   return (
     <div className="space-y-6">
@@ -344,155 +294,204 @@ export function CashFlowPage() {
         </div>
       )}
 
-      {/* KPI Cards Grid (4 Cards) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Opening Cash"
-          value={activeForecast ? formatCurrency(activeForecast.openingCashBalance, currency) : '—'}
-          subtitle="Baseline liquid accounts"
-          icon={<Wallet className="w-5 h-5" />}
-        />
-
-        <StatCard
-          title={`Projected Inflows (${selectedHorizon}d)`}
-          value={activeForecast ? formatCurrency(activeForecast.projectedInflows, currency) : '—'}
-          subtitle="Customer AR & recurring receipts"
-          icon={<DollarSign className="w-5 h-5 text-emerald-500" />}
-          change={
-            activeForecast
-              ? {
-                  value: `+${formatCurrency(activeForecast.projectedInflows, currency)}`,
-                  isPositive: true,
-                }
-              : undefined
-          }
-        />
-
-        <StatCard
-          title={`Projected Outflows (${selectedHorizon}d)`}
-          value={activeForecast ? formatCurrency(activeForecast.projectedOutflows, currency) : '—'}
-          subtitle="Supplier AP & operating expenses"
-          icon={<DollarSign className="w-5 h-5 text-red-500" />}
-          change={
-            activeForecast
-              ? {
-                  value: `-${formatCurrency(activeForecast.projectedOutflows, currency)}`,
-                  isPositive: false,
-                }
-              : undefined
-          }
-        />
-
-        <StatCard
-          title="Projected Closing Cash"
-          value={
-            activeForecast ? formatCurrency(activeForecast.projectedClosingCash, currency) : '—'
-          }
-          subtitle={`At end of ${selectedHorizon}-day window`}
-          icon={<Scale className="w-5 h-5" />}
-          statusBadge={{
-            label: activeForecast?.hasLiquidityWarning ? 'Breach Risk' : 'Buffer Intact',
-            variant: activeForecast?.hasLiquidityWarning ? 'error' : 'ok',
-          }}
-        />
-      </div>
-
-      {/* Timeline Table */}
-      <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs overflow-hidden">
-        <div className="p-4 border-b border-[var(--border-subtle)] flex items-center justify-between">
-          <div>
+      {/* Empty State when no persisted forecast exists for selected horizon */}
+      {!isLoading && !activeForecast ? (
+        <div
+          role="status"
+          className="rounded-2xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-card)] p-8 text-center space-y-3"
+        >
+          <Wallet className="w-8 h-8 mx-auto text-[var(--text-muted)] opacity-75" />
+          <div className="space-y-1">
             <h2 className="text-sm font-bold text-[var(--text-primary)]">
-              Daily Liquidity Projection Timeline
+              No Cash-Flow Forecast Generated ({selectedHorizon}-Day Horizon)
             </h2>
-            <p className="text-[11px] text-[var(--text-muted)]">
-              Grounded in scheduled invoice due dates, supplier bill payment obligations, and
-              recurring transactions
+            <p className="text-xs text-[var(--text-muted)] max-w-md mx-auto leading-relaxed">
+              No persisted {selectedHorizon}-day forecast versions exist for this organization yet.
+              {canGenerate
+                ? ` Generate a deterministic ${currency} projection from live accounts, invoices, bills, and recurring ledger entries.`
+                : ' Authorized Finance Managers or Owners can generate deterministic projections.'}
             </p>
           </div>
+          {canGenerate && (
+            <div className="pt-1">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  setModalHorizon(selectedHorizon);
+                  setModalError(null);
+                  setIsGenerateModalOpen(true);
+                }}
+              >
+                <Zap className="w-3.5 h-3.5 mr-1.5" />
+                Generate {selectedHorizon}-Day Forecast
+              </Button>
+            </div>
+          )}
         </div>
+      ) : (
+        <>
+          {/* KPI Cards Grid (4 Cards) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard
+              title="Opening Cash"
+              value={
+                activeForecast ? formatCurrency(activeForecast.openingCashBalance, currency) : '—'
+              }
+              subtitle="Baseline liquid accounts"
+              icon={<Wallet className="w-5 h-5" />}
+            />
 
-        <div className="overflow-x-auto max-h-96">
-          <table className="w-full text-xs text-left">
-            <thead className="bg-[var(--surface-elevated)]/60 text-[var(--text-muted)] uppercase text-[10px] tracking-wider border-b border-[var(--border-subtle)] sticky top-0">
-              <tr>
-                <th className="py-3 px-4 font-semibold">Date</th>
-                <th className="py-3 px-4 font-semibold text-right">Expected Inflow</th>
-                <th className="py-3 px-4 font-semibold text-right">Expected Outflow</th>
-                <th className="py-3 px-4 font-semibold text-right">Net Flow</th>
-                <th className="py-3 px-4 font-semibold text-right">Cumulative Balance</th>
-                <th className="py-3 px-4 font-semibold text-right">Optimistic (+Band)</th>
-                <th className="py-3 px-4 font-semibold text-right">Conservative (-Band)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--border-subtle)]">
-              {isLoading && !activeForecast ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <tr key={i}>
-                    <td colSpan={7} className="py-3 px-4">
-                      <Skeleton className="h-4 w-full" />
-                    </td>
+            <StatCard
+              title={`Projected Inflows (${selectedHorizon}d)`}
+              value={
+                activeForecast ? formatCurrency(activeForecast.projectedInflows, currency) : '—'
+              }
+              subtitle="Customer AR & recurring receipts"
+              icon={<DollarSign className="w-5 h-5 text-emerald-500" />}
+              change={
+                activeForecast
+                  ? {
+                      value: `+${formatCurrency(activeForecast.projectedInflows, currency)}`,
+                      isPositive: true,
+                    }
+                  : undefined
+              }
+            />
+
+            <StatCard
+              title={`Projected Outflows (${selectedHorizon}d)`}
+              value={
+                activeForecast ? formatCurrency(activeForecast.projectedOutflows, currency) : '—'
+              }
+              subtitle="Supplier AP & operating expenses"
+              icon={<DollarSign className="w-5 h-5 text-red-500" />}
+              change={
+                activeForecast
+                  ? {
+                      value: `-${formatCurrency(activeForecast.projectedOutflows, currency)}`,
+                      isPositive: false,
+                    }
+                  : undefined
+              }
+            />
+
+            <StatCard
+              title="Projected Closing Cash"
+              value={
+                activeForecast ? formatCurrency(activeForecast.projectedClosingCash, currency) : '—'
+              }
+              subtitle={`At end of ${selectedHorizon}-day window`}
+              icon={<Scale className="w-5 h-5" />}
+              statusBadge={
+                activeForecast
+                  ? {
+                      label: activeForecast.hasLiquidityWarning ? 'Breach Risk' : 'Buffer Intact',
+                      variant: activeForecast.hasLiquidityWarning ? 'error' : 'ok',
+                    }
+                  : undefined
+              }
+            />
+          </div>
+
+          {/* Timeline Table */}
+          <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs overflow-hidden">
+            <div className="p-4 border-b border-[var(--border-subtle)] flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-bold text-[var(--text-primary)]">
+                  Daily Liquidity Projection Timeline
+                </h2>
+                <p className="text-[11px] text-[var(--text-muted)]">
+                  Grounded in scheduled invoice due dates, supplier bill payment obligations, and
+                  recurring transactions
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto max-h-96">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-[var(--surface-elevated)]/60 text-[var(--text-muted)] uppercase text-[10px] tracking-wider border-b border-[var(--border-subtle)] sticky top-0">
+                  <tr>
+                    <th className="py-3 px-4 font-semibold">Date</th>
+                    <th className="py-3 px-4 font-semibold text-right">Expected Inflow</th>
+                    <th className="py-3 px-4 font-semibold text-right">Expected Outflow</th>
+                    <th className="py-3 px-4 font-semibold text-right">Net Flow</th>
+                    <th className="py-3 px-4 font-semibold text-right">Cumulative Balance</th>
+                    <th className="py-3 px-4 font-semibold text-right">Optimistic (+Band)</th>
+                    <th className="py-3 px-4 font-semibold text-right">Conservative (-Band)</th>
                   </tr>
-                ))
-              ) : activeForecast?.items && activeForecast.items.length > 0 ? (
-                activeForecast.items.map((item, idx) => {
-                  const net = Number.parseFloat(item.netCashFlow);
-                  return (
-                    <tr
-                      key={idx}
-                      className="hover:bg-[var(--surface-elevated)]/40 transition-colors"
-                    >
-                      <td className="py-3 px-4 font-mono font-medium text-[var(--text-primary)] whitespace-nowrap">
-                        {formatDate(item.projectionDate)}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono font-semibold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                        {Number.parseFloat(item.expectedInflow) > 0
-                          ? `+${formatCurrency(item.expectedInflow, currency)}`
-                          : '—'}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono font-semibold text-red-600 dark:text-red-400 whitespace-nowrap">
-                        {Number.parseFloat(item.expectedOutflow) > 0
-                          ? `-${formatCurrency(item.expectedOutflow, currency)}`
-                          : '—'}
-                      </td>
-                      <td
-                        className={`py-3 px-4 text-right font-mono font-bold whitespace-nowrap ${
-                          net > 0
-                            ? 'text-emerald-600 dark:text-emerald-400'
-                            : net < 0
-                              ? 'text-red-600 dark:text-red-400'
-                              : 'text-[var(--text-muted)]'
-                        }`}
-                      >
-                        {net > 0 ? '+' : ''}
-                        {formatCurrency(item.netCashFlow, currency)}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono font-bold text-[var(--text-primary)] whitespace-nowrap">
-                        {formatCurrency(item.cumulativeBalance, currency)}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono text-emerald-700 dark:text-emerald-300 opacity-90 whitespace-nowrap">
-                        {item.optimisticBalance
-                          ? formatCurrency(item.optimisticBalance, currency)
-                          : '—'}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono text-amber-700 dark:text-amber-300 opacity-90 whitespace-nowrap">
-                        {item.conservativeBalance
-                          ? formatCurrency(item.conservativeBalance, currency)
-                          : '—'}
+                </thead>
+                <tbody className="divide-y divide-[var(--border-subtle)]">
+                  {isLoading && !activeForecast ? (
+                    Array.from({ length: 5 }).map((_, i) => (
+                      <tr key={i}>
+                        <td colSpan={7} className="py-3 px-4">
+                          <Skeleton className="h-4 w-full" />
+                        </td>
+                      </tr>
+                    ))
+                  ) : activeForecast?.items && activeForecast.items.length > 0 ? (
+                    activeForecast.items.map((item, idx) => {
+                      const net = Number.parseFloat(item.netCashFlow);
+                      return (
+                        <tr
+                          key={idx}
+                          className="hover:bg-[var(--surface-elevated)]/40 transition-colors"
+                        >
+                          <td className="py-3 px-4 font-mono font-medium text-[var(--text-primary)] whitespace-nowrap">
+                            {formatDate(item.projectionDate)}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono font-semibold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                            {Number.parseFloat(item.expectedInflow) > 0
+                              ? `+${formatCurrency(item.expectedInflow, currency)}`
+                              : '—'}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono font-semibold text-red-600 dark:text-red-400 whitespace-nowrap">
+                            {Number.parseFloat(item.expectedOutflow) > 0
+                              ? `-${formatCurrency(item.expectedOutflow, currency)}`
+                              : '—'}
+                          </td>
+                          <td
+                            className={`py-3 px-4 text-right font-mono font-bold whitespace-nowrap ${
+                              net > 0
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : net < 0
+                                  ? 'text-red-600 dark:text-red-400'
+                                  : 'text-[var(--text-muted)]'
+                            }`}
+                          >
+                            {net > 0 ? '+' : ''}
+                            {formatCurrency(item.netCashFlow, currency)}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono font-bold text-[var(--text-primary)] whitespace-nowrap">
+                            {formatCurrency(item.cumulativeBalance, currency)}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono text-emerald-700 dark:text-emerald-300 opacity-90 whitespace-nowrap">
+                            {item.optimisticBalance
+                              ? formatCurrency(item.optimisticBalance, currency)
+                              : '—'}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono text-amber-700 dark:text-amber-300 opacity-90 whitespace-nowrap">
+                            {item.conservativeBalance
+                              ? formatCurrency(item.conservativeBalance, currency)
+                              : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-xs text-[var(--text-muted)]">
+                        No daily projection rows available for this forecast version.
                       </td>
                     </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-xs text-[var(--text-muted)]">
-                    No forecast projection generated yet for {selectedHorizon} days.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Data Limitations Notice */}
       {activeForecast?.dataLimitations && activeForecast.dataLimitations.length > 0 && (
@@ -555,7 +554,7 @@ export function CashFlowPage() {
 
           <Input
             id="genBuffer"
-            label="Liquidity Safety Buffer ($) *"
+            label={`Liquidity Safety Buffer (${currency}) *`}
             type="number"
             step="500"
             required

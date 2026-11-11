@@ -1,21 +1,63 @@
+export interface AgingScheduleMetricValue {
+  totalOutstanding?: string | null;
+  totalOverdue?: string | null;
+  isComplete?: boolean;
+  missingCurrencies?: string[];
+  buckets?: Array<{
+    bucket: string;
+    count: number;
+    amount: string | null;
+    recordIds: string[];
+  }>;
+  sourceRecordIds?: string[];
+}
+
+export type MetricReportingPeriod =
+  | string
+  | {
+      startDate: string;
+      endDate: string;
+    };
+
+export type MetricSourceRecordIds = string[] | Record<string, string[]>;
+
 export interface DeterministicMetricResult {
-  metricName: string;
-  status: 'CALCULATED' | 'UNSUPPORTED' | 'INSUFFICIENT_DATA';
-  value: string | null;
+  metricKey?: string;
+  metricName?: string;
+  name?: string;
+  status: 'COMPUTED' | 'UNSUPPORTED_MISSING_DATA' | 'CALCULATED' | 'UNSUPPORTED' | 'INSUFFICIENT_DATA';
+  value: string | number | AgingScheduleMetricValue | null;
   unit: string;
   formula: string;
   formulaVersion: string;
-  reportingPeriod: string;
-  currency: string;
-  sourceRecordIds: string[];
+  reportingPeriod?: MetricReportingPeriod;
+  currency?: string;
+  sourceRecordIds?: MetricSourceRecordIds;
   dataLimitations: string[];
+  components?: Record<string, string>;
 }
 
 export interface AllMetricsResponse {
   organizationId: string;
+  currency?: string;
+  formulaVersion?: string;
+  generatedAt?: string;
   reportingPeriod: {
     startDate: string;
     endDate: string;
+  };
+  conversionContext?: {
+    baseCurrency: string;
+    isComplete: boolean;
+    missingCurrencies: string[];
+    appliedRates: Array<{
+      fromCurrency: string;
+      toCurrency: string;
+      rate: string;
+      effectiveDate: string;
+      source: string;
+      isInverse: boolean;
+    }>;
   };
   metrics: {
     operatingCashFlow: DeterministicMetricResult;
