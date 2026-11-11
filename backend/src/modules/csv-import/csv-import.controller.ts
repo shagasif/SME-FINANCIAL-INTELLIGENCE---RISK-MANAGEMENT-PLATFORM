@@ -10,7 +10,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { OrgRbacGuard } from '../../common/guards/org-rbac.guard.js';
 import { RateLimit, RateLimitGuard } from '../../common/guards/rate-limit.guard.js';
 import { CsvImportService } from './csv-import.service.js';
-import { ConfirmCsvImportDto, UploadCsvPreviewDto } from './dto/csv-import.dto.js';
+import { AutoMapColumnsDto, ConfirmCsvImportDto, UploadCsvPreviewDto } from './dto/csv-import.dto.js';
 
 @ApiTags('CSV Financial Import Pipeline')
 @ApiBearerAuth()
@@ -18,6 +18,27 @@ import { ConfirmCsvImportDto, UploadCsvPreviewDto } from './dto/csv-import.dto.j
 @Controller({ path: 'organizations/:orgId/csv-imports', version: '1' })
 export class CsvImportController {
   constructor(private readonly service: CsvImportService) {}
+
+  @Post('auto-map')
+  @RateLimit({ windowMs: 60_000, maxRequests: 30 })
+  @Roles(
+    RoleType.PLATFORM_ADMIN,
+    RoleType.BUSINESS_OWNER,
+    RoleType.FINANCE_MANAGER,
+    RoleType.ACCOUNTANT,
+    RoleType.FINANCIAL_ANALYST,
+  )
+  @ApiOperation({
+    summary:
+      'Execute Supervisor Orchestrator, Finance Data Analyst, and Verifier AI for uploaded file schema profiling and column mapping',
+  })
+  async autoMap(
+    @Param('orgId') orgId: string,
+    @Body() dto: AutoMapColumnsDto,
+    @CurrentUser() user: AuthenticatedPrincipal,
+  ) {
+    return this.service.autoMapColumns(orgId, dto, user);
+  }
 
   @Post('preview')
   @RateLimit({ windowMs: 60_000, maxRequests: 20 })

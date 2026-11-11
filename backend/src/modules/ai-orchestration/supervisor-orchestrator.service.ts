@@ -253,6 +253,12 @@ export class SupervisorOrchestratorService {
           let lastUsage: AiModelUsageMetrics | null = null;
 
           for (const skill of agentSkills) {
+            const isApplicable = skill.requiredInputs.every((k) =>
+              ['organizationId', 'prompt', 'horizonDays'].includes(k),
+            );
+            if (!isApplicable) {
+              continue;
+            }
             const skillExec = await this.skillsRegistry.executeSkill(
               skill.skillId,
               {
@@ -502,5 +508,209 @@ export class SupervisorOrchestratorService {
       throw new NotFoundException('Workflow run not found in organization');
     }
     return run;
+  }
+
+  /**
+   * Orchestrates secure file schema profiling and automatic column mapping
+   * using Finance Data Analyst Agent and Verifier AI Agent within isolated sandboxes.
+   */
+  async orchestrateFileSchemaMapping(params: {
+    organizationId: string;
+    userId: string;
+    userRole: RoleType;
+    isPlatformAdmin: boolean;
+    fileName: string;
+    headers: string[];
+    sampleRows: unknown[];
+  }) {
+    const workflowStartMs = Date.now();
+
+    const workflowRun = await this.prisma.workflowRun.create({
+      data: {
+        organizationId: params.organizationId,
+        requestedByUserId: params.userId,
+        prompt: `File schema profiling and auto-mapping for ${params.fileName} (${params.headers.length} headers)`,
+        taskClassification: 'FILE_SCHEMA_PROFILING_AND_COLUMN_MAPPING',
+        selectedAgents: [
+          AgentType.SUPERVISOR_ORCHESTRATOR,
+          AgentType.FINANCE_DATA_ANALYST,
+          AgentType.VERIFIER_AI,
+        ] as unknown as Prisma.InputJsonValue,
+        executionMode: 'SPECIALIST_ANALYST_THEN_SEQUENTIAL_VERIFIER',
+        status: ExecutionStatus.RUNNING,
+        verificationStatus: VerificationStatus.PENDING,
+      },
+    });
+
+    try {
+      // 1. Finance Data Analyst Sandbox & Skill Execution
+      const analystStartMs = Date.now();
+      const analystSandbox = this.sandbox.createSandboxContext({
+        workflowRunId: workflowRun.id,
+        organizationId: params.organizationId,
+        actorUserId: params.userId,
+        actorRole: params.userRole,
+        agentType: AgentType.FINANCE_DATA_ANALYST,
+      });
+
+      const analystRunRecord = await this.prisma.agentRun.create({
+        data: {
+          workflowRunId: workflowRun.id,
+          organizationId: params.organizationId,
+          agentType: AgentType.FINANCE_DATA_ANALYST,
+          sandboxId: analystSandbox.sandboxId,
+          loadedSkills: [
+            'skill.file-schema-profiling-and-column-mapping',
+          ] as unknown as Prisma.InputJsonValue,
+          allowedTools: analystSandbox.allowedTools as unknown as Prisma.InputJsonValue,
+          invokedTools: [] as unknown as Prisma.InputJsonValue,
+          status: ExecutionStatus.RUNNING,
+          inputContext: {
+            fileName: params.fileName,
+            headerCount: params.headers.length,
+            sampleRowsCount: params.sampleRows.length,
+          } as unknown as Prisma.InputJsonValue,
+        },
+      });
+
+      let analystSkillResult;
+      try {
+        analystSkillResult = await this.skillsRegistry.executeSkill(
+          'skill.file-schema-profiling-and-column-mapping',
+          {
+            organizationId: params.organizationId,
+            fileName: params.fileName,
+            headers: params.headers,
+            sampleRows: params.sampleRows,
+          },
+          analystSandbox,
+        );
+
+        await this.prisma.agentRun.update({
+          where: { id: analystRunRecord.id },
+          data: {
+            status: ExecutionStatus.COMPLETED,
+            invokedTools: analystSandbox.invokedTools as unknown as Prisma.InputJsonValue,
+            mcpToolCalls: analystSkillResult.invokedMcpTools as unknown as Prisma.InputJsonValue,
+            blockedOperations:
+              analystSandbox.blockedOperations as unknown as Prisma.InputJsonValue,
+            modelUsage: analystSkillResult.modelUsage as unknown as Prisma.InputJsonValue,
+            outputPayload: analystSkillResult.output as unknown as Prisma.InputJsonValue,
+            durationMs: Date.now() - analystStartMs,
+            completedAt: new Date(),
+          },
+        });
+      } finally {
+        this.sandbox.releaseSandbox(analystSandbox.sandboxId);
+      }
+
+      // 2. Verifier AI Sandbox & Verification Skill Execution
+      const verifierStartMs = Date.now();
+      const verifierSandbox = this.sandbox.createSandboxContext({
+        workflowRunId: workflowRun.id,
+        organizationId: params.organizationId,
+        actorUserId: params.userId,
+        actorRole: params.userRole,
+        agentType: AgentType.VERIFIER_AI,
+      });
+
+      const verifierRunRecord = await this.prisma.agentRun.create({
+        data: {
+          workflowRunId: workflowRun.id,
+          organizationId: params.organizationId,
+          agentType: AgentType.VERIFIER_AI,
+          sandboxId: verifierSandbox.sandboxId,
+          loadedSkills: [
+            'skill.column-mapping-verification',
+          ] as unknown as Prisma.InputJsonValue,
+          allowedTools: verifierSandbox.allowedTools as unknown as Prisma.InputJsonValue,
+          invokedTools: [] as unknown as Prisma.InputJsonValue,
+          status: ExecutionStatus.RUNNING,
+          inputContext: {
+            detectedMappings: analystSkillResult.output.detectedMappings,
+          } as unknown as Prisma.InputJsonValue,
+        },
+      });
+
+      let verifierSkillResult;
+      try {
+        verifierSkillResult = await this.skillsRegistry.executeSkill(
+          'skill.column-mapping-verification',
+          {
+            organizationId: params.organizationId,
+            detectedMappings: analystSkillResult.output.detectedMappings,
+            confidenceScores: analystSkillResult.output.confidenceScores,
+            headers: params.headers,
+            sampleRows: params.sampleRows,
+          },
+          verifierSandbox,
+        );
+
+        await this.prisma.agentRun.update({
+          where: { id: verifierRunRecord.id },
+          data: {
+            status: ExecutionStatus.COMPLETED,
+            invokedTools: verifierSandbox.invokedTools as unknown as Prisma.InputJsonValue,
+            mcpToolCalls: verifierSkillResult.invokedMcpTools as unknown as Prisma.InputJsonValue,
+            blockedOperations:
+              verifierSandbox.blockedOperations as unknown as Prisma.InputJsonValue,
+            modelUsage: verifierSkillResult.modelUsage as unknown as Prisma.InputJsonValue,
+            outputPayload: verifierSkillResult.output as unknown as Prisma.InputJsonValue,
+            durationMs: Date.now() - verifierStartMs,
+            completedAt: new Date(),
+          },
+        });
+      } finally {
+        this.sandbox.releaseSandbox(verifierSandbox.sandboxId);
+      }
+
+      const isApproved = Boolean(verifierSkillResult.output.isApproved);
+
+      await this.prisma.workflowRun.update({
+        where: { id: workflowRun.id },
+        data: {
+          status: ExecutionStatus.COMPLETED,
+          verificationStatus: isApproved
+            ? VerificationStatus.APPROVED
+            : VerificationStatus.REQUIRES_HUMAN_REVIEW,
+          totalDurationMs: Date.now() - workflowStartMs,
+          completedAt: new Date(),
+        },
+      });
+
+      await this.audit.record({
+        organizationId: params.organizationId,
+        actorUserId: params.userId,
+        actorRole: params.userRole,
+        action: 'AI_ORCHESTRATION:FILE_SCHEMA_PROFILED_AND_VERIFIED',
+        resourceType: 'WORKFLOW_RUN',
+        resourceId: workflowRun.id,
+        status: isApproved ? 'SUCCESS' : 'ERROR',
+        details: {
+          fileName: params.fileName,
+          isApproved,
+          confidenceScore: verifierSkillResult.output.confidenceScore,
+        },
+      });
+
+      return {
+        workflowRunId: workflowRun.id,
+        taskClassification: 'FILE_SCHEMA_PROFILING_AND_COLUMN_MAPPING',
+        analystResult: analystSkillResult.output,
+        verifierResult: verifierSkillResult.output,
+        durationMs: Date.now() - workflowStartMs,
+      };
+    } catch (err: unknown) {
+      await this.prisma.workflowRun.update({
+        where: { id: workflowRun.id },
+        data: {
+          status: ExecutionStatus.FAILED,
+          verificationStatus: VerificationStatus.REJECTED,
+          totalDurationMs: Date.now() - workflowStartMs,
+          completedAt: new Date(),
+        },
+      });
+      throw err;
+    }
   }
 }

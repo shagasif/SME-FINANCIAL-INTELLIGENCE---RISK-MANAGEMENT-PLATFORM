@@ -991,6 +991,205 @@ export class AgentSkillsRegistryService {
           };
         },
       },
+
+      // 9. File Schema Profiling & Column Mapping (Finance Data Analyst Agent)
+      {
+        skillId: 'skill.file-schema-profiling-and-column-mapping',
+        name: 'File Schema Profiling & Column Mapping Skill',
+        version: '1.0.0',
+        responsibleAgent: AgentType.FINANCE_DATA_ANALYST,
+        category: 'Financial Data Analysis',
+        purpose:
+          'Profiles uploaded financial statement headers and sample data rows to identify canonical financial ledger fields (date, amount, description, type, category, counterparty, department, reference) with confidence scoring.',
+        instructions: [
+          'Analyze provided column headers against canonical financial ledger concepts.',
+          'Sample representative data rows to corroborate data types (dates, numeric amounts, text narratives, transaction directions).',
+          'Calculate confidence scores per column and avoid guessing for ambiguous or missing fields.',
+          'Return structured column mappings and clear field-by-field profiling analysis.',
+        ],
+        domainKnowledge: [
+          'Required financial ledger fields: date (ISO or standard date format), amount (positive/negative decimal), description (primary narrative).',
+          'Optional ledger fields: type (INCOME/EXPENSE/TRANSFER or DR/CR), category (chart of accounts), counterparty (payee/vendor/customer), department (cost center), reference (invoice/txn ID).',
+          'Ambiguity rule: if multiple candidate columns exist without dominant confidence or samples conflict, do not guess; flag for user verification.',
+        ],
+        requiredInputs: ['organizationId', 'fileName', 'headers', 'sampleRows'],
+        expectedOutputKeys: [
+          'skillId',
+          'fileName',
+          'detectedMappings',
+          'confidenceScores',
+          'fieldAnalysis',
+          'unmappedHeaders',
+          'notes',
+        ],
+        permittedTools: [],
+        executionConstraints: {
+          maxExecutionMs: 15000,
+          maxToolCalls: 0,
+          allowedRoles: ALL_ROLES,
+          requiresSandboxIsolation: true,
+        },
+        executeProcedure: async ({ input, sandboxContext, modelProvider }) => {
+          const fileName = String(input.fileName || 'uploaded_statement.csv');
+          const headers = (Array.isArray(input.headers) ? input.headers : []).map((h) =>
+            String(h || '').trim(),
+          );
+          const rawSampleRows = Array.isArray(input.sampleRows) ? input.sampleRows : [];
+
+          const profiling = AgentSkillsRegistryService.profileSchemaAndColumns(
+            fileName,
+            headers,
+            rawSampleRows,
+          );
+
+          const aiResult = await modelProvider.executeStructuredTask({
+            organizationId: sandboxContext.organizationId,
+            agentType: AgentType.FINANCE_DATA_ANALYST,
+            skillId: 'skill.file-schema-profiling-and-column-mapping',
+            systemInstructions:
+              'You are the Finance Data Analyst Agent executing skill.file-schema-profiling-and-column-mapping. Profile uploaded statement columns and sample rows to map canonical financial ledger fields with precision.',
+            userPrompt: `Profile file "${fileName}" with headers: [${headers.join(', ')}]`,
+            deterministicEvidence: {
+              fileName,
+              headers,
+              sampleRowsCount: rawSampleRows.length,
+              detectedMappings: profiling.detectedMappings,
+              confidenceScores: profiling.confidenceScores,
+              fieldAnalysis: profiling.fieldAnalysis,
+              unmappedHeaders: profiling.unmappedHeaders,
+            },
+            requiredOutputKeys: [
+              'skillId',
+              'fileName',
+              'detectedMappings',
+              'confidenceScores',
+              'fieldAnalysis',
+              'unmappedHeaders',
+              'notes',
+            ],
+            deterministicSynthesisBuilder: () => ({
+              skillId: 'skill.file-schema-profiling-and-column-mapping',
+              fileName,
+              detectedMappings: profiling.detectedMappings,
+              confidenceScores: profiling.confidenceScores,
+              fieldAnalysis: profiling.fieldAnalysis,
+              unmappedHeaders: profiling.unmappedHeaders,
+              notes: profiling.notes,
+            }),
+          });
+
+          return {
+            output: aiResult.structuredOutput,
+            invokedMcpTools: [],
+            sourceRecordIds: {},
+            modelUsage: aiResult.usage,
+          };
+        },
+      },
+
+      // 10. Column Mapping Verification & Guardrail (Verifier AI Agent)
+      {
+        skillId: 'skill.column-mapping-verification',
+        name: 'Column Mapping Verification & Guardrail Skill',
+        version: '1.0.0',
+        responsibleAgent: AgentType.VERIFIER_AI,
+        category: 'Financial Output Verification',
+        purpose:
+          'Independently audits proposed column mappings against schema rules, required fields, date/amount syntax in sample rows, and collision prevention.',
+        instructions: [
+          'Verify that date, amount, and description columns are mapped to existing headers.',
+          'Ensure no single column header is mapped to multiple conflicting fields.',
+          'Validate sample data rows against expected syntax for mapped date and amount fields.',
+          'Evaluate confidence thresholds and flag ambiguous mappings for explicit user review.',
+        ],
+        domainKnowledge: [
+          'Strict requirement: dateColumn, amountColumn, and descriptionColumn must be non-empty and present in headers.',
+          'Data validation: mapped date rows must parse into valid dates; mapped amount rows must parse into decimals.',
+          'Collision guardrail: mapping collision occurs if dateColumn === amountColumn or amountColumn === descriptionColumn.',
+        ],
+        requiredInputs: [
+          'organizationId',
+          'detectedMappings',
+          'confidenceScores',
+          'headers',
+          'sampleRows',
+        ],
+        expectedOutputKeys: [
+          'skillId',
+          'isApproved',
+          'verifiedMappings',
+          'validationErrors',
+          'confidenceScore',
+          'requiresManualReview',
+          'notes',
+        ],
+        permittedTools: [],
+        executionConstraints: {
+          maxExecutionMs: 10000,
+          maxToolCalls: 0,
+          allowedRoles: ALL_ROLES,
+          requiresSandboxIsolation: true,
+        },
+        executeProcedure: async ({ input, sandboxContext, modelProvider }) => {
+          const headers = (Array.isArray(input.headers) ? input.headers : []).map((h) =>
+            String(h || '').trim(),
+          );
+          const rawSampleRows = Array.isArray(input.sampleRows) ? input.sampleRows : [];
+          const detectedMappings = (input.detectedMappings ?? {}) as Record<string, string | null>;
+          const confidenceScores = (input.confidenceScores ?? {}) as Record<string, number>;
+
+          const verification = AgentSkillsRegistryService.verifyColumnMappings(
+            headers,
+            rawSampleRows,
+            detectedMappings,
+            confidenceScores,
+          );
+
+          const aiResult = await modelProvider.executeStructuredTask({
+            organizationId: sandboxContext.organizationId,
+            agentType: AgentType.VERIFIER_AI,
+            skillId: 'skill.column-mapping-verification',
+            systemInstructions:
+              'You are the Verifier AI Agent auditing proposed file column mappings for required ledger completeness, type fidelity, and collision avoidance.',
+            userPrompt:
+              'Audit proposed column mappings against required ledger rules and sample data integrity.',
+            deterministicEvidence: {
+              headers,
+              detectedMappings,
+              confidenceScores,
+              isApproved: verification.isApproved,
+              validationErrors: verification.validationErrors,
+              confidenceScore: verification.confidenceScore,
+              requiresManualReview: verification.requiresManualReview,
+            },
+            requiredOutputKeys: [
+              'skillId',
+              'isApproved',
+              'verifiedMappings',
+              'validationErrors',
+              'confidenceScore',
+              'requiresManualReview',
+              'notes',
+            ],
+            deterministicSynthesisBuilder: () => ({
+              skillId: 'skill.column-mapping-verification',
+              isApproved: verification.isApproved,
+              verifiedMappings: verification.verifiedMappings,
+              validationErrors: verification.validationErrors,
+              confidenceScore: verification.confidenceScore,
+              requiresManualReview: verification.requiresManualReview,
+              notes: verification.notes,
+            }),
+          });
+
+          return {
+            output: aiResult.structuredOutput,
+            invokedMcpTools: [],
+            sourceRecordIds: {},
+            modelUsage: aiResult.usage,
+          };
+        },
+      },
     ];
 
     for (const def of definitions) {
@@ -1140,5 +1339,504 @@ export class AgentSkillsRegistryService {
       .filter((l) => l.organizationId === organizationId)
       .slice(-limit)
       .reverse();
+  }
+
+  static getColumnSamples(headerIndex: number, headerName: string, rows: unknown[]): string[] {
+    const samples: string[] = [];
+    for (const row of rows) {
+      if (!row) continue;
+      let val = '';
+      if (Array.isArray(row)) {
+        val = row[headerIndex] !== undefined ? String(row[headerIndex]).trim() : '';
+      } else if (typeof row === 'object') {
+        const obj = row as Record<string, unknown>;
+        if (obj[headerName] !== undefined) {
+          val = String(obj[headerName]).trim();
+        } else if (headerIndex < Object.values(obj).length) {
+          val = String(Object.values(obj)[headerIndex] ?? '').trim();
+        }
+      }
+      if (val && val !== 'null' && val !== 'undefined') {
+        samples.push(val);
+      }
+      if (samples.length >= 10) break;
+    }
+    return samples;
+  }
+
+  static profileSchemaAndColumns(fileName: string, headers: string[], rawSampleRows: unknown[]) {
+    const detectedMappings: Record<string, string | null> = {
+      dateColumn: null,
+      amountColumn: null,
+      descriptionColumn: null,
+      typeColumn: null,
+      categoryColumn: null,
+      counterpartyColumn: null,
+      departmentColumn: null,
+      referenceColumn: null,
+    };
+
+    const confidenceScores: Record<string, number> = {
+      date: 0,
+      amount: 0,
+      description: 0,
+      type: 0,
+      category: 0,
+      counterparty: 0,
+      department: 0,
+      reference: 0,
+    };
+
+    const fieldAnalysis: Record<string, string> = {};
+    const unmappedHeaders: string[] = [];
+    const usedHeaders = new Set<string>();
+
+    const isDateValue = (val: string): boolean => {
+      const v = val.trim();
+      if (!v || v.length < 4) return false;
+      if (/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/.test(v)) return true;
+      if (/^\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}/.test(v)) return true;
+      if (/^[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4}/.test(v)) return true;
+      if (!isNaN(Date.parse(v)) && !/^\d+$/.test(v) && !/^[0-9.,]+$/.test(v)) return true;
+      return false;
+    };
+
+    const isAmountValue = (val: string): boolean => {
+      const cleaned = val.replace(/[$₨£€PKR,]/gi, '').replace(/^\((.*)\)$/, '-$1').trim();
+      return cleaned.length > 0 && !isNaN(Number(cleaned));
+    };
+
+    const isTypeValue = (val: string): boolean => {
+      const upper = val.toUpperCase().trim();
+      return [
+        'INCOME',
+        'EXPENSE',
+        'TRANSFER',
+        'DR',
+        'CR',
+        'DEBIT',
+        'CREDIT',
+        'DEP',
+        'WD',
+        'PAYMENT',
+        'RECEIPT',
+      ].includes(upper);
+    };
+
+    const headerProfiles = headers.map((header, idx) => {
+      const lower = header.toLowerCase().replace(/[_-]/g, ' ').trim();
+      const samples = AgentSkillsRegistryService.getColumnSamples(idx, header, rawSampleRows);
+      const dateSampleMatchCount = samples.filter(isDateValue).length;
+      const amountSampleMatchCount = samples.filter(isAmountValue).length;
+      const typeSampleMatchCount = samples.filter(isTypeValue).length;
+      const textSampleMatchCount = samples.filter(
+        (s) => s.length > 2 && !isAmountValue(s) && !isDateValue(s),
+      ).length;
+
+      return {
+        header,
+        idx,
+        lower,
+        samples,
+        dateSampleRate: samples.length ? dateSampleMatchCount / samples.length : 0,
+        amountSampleRate: samples.length ? amountSampleMatchCount / samples.length : 0,
+        typeSampleRate: samples.length ? typeSampleMatchCount / samples.length : 0,
+        textSampleRate: samples.length ? textSampleMatchCount / samples.length : 0,
+      };
+    });
+
+    // 1. Map Date column
+    const dateKeywords = [
+      'date',
+      'timestamp',
+      'txn date',
+      'posting date',
+      'value date',
+      'trans date',
+      'booking date',
+      'time',
+    ];
+    const dateCandidates = headerProfiles
+      .map((p) => {
+        let score = 0;
+        if (p.lower === 'date' || p.lower === 'txn date' || p.lower === 'transaction date')
+          score += 0.65;
+        else if (dateKeywords.some((k) => p.lower.includes(k))) score += 0.45;
+        if (p.dateSampleRate >= 0.7) score += 0.35;
+        else if (p.dateSampleRate >= 0.4) score += 0.2;
+        else if (p.dateSampleRate === 0 && p.samples.length > 0) score -= 0.3;
+        return { ...p, score: Math.min(0.99, Math.max(0, score)) };
+      })
+      .filter((c) => c.score >= 0.5)
+      .sort((a, b) => b.score - a.score);
+
+    if (dateCandidates.length > 0) {
+      const topDate = dateCandidates[0];
+      detectedMappings.dateColumn = topDate.header;
+      confidenceScores.date = Number(topDate.score.toFixed(2));
+      usedHeaders.add(topDate.header);
+      fieldAnalysis.date = `Mapped to "${topDate.header}" (confidence ${(topDate.score * 100).toFixed(0)}%). Valid date syntax confirmed.`;
+      if (dateCandidates.length > 1 && dateCandidates[1].score > 0.65) {
+        fieldAnalysis.date += ` Note: Ambiguity detected with alternate column "${dateCandidates[1].header}".`;
+        confidenceScores.date = Math.min(confidenceScores.date, 0.8);
+      }
+    } else {
+      fieldAnalysis.date = 'No unambiguous date column identified. Manual assignment required.';
+    }
+
+    // 2. Map Amount column
+    const amountKeywords = [
+      'amount',
+      'net amount',
+      'total',
+      'sum',
+      'debit/credit',
+      'dr/cr',
+      'balance',
+      'price',
+      'value',
+    ];
+    const amountCandidates = headerProfiles
+      .filter((p) => !usedHeaders.has(p.header))
+      .map((p) => {
+        let score = 0;
+        if (
+          p.lower === 'amount' ||
+          p.lower === 'net amount' ||
+          p.lower === 'transaction amount'
+        )
+          score += 0.65;
+        else if (amountKeywords.some((k) => p.lower.includes(k))) score += 0.45;
+        if (p.amountSampleRate >= 0.7) score += 0.35;
+        else if (p.amountSampleRate >= 0.4) score += 0.2;
+        else if (p.amountSampleRate === 0 && p.samples.length > 0) score -= 0.3;
+        return { ...p, score: Math.min(0.99, Math.max(0, score)) };
+      })
+      .filter((c) => c.score >= 0.5)
+      .sort((a, b) => b.score - a.score);
+
+    if (amountCandidates.length > 0) {
+      const topAmount = amountCandidates[0];
+      detectedMappings.amountColumn = topAmount.header;
+      confidenceScores.amount = Number(topAmount.score.toFixed(2));
+      usedHeaders.add(topAmount.header);
+      fieldAnalysis.amount = `Mapped to "${topAmount.header}" (confidence ${(topAmount.score * 100).toFixed(0)}%). Numeric sample patterns validated.`;
+      if (amountCandidates.length > 1 && amountCandidates[1].score > 0.65) {
+        fieldAnalysis.amount += ` Note: Ambiguity detected with alternate amount column "${amountCandidates[1].header}".`;
+        confidenceScores.amount = Math.min(confidenceScores.amount, 0.8);
+      }
+    } else {
+      fieldAnalysis.amount =
+        'No unambiguous numeric amount column identified. Manual assignment required.';
+    }
+
+    // 3. Map Description column
+    const descKeywords = [
+      'description',
+      'desc',
+      'memo',
+      'narrative',
+      'particulars',
+      'details',
+      'name',
+      'title',
+      'remarks',
+      'notes',
+    ];
+    const descCandidates = headerProfiles
+      .filter((p) => !usedHeaders.has(p.header))
+      .map((p) => {
+        let score = 0;
+        if (
+          p.lower === 'description' ||
+          p.lower === 'particulars' ||
+          p.lower === 'narrative' ||
+          p.lower === 'memo'
+        )
+          score += 0.65;
+        else if (descKeywords.some((k) => p.lower.includes(k))) score += 0.45;
+        if (p.textSampleRate >= 0.6) score += 0.3;
+        return { ...p, score: Math.min(0.99, Math.max(0, score)) };
+      })
+      .filter((c) => c.score >= 0.45)
+      .sort((a, b) => b.score - a.score);
+
+    if (descCandidates.length > 0) {
+      const topDesc = descCandidates[0];
+      detectedMappings.descriptionColumn = topDesc.header;
+      confidenceScores.description = Number(topDesc.score.toFixed(2));
+      usedHeaders.add(topDesc.header);
+      fieldAnalysis.description = `Mapped to "${topDesc.header}" (confidence ${(topDesc.score * 100).toFixed(0)}%). Narrative text values corroborated.`;
+    } else {
+      fieldAnalysis.description =
+        'No clear description column detected. Manual selection required.';
+    }
+
+    // 4. Map Type column (Optional)
+    const typeKeywords = [
+      'type',
+      'direction',
+      'dr/cr',
+      'drcr',
+      'credit/debit',
+      'transaction type',
+      'txn type',
+    ];
+    const typeCandidates = headerProfiles
+      .filter((p) => !usedHeaders.has(p.header))
+      .map((p) => {
+        let score = 0;
+        if (p.lower === 'type' || p.lower === 'direction') score += 0.6;
+        else if (typeKeywords.some((k) => p.lower.includes(k))) score += 0.45;
+        if (p.typeSampleRate >= 0.6) score += 0.35;
+        return { ...p, score: Math.min(0.99, Math.max(0, score)) };
+      })
+      .filter((c) => c.score >= 0.5)
+      .sort((a, b) => b.score - a.score);
+
+    if (typeCandidates.length > 0) {
+      const topType = typeCandidates[0];
+      detectedMappings.typeColumn = topType.header;
+      confidenceScores.type = Number(topType.score.toFixed(2));
+      usedHeaders.add(topType.header);
+      fieldAnalysis.type = `Mapped to "${topType.header}" (confidence ${(topType.score * 100).toFixed(0)}%).`;
+    }
+
+    // 5. Map Category column (Optional)
+    const catKeywords = ['category', 'class', 'group', 'tag', 'account category'];
+    const catCandidates = headerProfiles
+      .filter((p) => !usedHeaders.has(p.header))
+      .map((p) => {
+        let score = 0;
+        if (p.lower === 'category') score += 0.65;
+        else if (catKeywords.some((k) => p.lower.includes(k))) score += 0.45;
+        return { ...p, score: Math.min(0.99, Math.max(0, score)) };
+      })
+      .filter((c) => c.score >= 0.5)
+      .sort((a, b) => b.score - a.score);
+
+    if (catCandidates.length > 0) {
+      const topCat = catCandidates[0];
+      detectedMappings.categoryColumn = topCat.header;
+      confidenceScores.category = Number(topCat.score.toFixed(2));
+      usedHeaders.add(topCat.header);
+      fieldAnalysis.category = `Mapped to "${topCat.header}" (confidence ${(topCat.score * 100).toFixed(0)}%).`;
+    }
+
+    // 6. Map Counterparty column (Optional)
+    const partyKeywords = [
+      'counterparty',
+      'payee',
+      'vendor',
+      'payer',
+      'client',
+      'customer',
+      'merchant',
+      'party',
+      'beneficiary',
+    ];
+    const partyCandidates = headerProfiles
+      .filter((p) => !usedHeaders.has(p.header))
+      .map((p) => {
+        let score = 0;
+        if (p.lower === 'payee' || p.lower === 'vendor' || p.lower === 'counterparty')
+          score += 0.65;
+        else if (partyKeywords.some((k) => p.lower.includes(k))) score += 0.45;
+        return { ...p, score: Math.min(0.99, Math.max(0, score)) };
+      })
+      .filter((c) => c.score >= 0.5)
+      .sort((a, b) => b.score - a.score);
+
+    if (partyCandidates.length > 0) {
+      const topParty = partyCandidates[0];
+      detectedMappings.counterpartyColumn = topParty.header;
+      confidenceScores.counterparty = Number(topParty.score.toFixed(2));
+      usedHeaders.add(topParty.header);
+      fieldAnalysis.counterparty = `Mapped to "${topParty.header}" (confidence ${(topParty.score * 100).toFixed(0)}%).`;
+    }
+
+    // 7. Map Department column (Optional)
+    const deptKeywords = [
+      'department',
+      'dept',
+      'cost center',
+      'division',
+      'business unit',
+    ];
+    const deptCandidates = headerProfiles
+      .filter((p) => !usedHeaders.has(p.header))
+      .map((p) => {
+        let score = 0;
+        if (p.lower === 'department' || p.lower === 'dept') score += 0.65;
+        else if (deptKeywords.some((k) => p.lower.includes(k))) score += 0.45;
+        return { ...p, score: Math.min(0.99, Math.max(0, score)) };
+      })
+      .filter((c) => c.score >= 0.5)
+      .sort((a, b) => b.score - a.score);
+
+    if (deptCandidates.length > 0) {
+      const topDept = deptCandidates[0];
+      detectedMappings.departmentColumn = topDept.header;
+      confidenceScores.department = Number(topDept.score.toFixed(2));
+      usedHeaders.add(topDept.header);
+      fieldAnalysis.department = `Mapped to "${topDept.header}".`;
+    }
+
+    // 8. Map Reference column (Optional)
+    const refKeywords = [
+      'reference',
+      'ref',
+      'ref no',
+      'ref num',
+      'reference number',
+      'txn id',
+      'transaction id',
+      'cheque',
+    ];
+    const refCandidates = headerProfiles
+      .filter((p) => !usedHeaders.has(p.header))
+      .map((p) => {
+        let score = 0;
+        if (p.lower === 'reference' || p.lower === 'ref' || p.lower === 'ref no')
+          score += 0.65;
+        else if (refKeywords.some((k) => p.lower.includes(k))) score += 0.45;
+        return { ...p, score: Math.min(0.99, Math.max(0, score)) };
+      })
+      .filter((c) => c.score >= 0.5)
+      .sort((a, b) => b.score - a.score);
+
+    if (refCandidates.length > 0) {
+      const topRef = refCandidates[0];
+      detectedMappings.referenceColumn = topRef.header;
+      confidenceScores.reference = Number(topRef.score.toFixed(2));
+      usedHeaders.add(topRef.header);
+      fieldAnalysis.reference = `Mapped to "${topRef.header}".`;
+    }
+
+    for (const h of headers) {
+      if (!usedHeaders.has(h)) {
+        unmappedHeaders.push(h);
+      }
+    }
+
+    const mappedCount = Object.values(detectedMappings).filter(Boolean).length;
+    const notes = `Finance Data Analyst profiled ${headers.length} headers across ${rawSampleRows.length} sample row(s): mapped ${mappedCount} canonical fields (${unmappedHeaders.length} unmapped).`;
+
+    return {
+      fileName,
+      detectedMappings,
+      confidenceScores,
+      fieldAnalysis,
+      unmappedHeaders,
+      notes,
+    };
+  }
+
+  static verifyColumnMappings(
+    headers: string[],
+    rawSampleRows: unknown[],
+    detectedMappings: Record<string, string | null>,
+    confidenceScores: Record<string, number>,
+  ) {
+    const validationErrors: string[] = [];
+    const verifiedMappings: Record<string, string | null> = { ...detectedMappings };
+
+    // 1. Required fields check
+    const required = [
+      { key: 'dateColumn', label: 'Date', confKey: 'date' },
+      { key: 'amountColumn', label: 'Amount', confKey: 'amount' },
+      { key: 'descriptionColumn', label: 'Description', confKey: 'description' },
+    ];
+
+    for (const req of required) {
+      const mappedHeader = detectedMappings[req.key];
+      if (!mappedHeader) {
+        validationErrors.push(`Required field "${req.label}" is not mapped.`);
+      } else if (!headers.includes(mappedHeader)) {
+        validationErrors.push(
+          `Mapped ${req.label} column "${mappedHeader}" does not exist in uploaded headers.`,
+        );
+      }
+    }
+
+    // 2. Collision check
+    const headerAssignments = new Map<string, string[]>();
+    for (const [field, header] of Object.entries(detectedMappings)) {
+      if (!header) continue;
+      const list = headerAssignments.get(header) ?? [];
+      list.push(field);
+      headerAssignments.set(header, list);
+    }
+
+    for (const [header, fields] of headerAssignments.entries()) {
+      if (fields.length > 1) {
+        validationErrors.push(
+          `Column conflict: header "${header}" is mapped to multiple fields [${fields.join(', ')}].`,
+        );
+      }
+    }
+
+    // 3. Syntax checks on sample rows
+    if (detectedMappings.dateColumn && headers.includes(detectedMappings.dateColumn)) {
+      const idx = headers.indexOf(detectedMappings.dateColumn);
+      const samples = AgentSkillsRegistryService.getColumnSamples(
+        idx,
+        detectedMappings.dateColumn,
+        rawSampleRows,
+      );
+      const invalidDates = samples.filter(
+        (s) => isNaN(Date.parse(s)) && !/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/.test(s),
+      );
+      if (samples.length > 0 && invalidDates.length === samples.length) {
+        validationErrors.push(
+          `Mapped Date column "${detectedMappings.dateColumn}" contains no valid date values in sample rows.`,
+        );
+      }
+    }
+
+    if (detectedMappings.amountColumn && headers.includes(detectedMappings.amountColumn)) {
+      const idx = headers.indexOf(detectedMappings.amountColumn);
+      const samples = AgentSkillsRegistryService.getColumnSamples(
+        idx,
+        detectedMappings.amountColumn,
+        rawSampleRows,
+      );
+      const invalidAmounts = samples.filter((s) => {
+        const cleaned = s
+          .replace(/[$₨£€PKR,]/gi, '')
+          .replace(/^\((.*)\)$/, '-$1')
+          .trim();
+        return isNaN(Number(cleaned)) || cleaned.length === 0;
+      });
+      if (samples.length > 0 && invalidAmounts.length === samples.length) {
+        validationErrors.push(
+          `Mapped Amount column "${detectedMappings.amountColumn}" contains no valid numeric amounts in sample rows.`,
+        );
+      }
+    }
+
+    // 4. Overall confidence score calculation
+    const dateConf = confidenceScores.date ?? 0;
+    const amountConf = confidenceScores.amount ?? 0;
+    const descConf = confidenceScores.description ?? 0;
+    const overallConfidence = Number(
+      (dateConf * 0.4 + amountConf * 0.4 + descConf * 0.2).toFixed(2),
+    );
+
+    const isApproved = validationErrors.length === 0 && overallConfidence >= 0.7;
+    const requiresManualReview = !isApproved || overallConfidence < 0.85;
+
+    const notes = isApproved
+      ? `Verifier AI verified proposed mappings with overall confidence of ${(overallConfidence * 100).toFixed(0)}%. All mandatory fields and syntactic formats validated.`
+      : `Verifier AI flagged proposed mappings: ${validationErrors.length} error(s) found. Manual user confirmation required.`;
+
+    return {
+      isApproved,
+      verifiedMappings,
+      validationErrors,
+      confidenceScore: overallConfidence,
+      requiresManualReview,
+      notes,
+    };
   }
 }

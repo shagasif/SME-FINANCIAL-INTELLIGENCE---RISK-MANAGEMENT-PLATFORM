@@ -8,14 +8,18 @@ import {
   DataSourceType,
   ImportBatchStatus,
   Prisma,
+  RoleType,
   TransactionType,
 } from '../../generated/prisma/client.js';
+import { AuthenticatedPrincipal } from '../../common/decorators/auth.decorators.js';
 import { DecimalMath } from '../../common/utils/decimal-math.js';
 import { SecurityUtil } from '../../common/utils/security.util.js';
 import { PrismaService } from '../../database/prisma.service.js';
+import { AiModelProviderService } from '../ai-orchestration/model-provider/ai-model-provider.service.js';
+import { SupervisorOrchestratorService } from '../ai-orchestration/supervisor-orchestrator.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { FinancialTransactionsService } from '../financial-transactions/financial-transactions.service.js';
-import { ConfirmCsvImportDto, UploadCsvPreviewDto } from './dto/csv-import.dto.js';
+import { AutoMapColumnsDto, ConfirmCsvImportDto, UploadCsvPreviewDto } from './dto/csv-import.dto.js';
 
 export interface ValidatedCsvRow {
   rowNumber: number;
@@ -44,7 +48,46 @@ export class CsvImportService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly supervisor: SupervisorOrchestratorService,
+    private readonly aiModelProvider: AiModelProviderService,
   ) {}
+
+  /**
+   * Dispatches file schema profiling and automatic column mapping to the
+   * Supervisor Orchestrator, Finance Data Analyst Agent, and Verifier AI Agent.
+   */
+  async autoMapColumns(
+    orgId: string,
+    dto: AutoMapColumnsDto,
+    user: AuthenticatedPrincipal,
+  ) {
+    if (!dto.headers || dto.headers.length === 0) {
+      throw new BadRequestException('At least one header column is required for AI column mapping');
+    }
+
+    const providerConfig = this.aiModelProvider.getProviderConfigurationSummary();
+
+    const orchestrationResult = await this.supervisor.orchestrateFileSchemaMapping({
+      organizationId: orgId,
+      userId: user.userId,
+      userRole: user.organizationRole ?? RoleType.FINANCE_MANAGER,
+      isPlatformAdmin: user.isPlatformAdmin,
+      fileName: dto.fileName,
+      headers: dto.headers,
+      sampleRows: dto.sampleRows ?? [],
+    });
+
+    return {
+      success: true,
+      provider: providerConfig.activeProvider,
+      externalCredentialsConfigured: providerConfig.externalCredentialsConfigured,
+      workflowRunId: orchestrationResult.workflowRunId,
+      taskClassification: orchestrationResult.taskClassification,
+      durationMs: orchestrationResult.durationMs,
+      analystResult: orchestrationResult.analystResult,
+      verifierResult: orchestrationResult.verifierResult,
+    };
+  }
 
   /**
    * Parses RFC-4180 CSV content into header array and row objects.
