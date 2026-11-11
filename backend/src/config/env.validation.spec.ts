@@ -67,4 +67,43 @@ describe('validateEnv', () => {
       }),
     ).toThrow(/FRONTEND_URL must contain valid http:\/\//);
   });
+
+  it('preserves valid AI provider and model configuration without exposing secrets', () => {
+    const result = validateEnv({
+      ...validBaseEnv,
+      AI_PROVIDER: 'gemini',
+      AI_GEMINI_API_KEY: 'test-secret-key-gemini',
+      AI_MODEL_SUPERVISOR: 'gemini-3.8-flash',
+      AI_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+      AI_TIMEOUT_MS: '60000',
+    });
+
+    expect(result.AI_PROVIDER).toBe('gemini');
+    expect(result.AI_GEMINI_API_KEY).toBe('test-secret-key-gemini');
+    expect(result.AI_MODEL_SUPERVISOR).toBe('gemini-3.8-flash');
+    expect(result.AI_BASE_URL).toBe(
+      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+    );
+    expect(result.AI_TIMEOUT_MS).toBe('60000');
+  });
+
+  it('throws a clear error when AI_PROVIDER is invalid and does not leak API keys in the error', () => {
+    expect(() =>
+      validateEnv({
+        ...validBaseEnv,
+        AI_PROVIDER: 'unsupported-provider',
+        AI_GEMINI_API_KEY: 'secret-key-that-must-not-appear',
+      }),
+    ).toThrow(/AI_PROVIDER must be one of: deterministic-grounded, openai, gemini, anthropic/);
+
+    try {
+      validateEnv({
+        ...validBaseEnv,
+        AI_PROVIDER: 'unsupported-provider',
+        AI_GEMINI_API_KEY: 'secret-key-that-must-not-appear',
+      });
+    } catch (err: unknown) {
+      expect((err as Error).message).not.toContain('secret-key-that-must-not-appear');
+    }
+  });
 });

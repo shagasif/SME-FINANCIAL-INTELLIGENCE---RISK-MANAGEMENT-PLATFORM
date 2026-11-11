@@ -24,6 +24,7 @@ import { AutoMapColumnsDto, ConfirmCsvImportDto, UploadCsvPreviewDto } from './d
 export interface ValidatedCsvRow {
   rowNumber: number;
   transactionDate: string;
+  date?: string;
   type: TransactionType;
   amount: string;
   description: string;
@@ -45,6 +46,65 @@ export interface CsvRowError {
 
 @Injectable()
 export class CsvImportService {
+  public static readonly ALLOWED_FILE_EXTENSIONS = ['.csv', '.xlsx', '.xls', '.json'] as const;
+
+  public static isSupportedFileName(fileName: string): boolean {
+    if (!fileName || typeof fileName !== 'string') return false;
+    // Strip optional worksheet specifier suffix like "[Sheet1]" or "[Sheet 2]"
+    const cleaned = fileName.replace(/\s*\[.*\]$/, '').trim().toLowerCase();
+    return CsvImportService.ALLOWED_FILE_EXTENSIONS.some((ext) => cleaned.endsWith(ext));
+  }
+
+  /**
+   * Robust date parser handling ISO-8601, standard date strings (YYYY-MM-DD, MM/DD/YYYY, DD/MM/YYYY),
+   * and Excel serial date numbers (e.g. 45506). Returns null if the value cannot be parsed or falls
+   * outside reasonable sanity boundaries.
+   */
+  public static parseFlexibleDate(raw: unknown): Date | null {
+    if (raw === null || raw === undefined) return null;
+    if (raw instanceof Date) {
+      return Number.isNaN(raw.getTime()) ? null : raw;
+    }
+    const trimmed = String(raw).trim();
+    if (!trimmed) return null;
+
+    // Excel serial dates: 4 to 5 digits (e.g. 45506 represents ~Aug 2024; valid range 1000 to 90000)
+    if (/^\d{4,5}(\.\d+)?$/.test(trimmed)) {
+      const serial = parseFloat(trimmed);
+      if (serial >= 1000 && serial <= 90000) {
+        // Excel base date: Dec 30, 1899 taking into account Lotus 1900 leap bug
+        const excelEpochMs = Date.UTC(1899, 11, 30);
+        const dateMs = excelEpochMs + Math.round(serial * 86400 * 1000);
+        const d = new Date(dateMs);
+        if (!Number.isNaN(d.getTime())) return d;
+      }
+    }
+
+    // Standard date parsing (ISO-8601, YYYY-MM-DD, MM/DD/YYYY, etc.)
+    const parsed = Date.parse(trimmed);
+    if (!Number.isNaN(parsed)) {
+      const d = new Date(parsed);
+      const y = d.getUTCFullYear();
+      if (y >= 1970 && y <= 2100) return d;
+    }
+
+    // Common DD/MM/YYYY or DD-MM-YYYY formats
+    const parts = trimmed.split(/[/.-]/);
+    if (parts.length === 3) {
+      const [p1, p2, p3] = parts.map((p) => parseInt(p, 10));
+      // YYYY-MM-DD
+      if (p1 > 1000 && p2 >= 1 && p2 <= 12 && p3 >= 1 && p3 <= 31) {
+        return new Date(Date.UTC(p1, p2 - 1, p3));
+      }
+      // DD-MM-YYYY
+      if (p3 > 1000 && p2 >= 1 && p2 <= 12 && p1 >= 1 && p1 <= 31) {
+        return new Date(Date.UTC(p3, p2 - 1, p1));
+      }
+    }
+
+    return null;
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -63,6 +123,12 @@ export class CsvImportService {
   ) {
     if (!dto.headers || dto.headers.length === 0) {
       throw new BadRequestException('At least one header column is required for AI column mapping');
+    }
+
+    if (!CsvImportService.isSupportedFileName(dto.fileName)) {
+      throw new BadRequestException(
+        'Only .csv, .xlsx, .xls, and .json files are permitted for financial transaction import',
+      );
     }
 
     const providerConfig = this.aiModelProvider.getProviderConfigurationSummary();
@@ -144,9 +210,9 @@ export class CsvImportService {
   }
 
   async createPreviewBatch(organizationId: string, dto: UploadCsvPreviewDto, actorUserId: string) {
-    if (!dto.fileName.toLowerCase().endsWith('.csv')) {
+    if (!CsvImportService.isSupportedFileName(dto.fileName)) {
       throw new BadRequestException(
-        'Only .csv files are permitted for financial transaction import',
+        'Only .csv, .xlsx, .xls, and .json files are permitted for financial transaction import',
       );
     }
 
@@ -164,7 +230,7 @@ export class CsvImportService {
     for (const col of requiredColumns) {
       if (!headers.includes(col)) {
         throw new BadRequestException(
-          `Mapped column "${col}" does not exist in CSV headers: [${headers.join(', ')}]`,
+          `Mapped column "${col}" does not exist in file headers: [${headers.join(', ')}]`,
         );
       }
     }
@@ -197,8 +263,8 @@ export class CsvImportService {
       const errors: string[] = [];
 
       const rawDate = raw[mapping.dateColumn] ?? '';
-      const parsedTime = Date.parse(rawDate);
-      if (!rawDate || Number.isNaN(parsedTime)) {
+      const parsedDate = CsvImportService.parseFlexibleDate(rawDate);
+      if (!parsedDate) {
         errors.push(`Invalid date "${rawDate}" in column "${mapping.dateColumn}"`);
       }
 
@@ -254,7 +320,7 @@ export class CsvImportService {
       }
 
       const absAmount = parsedDecimal.abs().toDecimalPlaces(4);
-      const txDate = new Date(parsedTime);
+      const txDate = parsedDate!;
 
       const descSanitized = SecurityUtil.sanitizeImportedText(rawDescription);
       const categoryRaw = mapping.categoryColumn
@@ -339,6 +405,7 @@ export class CsvImportService {
       const formattedRow: ValidatedCsvRow = {
         rowNumber: row.rowNumber,
         transactionDate: row.txDate.toISOString(),
+        date: row.txDate.toISOString().split('T')[0],
         type: row.type,
         amount: DecimalMath.toFixed4(row.amount),
         description: row.description,
@@ -362,7 +429,7 @@ export class CsvImportService {
     const dataSource = await this.prisma.dataSource.create({
       data: {
         organizationId,
-        name: `CSV Upload: ${dto.fileName}`,
+        name: `Financial File Import: ${dto.fileName}`,
         type: DataSourceType.CSV_IMPORT,
         description: `Uploaded by user ${actorUserId}`,
         metadata: { fileName: dto.fileName, fileChecksum },
@@ -407,7 +474,11 @@ export class CsvImportService {
       },
     });
 
-    return batch;
+    return {
+      ...batch,
+      validRows: batch.validRowsCount,
+      invalidRows: batch.errorRowsCount,
+    };
   }
 
   async confirmImportBatch(
@@ -523,6 +594,10 @@ export class CsvImportService {
     if (!batch) {
       throw new NotFoundException('Import batch not found');
     }
-    return batch;
+    return {
+      ...batch,
+      validRows: batch.validRowsCount,
+      invalidRows: batch.errorRowsCount,
+    };
   }
 }

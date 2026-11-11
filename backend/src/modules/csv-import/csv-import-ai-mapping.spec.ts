@@ -1,6 +1,7 @@
 import { jest } from '@jest/globals';
 import { AgentType, RoleType } from '../../generated/prisma/client.js';
 import { AgentSkillsRegistryService } from '../ai-orchestration/skills/agent-skills-registry.service.js';
+import { SupervisorOrchestratorService } from '../ai-orchestration/supervisor-orchestrator.service.js';
 import { CsvImportService } from './csv-import.service.js';
 
 describe('Financial File Auto-Mapping via Supervisor Orchestrator, Finance Data Analyst & Verifier AI', () => {
@@ -264,6 +265,380 @@ describe('Financial File Auto-Mapping via Supervisor Orchestrator, Finance Data 
         headers: ['Date', 'Amount', 'Description'],
         sampleRows: [['2026-10-01', '100.00', 'Test']],
       });
+    });
+  });
+
+  describe('SupervisorOrchestratorService.orchestrateFileSchemaMapping Prisma field compliance', () => {
+    it('updates WorkflowRun with durationMs (and not totalDurationMs) on success', async () => {
+      const mockWorkflowRun = { id: 'wf-test-1', organizationId: 'org-1' };
+      const mockAgentRun = { id: 'ag-test-1' };
+      const updateCalls: Array<{ where: any; data: any }> = [];
+
+      const mockPrisma = {
+        workflowRun: {
+          create: jest.fn().mockResolvedValue(mockWorkflowRun),
+          update: jest.fn().mockImplementation((args: any) => {
+            updateCalls.push(args);
+            return Promise.resolve({ ...mockWorkflowRun, ...args.data });
+          }),
+        },
+        agentRun: {
+          create: jest.fn().mockResolvedValue(mockAgentRun),
+          update: jest.fn().mockResolvedValue(mockAgentRun),
+        },
+      };
+
+      const mockSandbox = {
+        createSandboxContext: jest.fn().mockReturnValue({
+          sandboxId: 'sb-1',
+          allowedTools: [],
+          invokedTools: [],
+          blockedOperations: [],
+        }),
+        releaseSandbox: jest.fn(),
+      };
+
+      const mockSkillsRegistry = {
+        executeSkill: jest.fn().mockImplementation((skillId: string) => {
+          if (skillId === 'skill.file-schema-profiling-and-column-mapping') {
+            return Promise.resolve({
+              output: {
+                detectedMappings: {
+                  dateColumn: 'Date',
+                  amountColumn: 'Amount',
+                  descriptionColumn: 'Desc',
+                },
+                confidenceScores: { date: 0.95, amount: 0.95, description: 0.9 },
+                fieldAnalysis: {},
+                unmappedHeaders: [],
+                notes: 'Profiled',
+              },
+              invokedMcpTools: [],
+              sourceRecordIds: {},
+              modelUsage: { provider: 'deterministic-grounded', totalTokens: 100 },
+            });
+          }
+          return Promise.resolve({
+            output: {
+              isApproved: true,
+              verifiedMappings: {
+                dateColumn: 'Date',
+                amountColumn: 'Amount',
+                descriptionColumn: 'Desc',
+              },
+              validationErrors: [],
+              confidenceScore: 0.95,
+              requiresManualReview: false,
+              notes: 'Approved',
+            },
+            invokedMcpTools: [],
+            sourceRecordIds: {},
+            modelUsage: { provider: 'deterministic-grounded', totalTokens: 100 },
+          });
+        }),
+      };
+
+      const mockAudit = { record: jest.fn().mockResolvedValue({}) };
+
+      const orchestrator = new SupervisorOrchestratorService(
+        mockPrisma as any,
+        {} as any,
+        mockSandbox as any,
+        mockSkillsRegistry as any,
+        mockAudit as any,
+      );
+
+      const result = await orchestrator.orchestrateFileSchemaMapping({
+        organizationId: 'org-1',
+        userId: 'usr-1',
+        userRole: RoleType.BUSINESS_OWNER,
+        isPlatformAdmin: false,
+        fileName: 'test.csv',
+        headers: ['Date', 'Amount', 'Desc'],
+        sampleRows: [['2026-10-01', '50.00', 'Coffee']],
+      });
+
+      expect(result.workflowRunId).toBe('wf-test-1');
+      expect(updateCalls).toHaveLength(1);
+      const updatePayload = updateCalls[0].data;
+
+      // Ensure durationMs is recorded and invalid totalDurationMs is NOT present
+      expect(updatePayload).toHaveProperty('durationMs');
+      expect(typeof updatePayload.durationMs).toBe('number');
+      expect(updatePayload).not.toHaveProperty('totalDurationMs');
+      expect(updatePayload.status).toBe('COMPLETED');
+      expect(updatePayload.verificationStatus).toBe('APPROVED');
+      expect(updatePayload.completedAt).toBeInstanceOf(Date);
+    });
+
+    it('records durationMs and errorHookLog on failure, and does not hide original error if db update fails', async () => {
+      const mockWorkflowRun = { id: 'wf-fail-1', organizationId: 'org-1' };
+      const updateCalls: Array<{ where: any; data: any }> = [];
+
+      const mockPrisma = {
+        workflowRun: {
+          create: jest.fn().mockResolvedValue(mockWorkflowRun),
+          update: jest.fn().mockImplementation((args: any) => {
+            updateCalls.push(args);
+            // Simulate secondary DB error during catch block update
+            return Promise.reject(new Error('Simulated secondary DB error'));
+          }),
+        },
+        agentRun: {
+          create: jest.fn().mockRejectedValue(new Error('Primary specialist execution error')),
+        },
+      };
+
+      const mockSandbox = {
+        createSandboxContext: jest.fn().mockReturnValue({ sandboxId: 'sb-1' }),
+        releaseSandbox: jest.fn(),
+      };
+
+      const orchestrator = new SupervisorOrchestratorService(
+        mockPrisma as any,
+        {} as any,
+        mockSandbox as any,
+        {} as any,
+        {} as any,
+      );
+
+      // Verify original error is rethrown and NOT masked by the secondary DB failure
+      await expect(
+        orchestrator.orchestrateFileSchemaMapping({
+          organizationId: 'org-1',
+          userId: 'usr-1',
+          userRole: RoleType.BUSINESS_OWNER,
+          isPlatformAdmin: false,
+          fileName: 'test.csv',
+          headers: ['Date'],
+          sampleRows: [],
+        }),
+      ).rejects.toThrow('Primary specialist execution error');
+
+      expect(updateCalls).toHaveLength(1);
+      const failUpdate = updateCalls[0].data;
+      expect(failUpdate).toHaveProperty('durationMs');
+      expect(failUpdate).not.toHaveProperty('totalDurationMs');
+      expect(failUpdate.status).toBe('FAILED');
+      expect(failUpdate.verificationStatus).toBe('REJECTED');
+      expect(failUpdate.errorHookLog.errorMessage).toBe('Primary specialist execution error');
+    });
+  });
+
+  describe('Multi-Format File Support (CSV, XLSX, XLS, JSON)', () => {
+    it('isSupportedFileName correctly identifies all 4 supported extensions and strips sheet qualifiers', () => {
+      // Supported formats
+      expect(CsvImportService.isSupportedFileName('monthly_ledger.csv')).toBe(true);
+      expect(CsvImportService.isSupportedFileName('bank_statement.xlsx')).toBe(true);
+      expect(CsvImportService.isSupportedFileName('legacy_export.xls')).toBe(true);
+      expect(CsvImportService.isSupportedFileName('transaction_feed.json')).toBe(true);
+
+      // Case-insensitivity
+      expect(CsvImportService.isSupportedFileName('REPORT.XLSX')).toBe(true);
+      expect(CsvImportService.isSupportedFileName('DATA.CSV')).toBe(true);
+      expect(CsvImportService.isSupportedFileName('FEED.JSON')).toBe(true);
+      expect(CsvImportService.isSupportedFileName('ARCHIVE.XLS')).toBe(true);
+
+      // Worksheet suffixes
+      expect(CsvImportService.isSupportedFileName('monthly_ledger.xlsx [Operations]')).toBe(true);
+      expect(CsvImportService.isSupportedFileName('export.xls [Sheet 2]')).toBe(true);
+
+      // Unsupported formats
+      expect(CsvImportService.isSupportedFileName('financial_report.pdf')).toBe(false);
+      expect(CsvImportService.isSupportedFileName('script.py')).toBe(false);
+      expect(CsvImportService.isSupportedFileName('archive.zip')).toBe(false);
+      expect(CsvImportService.isSupportedFileName('payload.exe')).toBe(false);
+      expect(CsvImportService.isSupportedFileName('')).toBe(false);
+    });
+
+    it('createPreviewBatch accepts XLSX, XLS, and JSON formats without throwing extension errors', async () => {
+      const mockPrisma = {
+        financialAccount: {
+          findFirst: jest.fn().mockResolvedValue({ id: 'acc-1', organizationId: 'org-1', isArchived: false }),
+        },
+        dataSource: {
+          create: jest.fn().mockResolvedValue({ id: 'ds-1' }),
+        },
+        importBatch: {
+          create: jest.fn().mockImplementation((args: any) => Promise.resolve({ id: 'batch-1', ...args.data })),
+        },
+        financialTransaction: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          findMany: jest.fn().mockResolvedValue([]),
+        },
+      };
+
+      const mockAudit = {
+        record: jest.fn().mockResolvedValue(undefined),
+      };
+
+      const service = new CsvImportService(
+        mockPrisma as any,
+        mockAudit as any,
+        {} as any,
+        {} as any,
+      );
+
+      const validCsvContent = 'Date,Amount,Description\n2026-10-01,150.00,Office Supplies\n2026-10-02,320.00,Client Lunch\n';
+      const columnMapping = {
+        dateColumn: 'Date',
+        amountColumn: 'Amount',
+        descriptionColumn: 'Description',
+      };
+
+      // Test XLSX
+      const xlsxResult = await service.createPreviewBatch(
+        'org-1',
+        {
+          accountId: 'acc-1',
+          fileName: 'q4_statements.xlsx',
+          csvContent: validCsvContent,
+          columnMapping,
+        },
+        'usr-1',
+      );
+      expect(xlsxResult.fileName).toBe('q4_statements.xlsx');
+      expect(xlsxResult.totalRows).toBe(2);
+
+      // Test XLS
+      const xlsResult = await service.createPreviewBatch(
+        'org-1',
+        {
+          accountId: 'acc-1',
+          fileName: 'legacy_export.xls',
+          csvContent: validCsvContent,
+          columnMapping,
+        },
+        'usr-1',
+      );
+      expect(xlsResult.fileName).toBe('legacy_export.xls');
+
+      // Test JSON
+      const jsonResult = await service.createPreviewBatch(
+        'org-1',
+        {
+          accountId: 'acc-1',
+          fileName: 'bank_stream.json',
+          csvContent: validCsvContent,
+          columnMapping,
+        },
+        'usr-1',
+      );
+      expect(jsonResult.fileName).toBe('bank_stream.json');
+
+      // Test unsupported format is rejected
+      await expect(
+        service.createPreviewBatch(
+          'org-1',
+          {
+            accountId: 'acc-1',
+            fileName: 'statement.pdf',
+            csvContent: validCsvContent,
+            columnMapping,
+          },
+          'usr-1',
+        ),
+      ).rejects.toThrow('Only .csv, .xlsx, .xls, and .json files are permitted for financial transaction import');
+    });
+
+    it('parseFlexibleDate parses ISO dates, European DD-MM-YYYY, slash dates, and Excel serial numbers', () => {
+      // ISO-8601 string
+      const dIso = CsvImportService.parseFlexibleDate('2026-08-02');
+      expect(dIso).not.toBeNull();
+      expect(dIso?.toISOString().startsWith('2026-08-02')).toBe(true);
+
+      // Slash formatted date
+      const dSlash = CsvImportService.parseFlexibleDate('08/02/2026');
+      expect(dSlash).not.toBeNull();
+
+      // European DD-MM-YYYY format
+      const dEu = CsvImportService.parseFlexibleDate('15-08-2026');
+      expect(dEu).not.toBeNull();
+      expect(dEu?.toISOString().startsWith('2026-08-15')).toBe(true);
+
+      // Excel numeric serial date (e.g. 45506 -> Aug 2024)
+      const dSerial = CsvImportService.parseFlexibleDate('45506');
+      expect(dSerial).not.toBeNull();
+      expect(dSerial?.getUTCFullYear()).toBe(2024);
+
+      // Invalid / empty dates return null
+      expect(CsvImportService.parseFlexibleDate('invalid-date')).toBeNull();
+      expect(CsvImportService.parseFlexibleDate('')).toBeNull();
+      expect(CsvImportService.parseFlexibleDate(null)).toBeNull();
+      expect(CsvImportService.parseFlexibleDate('9999999')).toBeNull();
+    });
+
+    it('createPreviewBatch populates transactionDate and date, separates valid and error rows, and returns KPI counts', async () => {
+      let createdData: any = null;
+      const mockPrisma = {
+        financialAccount: {
+          findFirst: jest.fn().mockResolvedValue({ id: 'acc-1', organizationId: 'org-1', isArchived: false }),
+        },
+        dataSource: {
+          create: jest.fn().mockResolvedValue({ id: 'ds-1' }),
+        },
+        importBatch: {
+          create: jest.fn().mockImplementation((args: any) => {
+            createdData = args.data;
+            return Promise.resolve({ id: 'batch-test-2', ...args.data });
+          }),
+        },
+        financialTransaction: {
+          findFirst: jest.fn().mockResolvedValue(null),
+          findMany: jest.fn().mockResolvedValue([]),
+        },
+      };
+
+      const service = new CsvImportService(
+        mockPrisma as any,
+        { record: jest.fn().mockResolvedValue(undefined) } as any,
+        {} as any,
+        {} as any,
+      );
+
+      // Row 1: Valid ISO date
+      // Row 2: Valid Excel serial date (46238 -> Aug 2026)
+      // Row 3: Invalid corrupt date
+      const mixedCsvContent = 'Date,Amount,Description\n2026-08-02,185000.00,Retail Sales\n46238,245000.00,Wholesale Order\ncorrupt_date,500.00,Failed Date Entry\n';
+
+      const result = await service.createPreviewBatch(
+        'org-1',
+        {
+          accountId: 'acc-1',
+          fileName: 'SME_Financial_Test_Data.xlsx',
+          csvContent: mixedCsvContent,
+          columnMapping: {
+            dateColumn: 'Date',
+            amountColumn: 'Amount',
+            descriptionColumn: 'Description',
+          },
+        },
+        'usr-1',
+      );
+
+      // Verify KPI counts
+      expect(result.totalRows).toBe(3);
+      expect(result.validRowsCount).toBe(2);
+      expect(result.errorRowsCount).toBe(1);
+      expect(result.validRows).toBe(2);
+      expect(result.invalidRows).toBe(1);
+
+      // Verify preview rows contain both transactionDate and date
+      const previewRows = result.previewRows as any[];
+      expect(previewRows).toHaveLength(2);
+      expect(previewRows[0].transactionDate).toContain('2026-08-02');
+      expect(previewRows[0].date).toBe('2026-08-02');
+      expect(previewRows[0].description).toBe('Retail Sales');
+
+      expect(previewRows[1].transactionDate).toBeDefined();
+      expect(previewRows[1].date).toBeDefined();
+      expect(previewRows[1].description).toBe('Wholesale Order');
+
+      // Verify rowErrors contains the invalid date row
+      const rowErrors = result.rowErrors as any[];
+      expect(rowErrors).toHaveLength(1);
+      expect(rowErrors[0].rowNumber).toBe(4); // header is 1, row 3 is line 4
+      expect(rowErrors[0].errors[0]).toContain('Invalid date "corrupt_date"');
     });
   });
 });

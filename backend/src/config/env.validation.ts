@@ -10,9 +10,24 @@ export interface EnvConfig {
   PORT: number;
   FRONTEND_URL: string;
   DATABASE_URL: string;
+  JWT_SECRET?: string;
+  AI_PROVIDER?: string;
+  AI_API_KEY?: string;
+  AI_OPENAI_API_KEY?: string;
+  AI_GEMINI_API_KEY?: string;
+  AI_ANTHROPIC_API_KEY?: string;
+  AI_BASE_URL?: string;
+  AI_MODEL_SUPERVISOR?: string;
+  AI_MODEL_SPECIALIST?: string;
+  AI_MODEL_VERIFIER?: string;
+  AI_TIMEOUT_MS?: string;
+  AI_MAX_RETRIES?: string;
+  AI_RATE_LIMIT_PER_MIN?: string;
+  MCP_EXTERNAL_SERVER_URL?: string;
 }
 
 const ALLOWED_NODE_ENVS = ['development', 'test', 'production'] as const;
+const ALLOWED_AI_PROVIDERS = ['deterministic-grounded', 'openai', 'gemini', 'anthropic'] as const;
 
 export function validateEnv(raw: Record<string, unknown>): EnvConfig {
   const errors: string[] = [];
@@ -51,6 +66,43 @@ export function validateEnv(raw: Record<string, unknown>): EnvConfig {
     errors.push('DATABASE_URL must be a valid postgresql:// or postgres:// connection string');
   }
 
+  type OptionalEnvKey = Exclude<
+    keyof EnvConfig,
+    'NODE_ENV' | 'PORT' | 'FRONTEND_URL' | 'DATABASE_URL'
+  >;
+  const optionalConfig: Partial<Record<OptionalEnvKey, string>> = {};
+
+  if (raw.AI_PROVIDER !== undefined && raw.AI_PROVIDER !== '') {
+    const aiProvider = String(raw.AI_PROVIDER).trim().toLowerCase();
+    if (!ALLOWED_AI_PROVIDERS.includes(aiProvider as (typeof ALLOWED_AI_PROVIDERS)[number])) {
+      errors.push(`AI_PROVIDER must be one of: ${ALLOWED_AI_PROVIDERS.join(', ')}`);
+    } else {
+      optionalConfig.AI_PROVIDER = aiProvider;
+    }
+  }
+
+  const knownOptionalKeys: OptionalEnvKey[] = [
+    'JWT_SECRET',
+    'AI_API_KEY',
+    'AI_OPENAI_API_KEY',
+    'AI_GEMINI_API_KEY',
+    'AI_ANTHROPIC_API_KEY',
+    'AI_BASE_URL',
+    'AI_MODEL_SUPERVISOR',
+    'AI_MODEL_SPECIALIST',
+    'AI_MODEL_VERIFIER',
+    'AI_TIMEOUT_MS',
+    'AI_MAX_RETRIES',
+    'AI_RATE_LIMIT_PER_MIN',
+    'MCP_EXTERNAL_SERVER_URL',
+  ];
+
+  for (const key of knownOptionalKeys) {
+    if (typeof raw[key] === 'string' && (raw[key] as string).trim() !== '') {
+      optionalConfig[key] = (raw[key] as string).trim();
+    }
+  }
+
   if (errors.length > 0) {
     throw new Error(`Environment configuration validation failed:\n  - ${errors.join('\n  - ')}`);
   }
@@ -60,5 +112,6 @@ export function validateEnv(raw: Record<string, unknown>): EnvConfig {
     PORT: rawPort,
     FRONTEND_URL: frontendUrl,
     DATABASE_URL: databaseUrl,
+    ...optionalConfig,
   };
 }

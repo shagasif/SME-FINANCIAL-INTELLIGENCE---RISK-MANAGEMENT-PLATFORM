@@ -673,7 +673,7 @@ export class SupervisorOrchestratorService {
           verificationStatus: isApproved
             ? VerificationStatus.APPROVED
             : VerificationStatus.REQUIRES_HUMAN_REVIEW,
-          totalDurationMs: Date.now() - workflowStartMs,
+          durationMs: Date.now() - workflowStartMs,
           completedAt: new Date(),
         },
       });
@@ -701,15 +701,28 @@ export class SupervisorOrchestratorService {
         durationMs: Date.now() - workflowStartMs,
       };
     } catch (err: unknown) {
-      await this.prisma.workflowRun.update({
-        where: { id: workflowRun.id },
-        data: {
-          status: ExecutionStatus.FAILED,
-          verificationStatus: VerificationStatus.REJECTED,
-          totalDurationMs: Date.now() - workflowStartMs,
-          completedAt: new Date(),
-        },
-      });
+      try {
+        await this.prisma.workflowRun.update({
+          where: { id: workflowRun.id },
+          data: {
+            status: ExecutionStatus.FAILED,
+            verificationStatus: VerificationStatus.REJECTED,
+            durationMs: Date.now() - workflowStartMs,
+            errorHookLog: {
+              errorMessage: err instanceof Error ? err.message : String(err),
+              errorStack: err instanceof Error ? err.stack : undefined,
+              failedAt: new Date().toISOString(),
+            } as unknown as Prisma.InputJsonValue,
+            completedAt: new Date(),
+          },
+        });
+      } catch (dbError: unknown) {
+        // Prevent secondary Prisma error from hiding the original exception
+        console.error(
+          'Failed to record workflow failure status in database:',
+          dbError instanceof Error ? dbError.message : String(dbError),
+        );
+      }
       throw err;
     }
   }

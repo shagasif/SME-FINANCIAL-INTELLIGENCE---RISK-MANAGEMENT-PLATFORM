@@ -85,7 +85,8 @@ export class UploadCsvPreviewDto {
   fileName!: string;
 
   @ApiProperty({
-    description: 'UTF-8 CSV file content with header row',
+    description:
+      'UTF-8 tabular content with header row in CSV format (parsed from CSV, XLSX, XLS, or JSON)',
     example:
       'date,type,amount,description,category,counterparty\n2026-10-05,INCOME,15000.00,Enterprise SaaS License,Sales Revenue,GlobalCorp\n2026-10-06,EXPENSE,2400.50,Cloud Hosting,Cloud & IT,AWS',
   })
