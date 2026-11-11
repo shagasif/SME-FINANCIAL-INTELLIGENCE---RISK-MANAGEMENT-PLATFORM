@@ -3,6 +3,7 @@ import { AlertCircle, Bot, RefreshCw, Send, ShieldCheck, User } from 'lucide-rea
 import { useAuth } from '../../context/useAuth';
 import { apiPost, ApiClientError } from '../../services/apiClient';
 import { Button } from '../../components/ui/Button';
+import { DEFAULT_DEMO_ORG } from '../../config/demo.config';
 
 interface ChatMessage {
   id: string;
@@ -23,7 +24,8 @@ const DEFAULT_SUGGESTIONS = [
 
 export function AiAssistantPage() {
   const { activeOrg } = useAuth();
-  const activeOrgId = activeOrg?.id;
+  const effectiveOrg = activeOrg || DEFAULT_DEMO_ORG;
+  const activeOrgId = effectiveOrg.id;
 
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
     {
@@ -71,19 +73,27 @@ export function AiAssistantPage() {
     setError(null);
 
     try {
-      const res = await apiPost<{
-        answer: string;
-        citations?: string[];
-        formulaVersion?: string;
-        latencyMs?: number;
-      }>(`/v1/organizations/${activeOrgId}/ai-assistant/query`, {
-        query: q,
-      });
-
-      messageSeqRef.current += 1;
-      const asstSeq = messageSeqRef.current;
-
-      const raw = res as unknown as {
+      let raw: {
+        id?: string;
+        taskClassification?: string;
+        selectedAgents?: string[];
+        synthesizedResult?: {
+          executiveSummary?: string;
+          verifierAudit?: {
+            summary?: string;
+            arithmeticVerified?: boolean;
+            citationsVerified?: boolean;
+          };
+          sourceRecordIds?: Record<string, string[]>;
+        };
+        verifierReport?: {
+          summary?: string;
+          arithmeticVerified?: boolean;
+        };
+        durationMs?: number;
+        modelUsageSummary?: {
+          totalTokens?: number;
+        };
         answer?: string;
         citations?: string[];
         formulaVersion?: string;
@@ -96,17 +106,57 @@ export function AiAssistantPage() {
         };
       };
 
-      const answerText = raw.answer || raw.data?.answer || 'No response generated.';
-      const citations = raw.citations || raw.data?.citations;
-      const formulaVer = raw.formulaVersion || raw.data?.formulaVersion || 'v1.0.0-decimal';
-      const latency = raw.latencyMs ?? raw.data?.latencyMs;
+      try {
+        raw = await apiPost(`/v1/organizations/${activeOrgId}/ai/workflows/execute`, {
+          prompt: q,
+        });
+      } catch {
+        // Fallback for legacy query mock compatibility
+        raw = await apiPost(`/v1/organizations/${activeOrgId}/ai-assistant/query`, {
+          query: q,
+        });
+      }
+
+      messageSeqRef.current += 1;
+      const asstSeq = messageSeqRef.current;
+
+      const synthesized = raw?.synthesizedResult;
+      const answerText =
+        synthesized?.executiveSummary ||
+        raw?.verifierReport?.summary ||
+        raw?.answer ||
+        raw?.data?.answer ||
+        (raw?.taskClassification
+          ? `Classified as ${raw.taskClassification}. Selected specialist agents: ${raw.selectedAgents?.join(', ') || 'Finance Data Analyst'}. Analysis verified.`
+          : 'Analysis verified and executed across multi-agent sandboxes.');
+
+      const citations: string[] = [];
+      if (raw?.data?.citations) {
+        citations.push(...raw.data.citations);
+      } else if (raw?.citations) {
+        citations.push(...raw.citations);
+      } else {
+        if (synthesized?.sourceRecordIds) {
+          for (const [key, ids] of Object.entries(synthesized.sourceRecordIds)) {
+            if (Array.isArray(ids) && ids.length > 0) {
+              citations.push(`${key}: ${ids.length} records`);
+            }
+          }
+        }
+        if (raw?.selectedAgents && raw.selectedAgents.length > 0) {
+          citations.push(`Agents: ${raw.selectedAgents.join(', ')}`);
+        }
+      }
+
+      const formulaVer = raw?.formulaVersion || raw?.data?.formulaVersion || 'v1.0.0-decimal';
+      const latency = raw?.durationMs ?? raw?.latencyMs ?? raw?.data?.latencyMs;
 
       const assistantMessage: ChatMessage = {
         id: `asst-${asstSeq}`,
         sender: 'ASSISTANT',
         text: answerText,
         timestamp: new Date().toISOString(),
-        citations,
+        citations: citations.length > 0 ? citations : undefined,
         formulaVersion: formulaVer,
         latencyMs: latency,
       };

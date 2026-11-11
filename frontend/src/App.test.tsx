@@ -103,4 +103,35 @@ describe('LandingPage & Backend API Communication', () => {
       expect(screen.getByText('Operational (ok)')).toBeInTheDocument();
     });
   });
+
+  it('redirects unauthenticated users to the login page when Launch App is clicked', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          status: 'ok',
+          service: 'SME Financial Intelligence API',
+          timestamp: '2026-11-09T12:00:00.000Z',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+
+    render(<App />);
+
+    const launchAppLinks = screen.getAllByRole('link', { name: /Launch App/i });
+    expect(launchAppLinks.length).toBeGreaterThan(0);
+    fireEvent.click(launchAppLinks[0]);
+
+    // Verify user is redirected to the Login page
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: /Financial Intelligence & Risk Platform/i }),
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText(/Work Email Address/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Sign In to Workspace/i })).toBeInTheDocument();
+  });
 });

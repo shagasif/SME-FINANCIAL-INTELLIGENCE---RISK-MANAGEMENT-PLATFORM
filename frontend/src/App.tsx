@@ -20,7 +20,6 @@ import { ReportsPage } from './pages/reports/ReportsPage';
 import { TasksNotificationsPage } from './pages/tasks-notifications/TasksNotificationsPage';
 import { AdminPage } from './pages/admin/AdminPage';
 
-
 export function App() {
   return (
     <AuthProvider>
@@ -32,14 +31,7 @@ export function App() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
           {/* Public Landing & Demo Entry */}
-          <Route
-            path="/"
-            element={
-              <AppShell>
-                <LandingPage />
-              </AppShell>
-            }
-          />
+          <Route path="/" element={<LandingPage />} />
 
           {/* Core Modules wrapped in AppShell */}
           <Route

@@ -136,12 +136,27 @@ describe('AuthContext & useAuth', () => {
     authStorage.setToken('existing-token');
     authStorage.setActiveOrgId('org-1');
 
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      new Response(JSON.stringify({ success: true }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    );
+    const mockProfile = {
+      id: 'usr-1',
+      email: 'user@example.com',
+      fullName: 'Test User',
+      isPlatformAdmin: false,
+      memberships: [],
+    };
+
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(mockProfile), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
 
     const { result } = renderHook(() => useAuth(), {
       wrapper: AuthProvider,

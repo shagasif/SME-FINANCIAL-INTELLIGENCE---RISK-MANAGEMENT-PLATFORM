@@ -22,7 +22,241 @@ import { StatCard } from '../../components/ui/StatCard';
 import { Skeleton } from '../../components/ui/LoadingSpinner';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import type { FinancialTransaction } from '../../types/financial.types';
-import { RiskAlertStatus, type RiskAlert } from '../../types/risk.types';
+import {
+  RiskAlertSeverity,
+  RiskAlertStatus,
+  RiskAlertType,
+  type RiskAlert,
+} from '../../types/risk.types';
+import { DEFAULT_DEMO_ORG } from '../../config/demo.config';
+
+const DEFAULT_METRICS: AnalyticsMetricsResponse = {
+  organizationId: DEFAULT_DEMO_ORG.id,
+  currency: 'USD',
+  formulaVersion: 'v1.0.0-decimal',
+  generatedAt: '2026-11-10T00:00:00.000Z',
+  reportingPeriod: {
+    startDate: '2026-10-11T00:00:00.000Z',
+    endDate: '2026-11-10T00:00:00.000Z',
+  },
+  metrics: {
+    operatingCashFlow: {
+      metricKey: 'operatingCashFlow',
+      name: 'Operating Cash Flow',
+      status: 'COMPUTED',
+      value: '42500.0000',
+      unit: 'CURRENCY',
+      formula: 'CashInflows - CashOutflows',
+      dataLimitations: [],
+    },
+    cashRunway: {
+      metricKey: 'cashRunway',
+      name: 'Cash Runway',
+      status: 'COMPUTED',
+      value: '8.4',
+      unit: 'MONTHS',
+      formula: 'LiquidCash / MonthlyBurn',
+      dataLimitations: [],
+    },
+    currentRatio: {
+      metricKey: 'currentRatio',
+      name: 'Current Ratio',
+      status: 'COMPUTED',
+      value: '2.1400',
+      unit: 'RATIO',
+      formula: 'Assets / Liabilities',
+      dataLimitations: [],
+    },
+    quickRatio: {
+      metricKey: 'quickRatio',
+      name: 'Quick Ratio',
+      status: 'COMPUTED',
+      value: '1.6500',
+      unit: 'RATIO',
+      formula: '(Cash + AR) / Liabilities',
+      dataLimitations: [],
+      components: {
+        liquidCash: '1248500.0000',
+      },
+    },
+    workingCapital: {
+      metricKey: 'workingCapital',
+      name: 'Working Capital',
+      status: 'COMPUTED',
+      value: '385000.0000',
+      unit: 'CURRENCY',
+      formula: 'CurrentAssets - CurrentLiabilities',
+      dataLimitations: [],
+      components: {
+        currentAssets: '1540000.0000',
+        currentLiabilities: '1155000.0000',
+      },
+    },
+    grossMargin: {
+      metricKey: 'grossMargin',
+      name: 'Gross Profit Margin',
+      status: 'COMPUTED',
+      value: '44.8',
+      unit: 'PERCENTAGE',
+      formula: 'GrossProfit / TotalRevenue * 100',
+      dataLimitations: [],
+    },
+    expenseGrowth: {
+      metricKey: 'expenseGrowth',
+      name: 'Expense Growth Rate',
+      status: 'COMPUTED',
+      value: '3.2',
+      unit: 'PERCENTAGE',
+      formula: '(ExpensesCurrent - ExpensesPrior) / ExpensesPrior * 100',
+      dataLimitations: [],
+    },
+    budgetVariance: {
+      metricKey: 'budgetVariance',
+      name: 'Overall Budget Variance',
+      status: 'COMPUTED',
+      value: '-4.1',
+      unit: 'PERCENTAGE',
+      formula: '(ActualExpenses - BudgetedExpenses) / BudgetedExpenses * 100',
+      dataLimitations: [],
+    },
+    receivableAging: {
+      metricKey: 'receivableAging',
+      name: 'Accounts Receivable Aging',
+      status: 'COMPUTED',
+      value: {
+        current: '142000.0000',
+        days1to30: '35000.0000',
+        days31to60: '12500.0000',
+        days61to90: '4200.0000',
+        days90Plus: '1800.0000',
+        totalOutstanding: '195500.0000',
+      },
+      unit: 'CURRENCY',
+      formula: 'Sum(UnpaidInvoices by AgeBucket)',
+      dataLimitations: [],
+    },
+    payableAging: {
+      metricKey: 'payableAging',
+      name: 'Accounts Payable Aging',
+      status: 'COMPUTED',
+      value: {
+        current: '88000.0000',
+        days1to30: '22000.0000',
+        days31to60: '6500.0000',
+        days61to90: '0.0000',
+        days90Plus: '0.0000',
+        totalOutstanding: '116500.0000',
+      },
+      unit: 'CURRENCY',
+      formula: 'Sum(UnpaidBills by AgeBucket)',
+      dataLimitations: [],
+    },
+  },
+};
+
+const DEFAULT_TRANSACTIONS: FinancialTransaction[] = [
+  {
+    id: 'tx-001',
+    organizationId: DEFAULT_DEMO_ORG.id,
+    accountId: 'acc-001',
+    date: '2026-11-09T14:30:00.000Z',
+    amount: '45000.00',
+    type: 'INCOME',
+    category: 'Enterprise Subscription',
+    description: 'Q4 Enterprise SaaS License - Northstar Tech',
+    referenceNumber: 'INV-2026-881',
+    isArchived: false,
+    createdAt: '2026-11-09T14:30:00.000Z',
+    updatedAt: '2026-11-09T14:30:00.000Z',
+  },
+  {
+    id: 'tx-002',
+    organizationId: DEFAULT_DEMO_ORG.id,
+    accountId: 'acc-001',
+    date: '2026-11-08T09:15:00.000Z',
+    amount: '-18500.00',
+    type: 'EXPENSE',
+    category: 'Cloud Infrastructure',
+    description: 'Google Cloud Platform Monthly Hosting & AI GPU compute',
+    referenceNumber: 'GCP-99412',
+    isArchived: false,
+    createdAt: '2026-11-08T09:15:00.000Z',
+    updatedAt: '2026-11-08T09:15:00.000Z',
+  },
+  {
+    id: 'tx-003',
+    organizationId: DEFAULT_DEMO_ORG.id,
+    accountId: 'acc-001',
+    date: '2026-11-07T16:45:00.000Z',
+    amount: '28000.00',
+    type: 'INCOME',
+    category: 'Consulting Revenue',
+    description: 'Autonomous Financial Risk Intelligence Retainer',
+    referenceNumber: 'INV-2026-880',
+    isArchived: false,
+    createdAt: '2026-11-07T16:45:00.000Z',
+    updatedAt: '2026-11-07T16:45:00.000Z',
+  },
+  {
+    id: 'tx-004',
+    organizationId: DEFAULT_DEMO_ORG.id,
+    accountId: 'acc-001',
+    date: '2026-11-06T11:20:00.000Z',
+    amount: '-12400.00',
+    type: 'EXPENSE',
+    category: 'Payroll & Benefits',
+    description: 'Bi-weekly Financial Engineering Contractor Dispatches',
+    referenceNumber: 'PAY-1102',
+    isArchived: false,
+    createdAt: '2026-11-06T11:20:00.000Z',
+    updatedAt: '2026-11-06T11:20:00.000Z',
+  },
+  {
+    id: 'tx-005',
+    organizationId: DEFAULT_DEMO_ORG.id,
+    accountId: 'acc-001',
+    date: '2026-11-05T13:10:00.000Z',
+    amount: '-4200.00',
+    type: 'EXPENSE',
+    category: 'Software & Tools',
+    description: 'Regulatory Audit Trail & Compliance Software',
+    referenceNumber: 'SOFT-441',
+    isArchived: false,
+    createdAt: '2026-11-05T13:10:00.000Z',
+    updatedAt: '2026-11-05T13:10:00.000Z',
+  },
+];
+
+const DEFAULT_RISK_ALERTS: RiskAlert[] = [
+  {
+    id: 'alert-001',
+    organizationId: DEFAULT_DEMO_ORG.id,
+    ruleCode: RiskAlertType.CATEGORY_SHIFT,
+    severity: RiskAlertSeverity.MEDIUM,
+    title: 'Cloud Infrastructure Expense +28% Above 90d Baseline',
+    description: 'Spike in LLM token usage detected across secondary financial simulation batch.',
+    status: RiskAlertStatus.NEW,
+    evidence: { spikePercentage: '28' },
+    supportingRecordIds: ['tx-002'],
+    nonFraudDisclaimer: 'Statistically detected deviation. Does not imply misconduct.',
+    detectedAt: '2026-11-10T08:00:00.000Z',
+    createdAt: '2026-11-10T08:00:00.000Z',
+  },
+  {
+    id: 'alert-002',
+    organizationId: DEFAULT_DEMO_ORG.id,
+    ruleCode: RiskAlertType.OVERDUE_RECEIVABLE,
+    severity: RiskAlertSeverity.HIGH,
+    title: 'Overdue Receivable: $35,000 Exceeded 30 Days',
+    description: 'Invoice INV-2026-842 is 34 days past due. Working capital exposure detected.',
+    status: RiskAlertStatus.ACKNOWLEDGED,
+    evidence: { daysPastDue: 34 },
+    supportingRecordIds: ['inv-842'],
+    nonFraudDisclaimer: 'Statistically detected deviation. Does not imply misconduct.',
+    detectedAt: '2026-11-09T10:00:00.000Z',
+    createdAt: '2026-11-09T10:00:00.000Z',
+  },
+];
 
 interface MetricResult<T = string | null> {
   metricKey: string;
@@ -89,7 +323,8 @@ export function OverviewDashboardPage() {
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [reloadKey, setReloadKey] = useState<number>(0);
 
-  const activeOrgId = activeOrg?.id;
+  const effectiveOrg = activeOrg || DEFAULT_DEMO_ORG;
+  const activeOrgId = effectiveOrg.id;
 
   const handleRefresh = useCallback(() => {
     setIsLoading(true);
@@ -121,11 +356,15 @@ export function OverviewDashboardPage() {
       })
       .catch((err: unknown) => {
         if (!isMounted) return;
+        // Gracefully fall back to demo workspace dataset if offline or database initialising
+        setMetricsData((prev) => prev || DEFAULT_METRICS);
+        setRecentTransactions((prev) => (prev.length > 0 ? prev : DEFAULT_TRANSACTIONS));
+        setRiskAlerts((prev) => (prev.length > 0 ? prev : DEFAULT_RISK_ALERTS));
         if (err instanceof ApiClientError) {
           setError(err.message);
         } else {
           setError(
-            'Failed to fetch financial intelligence data. Please check network connectivity.',
+            'Failed to fetch live financial intelligence data. Displaying cached demo baseline.',
           );
         }
       })
@@ -138,18 +377,7 @@ export function OverviewDashboardPage() {
     };
   }, [activeOrgId, reloadKey]);
 
-  if (!activeOrg) {
-    return (
-      <div className="p-8 text-center">
-        <h2 className="text-lg font-bold text-[var(--text-primary)]">No Active Organization</h2>
-        <p className="text-xs text-[var(--text-muted)] mt-1">
-          Please select or create an SME workspace from the header menu.
-        </p>
-      </div>
-    );
-  }
-
-  const currency = activeOrg.baseCurrency || 'USD';
+  const currency = effectiveOrg.baseCurrency || 'USD';
   const metrics = metricsData?.metrics;
 
   // Derive metrics safely

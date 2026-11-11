@@ -20,6 +20,7 @@ import { Modal } from '../../components/ui/Modal';
 import { formatDate } from '../../utils/formatters';
 import { RoleType } from '../../types/auth.types';
 import type { AuditEvent } from '../../types/reports.types';
+import { DEFAULT_DEMO_ORG } from '../../config/demo.config';
 
 export interface WorkspaceMemberRecord {
   id: string;
@@ -34,7 +35,8 @@ export interface WorkspaceMemberRecord {
 
 export function AdminPage() {
   const { user, activeOrg, hasRole, activeRole } = useAuth();
-  const activeOrgId = activeOrg?.id;
+  const effectiveOrg = activeOrg || DEFAULT_DEMO_ORG;
+  const activeOrgId = effectiveOrg.id;
 
   const isAuthorizedAdmin =
     user?.isPlatformAdmin || hasRole([RoleType.PLATFORM_ADMIN, RoleType.BUSINESS_OWNER]);
@@ -42,7 +44,7 @@ export function AdminPage() {
   const [activeTab, setActiveTab] = useState<'SETTINGS' | 'MEMBERS' | 'AUDIT_LOGS'>('SETTINGS');
 
   // Org Settings State
-  const [orgName, setOrgName] = useState(activeOrg?.name || '');
+  const [orgName, setOrgName] = useState(effectiveOrg.name || '');
   const [baseCurrency, setBaseCurrency] = useState(activeOrg?.baseCurrency || 'USD');
   const [fiscalYearStart, setFiscalYearStart] = useState('1');
   const [timezone, setTimezone] = useState('America/New_York');

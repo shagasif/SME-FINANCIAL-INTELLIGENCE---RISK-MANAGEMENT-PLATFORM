@@ -45,7 +45,7 @@ export function Sidebar() {
   const { hasRole, activeRole, isAuditor } = useAuth();
 
   const filteredNavItems = MAIN_NAVIGATION_ITEMS.filter((item) =>
-    hasRole(item.allowedRoles as RoleType[]),
+    activeRole ? hasRole(item.allowedRoles as RoleType[]) : true,
   );
 
   return (
@@ -87,32 +87,32 @@ export function Sidebar() {
       </div>
 
       {/* Role Pill Banner */}
-      {activeRole && (
-        <div className="px-3 pt-3 pb-1">
-          <div
-            className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs font-semibold ${
-              isAuditor
-                ? 'bg-[var(--status-warn-bg)] text-[var(--status-warn-text)] border-[var(--status-warn-text)]/30'
-                : 'bg-[var(--surface-elevated)] text-[var(--accent-teal)] border-[var(--border-subtle)]'
-            }`}
-          >
-            <Shield className="w-3.5 h-3.5 shrink-0" />
-            {!isCollapsed && (
-              <div className="truncate">
-                <span className="uppercase tracking-wider text-[10px] block opacity-75 font-normal">
-                  Active Role
+      <div className="px-3 pt-3 pb-1">
+        <div
+          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs font-semibold ${
+            isAuditor
+              ? 'bg-[var(--status-warn-bg)] text-[var(--status-warn-text)] border-[var(--status-warn-text)]/30'
+              : 'bg-[var(--surface-elevated)] text-[var(--accent-teal)] border-[var(--border-subtle)]'
+          }`}
+        >
+          <Shield className="w-3.5 h-3.5 shrink-0" />
+          {!isCollapsed && (
+            <div className="truncate">
+              <span className="uppercase tracking-wider text-[10px] block opacity-75 font-normal">
+                {activeRole ? 'Active Role' : 'Workspace Mode'}
+              </span>
+              <span className="truncate">
+                {activeRole ? activeRole.replace('_', ' ') : 'BUSINESS OWNER'}
+              </span>
+              {isAuditor && (
+                <span className="text-[10px] font-normal block text-amber-700 dark:text-amber-300">
+                  (Read-Only)
                 </span>
-                <span className="truncate">{activeRole.replace('_', ' ')}</span>
-                {isAuditor && (
-                  <span className="text-[10px] font-normal block text-amber-700 dark:text-amber-300">
-                    (Read-Only)
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Navigation Links */}
       <nav className="flex-1 overflow-y-auto px-2.5 py-3 space-y-1">

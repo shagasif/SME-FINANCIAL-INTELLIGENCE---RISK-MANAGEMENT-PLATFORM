@@ -59,7 +59,7 @@ export function MobileNav({ isOpen, onClose }: MobileNavProps) {
   if (!isOpen) return null;
 
   const filteredNavItems = MAIN_NAVIGATION_ITEMS.filter((item) =>
-    hasRole(item.allowedRoles as RoleType[]),
+    activeRole ? hasRole(item.allowedRoles as RoleType[]) : true,
   );
 
   return (

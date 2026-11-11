@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { AlertCircle, ArrowRight, Sparkles } from 'lucide-react';
+import { AlertCircle, ArrowRight } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -9,58 +9,6 @@ import { ApiClientError } from '../../services/apiClient';
 interface LocationState {
   from?: { pathname: string };
 }
-
-const DEMO_ACCOUNTS = [
-  {
-    role: 'BUSINESS_OWNER',
-    label: 'Business Owner',
-    email: 'owner@apex.local',
-    badge: 'Executive',
-    desc: 'Full company oversight & approval authority',
-  },
-  {
-    role: 'FINANCE_MANAGER',
-    label: 'Finance Manager',
-    email: 'finance@apex.local',
-    badge: 'Controller',
-    desc: 'Ledger mutations, budgets & AI workflows',
-  },
-  {
-    role: 'ACCOUNTANT',
-    label: 'Accountant',
-    email: 'accountant@apex.local',
-    badge: 'Accounting',
-    desc: 'Invoices, bills & double-entry reconciliation',
-  },
-  {
-    role: 'OPERATIONS_MANAGER',
-    label: 'Operations Manager',
-    email: 'ops@apex.local',
-    badge: 'Ops',
-    desc: 'Bill approvals & departmental budgets',
-  },
-  {
-    role: 'FINANCIAL_ANALYST',
-    label: 'Financial Analyst',
-    email: 'analyst@apex.local',
-    badge: 'Analysis',
-    desc: 'Forecasts, scenarios & risk monitoring',
-  },
-  {
-    role: 'AUDITOR',
-    label: 'Auditor',
-    email: 'auditor@apex.local',
-    badge: 'Read-Only',
-    desc: 'Read-only compliance inspection & audit logs',
-  },
-  {
-    role: 'PLATFORM_ADMIN',
-    label: 'Platform Admin',
-    email: 'admin@platform.local',
-    badge: 'Admin',
-    desc: 'Tenant provisioning & platform settings',
-  },
-];
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -72,7 +20,6 @@ export function LoginPage() {
   const [persist, setPersist] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showDemoAccounts, setShowDemoAccounts] = useState(true);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -106,12 +53,6 @@ export function LoginPage() {
     }
   };
 
-  const handleSelectDemoAccount = (demoEmail: string) => {
-    setEmail(demoEmail);
-    setPassword('Password123!');
-    setError(null);
-  };
-
   return (
     <div className="min-h-screen bg-[var(--surface-canvas)] flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
@@ -119,10 +60,10 @@ export function LoginPage() {
           SME
         </div>
         <h1 className="text-2xl font-bold tracking-tight text-[var(--text-primary)]">
-          Financial Intelligence & Risk Platform
+          Financial Intelligence &amp; Risk Platform
         </h1>
         <p className="mt-1.5 text-xs text-[var(--text-muted)]">
-          Autonomous AI Multi-Agent Risk Monitoring & Executive Decision Engine
+          Autonomous AI Multi-Agent Risk Monitoring &amp; Executive Decision Engine
         </p>
       </div>
 
@@ -191,60 +132,6 @@ export function LoginPage() {
               <ArrowRight className="w-4 h-4 ml-1.5" />
             </Button>
           </form>
-
-          {/* Authorized Demo Credentials Panel */}
-          <div className="mt-6 pt-6 border-t border-[var(--border-subtle)]">
-            <button
-              type="button"
-              onClick={() => setShowDemoAccounts(!showDemoAccounts)}
-              className="w-full flex items-center justify-between text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
-            >
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-amber-500" />
-                <span>Authorized Demo Accounts (7 RBAC Roles)</span>
-              </div>
-              <span className="text-[11px] text-[var(--accent-teal)]">
-                {showDemoAccounts ? 'Hide' : 'Show'}
-              </span>
-            </button>
-
-            {showDemoAccounts && (
-              <div className="mt-3.5 space-y-2">
-                <p className="text-[11px] text-[var(--text-muted)] mb-2">
-                  Select an authorized demo role to autofill verified test credentials:
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {DEMO_ACCOUNTS.map((acc) => {
-                    const isCurrent = email === acc.email;
-                    return (
-                      <button
-                        key={acc.email}
-                        type="button"
-                        onClick={() => handleSelectDemoAccount(acc.email)}
-                        className={`flex flex-col text-left p-2.5 rounded-xl border text-xs transition-all cursor-pointer ${
-                          isCurrent
-                            ? 'border-[var(--accent-teal)] bg-[var(--surface-elevated)] ring-1 ring-[var(--accent-teal)]'
-                            : 'border-[var(--border-subtle)] bg-[var(--surface-canvas)]/50 hover:bg-[var(--surface-elevated)]/60'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold text-[var(--text-primary)]">
-                            {acc.label}
-                          </span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-md font-mono uppercase bg-[var(--surface-card)] border border-[var(--border-subtle)] text-[var(--text-muted)]">
-                            {acc.badge}
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-[var(--text-muted)] truncate mt-0.5">
-                          {acc.email}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
 
           <div className="mt-6 text-center text-xs text-[var(--text-muted)]">
             Need a new company workspace?{' '}

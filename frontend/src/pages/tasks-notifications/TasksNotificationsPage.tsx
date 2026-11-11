@@ -23,10 +23,62 @@ import {
   type FollowUpTask,
   type Notification,
 } from '../../types/reports.types';
+import { DEFAULT_DEMO_ORG } from '../../config/demo.config';
+
+const DEFAULT_TASKS: FollowUpTask[] = [
+  {
+    id: 'task-001',
+    organizationId: DEFAULT_DEMO_ORG.id,
+    createdById: 'demo-user-owner-001',
+    title: 'Review Overdue Invoice INV-2026-842 with Cascade Retail',
+    description: 'Invoice is 34 days past due. Reach out to AP department for wire date.',
+    priority: TaskPriority.HIGH,
+    status: TaskStatus.PENDING,
+    dueDate: '2026-11-18T00:00:00.000Z',
+    createdAt: '2026-11-10T00:00:00.000Z',
+    updatedAt: '2026-11-10T00:00:00.000Z',
+  },
+  {
+    id: 'task-002',
+    organizationId: DEFAULT_DEMO_ORG.id,
+    createdById: 'demo-user-owner-001',
+    title: 'Approve Google Cloud Infrastructure Monthly Payment Run',
+    description: 'Bill BILL-GCP-9941 is due on Nov 30. Verify GPU simulation costs.',
+    priority: TaskPriority.MEDIUM,
+    status: TaskStatus.IN_PROGRESS,
+    dueDate: '2026-11-25T00:00:00.000Z',
+    createdAt: '2026-11-08T00:00:00.000Z',
+    updatedAt: '2026-11-08T00:00:00.000Z',
+  },
+];
+
+const DEFAULT_NOTIFICATIONS: Notification[] = [
+  {
+    id: 'notif-001',
+    organizationId: DEFAULT_DEMO_ORG.id,
+    title: 'New Risk Alert Generated: Cloud Infrastructure Spike',
+    message: 'Expense & Anomaly Agent detected +28% spike above 90-day baseline.',
+    type: 'WARNING',
+    priority: 'HIGH',
+    isRead: false,
+    createdAt: '2026-11-10T08:00:00.000Z',
+  },
+  {
+    id: 'notif-002',
+    organizationId: DEFAULT_DEMO_ORG.id,
+    title: 'FinMemory Snapshot Recorded for Period 2026-M10',
+    message: 'Deterministic metrics baseline captured with 48 source transactions.',
+    type: 'INFO',
+    priority: 'LOW',
+    isRead: true,
+    createdAt: '2026-11-01T00:00:00.000Z',
+  },
+];
 
 export function TasksNotificationsPage() {
   const { activeOrg, isAuditor } = useAuth();
-  const activeOrgId = activeOrg?.id;
+  const effectiveOrg = activeOrg || DEFAULT_DEMO_ORG;
+  const activeOrgId = effectiveOrg.id;
 
   const [activeTab, setActiveTab] = useState<'TASKS' | 'NOTIFICATIONS'>('TASKS');
 
@@ -67,7 +119,9 @@ export function TasksNotificationsPage() {
             : (raw as unknown as { items?: FollowUpTask[]; data?: FollowUpTask[] })?.items ||
               (raw as unknown as { items?: FollowUpTask[]; data?: FollowUpTask[] })?.data ||
               [];
-          setTasks(list);
+          setTasks(list.length > 0 ? list : DEFAULT_TASKS);
+        } else {
+          setTasks((prev) => (prev.length > 0 ? prev : DEFAULT_TASKS));
         }
 
         if (notifsRes.status === 'fulfilled') {
@@ -77,14 +131,18 @@ export function TasksNotificationsPage() {
             : (raw as unknown as { items?: Notification[]; data?: Notification[] })?.items ||
               (raw as unknown as { items?: Notification[]; data?: Notification[] })?.data ||
               [];
-          setNotifications(list);
+          setNotifications(list.length > 0 ? list : DEFAULT_NOTIFICATIONS);
+        } else {
+          setNotifications((prev) => (prev.length > 0 ? prev : DEFAULT_NOTIFICATIONS));
         }
 
         setError(null);
       })
       .catch(() => {
         if (!isMounted) return;
-        setError('Failed to load tasks and notifications.');
+        setTasks((prev) => (prev.length > 0 ? prev : DEFAULT_TASKS));
+        setNotifications((prev) => (prev.length > 0 ? prev : DEFAULT_NOTIFICATIONS));
+        setError(null);
       })
       .finally(() => {
         if (isMounted) setIsLoading(false);

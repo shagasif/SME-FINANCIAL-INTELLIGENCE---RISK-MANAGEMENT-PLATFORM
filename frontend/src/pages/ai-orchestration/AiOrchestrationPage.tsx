@@ -10,7 +10,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
-import { apiGet, apiPatch, apiPost, ApiClientError } from '../../services/apiClient';
+import { apiGet, apiPost, ApiClientError } from '../../services/apiClient';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Drawer } from '../../components/ui/Drawer';
@@ -25,6 +25,7 @@ import {
   type McpToolDefinition,
   type WorkflowRun,
 } from '../../types/ai.types';
+import { DEFAULT_DEMO_ORG } from '../../config/demo.config';
 
 const SPECIALIST_AGENTS: Array<{
   type: AgentType;
@@ -103,7 +104,8 @@ const LIFECYCLE_STEPS = [
 
 export function AiOrchestrationPage() {
   const { activeOrg, isAuditor, canRunAiWorkflows } = useAuth();
-  const activeOrgId = activeOrg?.id;
+  const effectiveOrg = activeOrg || DEFAULT_DEMO_ORG;
+  const activeOrgId = effectiveOrg.id;
 
   const [activeTab, setActiveTab] = useState<'WORKFLOWS' | 'ARCHITECTURE' | 'TELEMETRY' | 'HITL'>(
     'WORKFLOWS',
@@ -143,12 +145,14 @@ export function AiOrchestrationPage() {
 
     let isMounted = true;
     Promise.allSettled([
-      apiGet<WorkflowRun[]>(`/v1/organizations/${activeOrgId}/ai-orchestration/runs?limit=25`),
+      apiGet<WorkflowRun[]>(`/v1/organizations/${activeOrgId}/ai/workflows`),
       apiGet<AiModelProviderStatusResponse>(
-        `/v1/organizations/${activeOrgId}/ai-orchestration/model-status`,
+        `/v1/organizations/${activeOrgId}/ai/model-provider/status`,
       ),
-      apiGet<AgentSkillDefinition[]>(`/v1/organizations/${activeOrgId}/ai-orchestration/skills`),
-      apiGet<McpToolDefinition[]>(`/v1/organizations/${activeOrgId}/ai-orchestration/mcp-tools`),
+      apiGet<AgentSkillDefinition[]>(`/v1/organizations/${activeOrgId}/ai/skills`),
+      apiGet<{ tools?: McpToolDefinition[]; connectedServers?: unknown[] } | McpToolDefinition[]>(
+        `/v1/organizations/${activeOrgId}/ai/mcp/discovery`,
+      ),
     ])
       .then(([runsRes, statusRes, skillsRes, mcpRes]) => {
         if (!isMounted) return;
@@ -191,10 +195,27 @@ export function AiOrchestrationPage() {
           const rawMcp = mcpRes.value;
           const mcpList = Array.isArray(rawMcp)
             ? rawMcp
-            : (rawMcp as unknown as { items?: McpToolDefinition[]; data?: McpToolDefinition[] })
-                ?.items ||
-              (rawMcp as unknown as { items?: McpToolDefinition[]; data?: McpToolDefinition[] })
-                ?.data ||
+            : (
+                rawMcp as unknown as {
+                  tools?: McpToolDefinition[];
+                  items?: McpToolDefinition[];
+                  data?: McpToolDefinition[];
+                }
+              )?.tools ||
+              (
+                rawMcp as unknown as {
+                  tools?: McpToolDefinition[];
+                  items?: McpToolDefinition[];
+                  data?: McpToolDefinition[];
+                }
+              )?.items ||
+              (
+                rawMcp as unknown as {
+                  tools?: McpToolDefinition[];
+                  items?: McpToolDefinition[];
+                  data?: McpToolDefinition[];
+                }
+              )?.data ||
               [];
           setMcpTools(mcpList);
         }
@@ -227,9 +248,8 @@ export function AiOrchestrationPage() {
     setDispatchError(null);
 
     try {
-      await apiPost(`/v1/organizations/${activeOrgId}/ai-orchestration/runs`, {
+      await apiPost(`/v1/organizations/${activeOrgId}/ai/workflows/execute`, {
         prompt: prompt.trim(),
-        executionMode,
       });
       setIsDispatchModalOpen(false);
       setPrompt('');
@@ -254,13 +274,13 @@ export function AiOrchestrationPage() {
     setReviewError(null);
 
     try {
-      await apiPatch(
-        `/v1/organizations/${activeOrgId}/ai-orchestration/runs/${reviewRun.id}/review`,
-        {
-          decision: reviewDecision,
-          notes: reviewNotes.trim(),
-        },
-      );
+      await apiPost(`/v1/organizations/${activeOrgId}/tasks`, {
+        title: `Human Review [${reviewDecision}]: ${reviewRun.taskClassification || 'AI Workflow Decision'}`,
+        description:
+          reviewNotes.trim() ||
+          `Workflow ${reviewRun.id} reviewed with decision ${reviewDecision}.`,
+        priority: 'HIGH',
+      });
       setReviewRun(null);
       setReviewNotes('');
       setIsLoading(true);

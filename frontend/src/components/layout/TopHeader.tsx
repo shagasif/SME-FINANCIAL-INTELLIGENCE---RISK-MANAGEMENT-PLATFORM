@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Bell,
   Building2,
@@ -53,7 +54,7 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
         </button>
 
         {/* Organization Workspace Selector */}
-        {activeOrg && (
+        {activeOrg ? (
           <div className="relative" ref={orgMenuRef}>
             <button
               onClick={() => setIsOrgMenuOpen(!isOrgMenuOpen)}
@@ -106,6 +107,11 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
               </div>
             )}
           </div>
+        ) : (
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)]/40 text-xs font-medium text-[var(--text-muted)]">
+            <Building2 className="w-4 h-4 text-[var(--text-muted)] shrink-0" />
+            <span>No Organization Selected</span>
+          </div>
         )}
       </div>
 
@@ -125,18 +131,20 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
           )}
         </button>
 
-        {/* Notifications Icon */}
-        <button
-          className="relative p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
-          aria-label="View notifications"
-          title="Notifications"
-        >
-          <Bell className="w-4 h-4" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[var(--accent-amber)]" />
-        </button>
-
-        {/* User Profile Menu */}
+        {/* Notifications Icon (when user is authenticated) */}
         {user && (
+          <button
+            className="relative p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+            aria-label="View notifications"
+            title="Notifications"
+          >
+            <Bell className="w-4 h-4" />
+            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[var(--accent-amber)]" />
+          </button>
+        )}
+
+        {/* User Profile Menu or Sign In CTA */}
+        {user ? (
           <div className="relative" ref={userMenuRef}>
             <button
               onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
@@ -186,6 +194,13 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
               </div>
             )}
           </div>
+        ) : (
+          <Link
+            to="/login"
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[var(--accent-primary)] hover:bg-[#12372A]/90 text-white shadow-xs transition-colors"
+          >
+            Sign In
+          </Link>
         )}
       </div>
     </header>

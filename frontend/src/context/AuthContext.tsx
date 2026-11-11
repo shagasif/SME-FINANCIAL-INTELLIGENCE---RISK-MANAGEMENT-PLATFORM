@@ -14,7 +14,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserSummary | null>(null);
   const [activeOrg, setActiveOrg] = useState<OrganizationSummary | null>(null);
   const [memberships, setMemberships] = useState<OrganizationMembershipSummary[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(() => Boolean(authStorage.getToken()));
 
   const activeRole: RoleType | null =
     (activeOrg?.role as RoleType | undefined) ||
@@ -63,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let isMounted = true;
     apiGet<UserProfileResponse>('/v1/auth/me')
       .then((profile) => {
-        if (!isMounted) return;
+        if (!isMounted || !authStorage.getToken() || !profile?.id) return;
         setUser({
           id: profile.id,
           email: profile.email,
