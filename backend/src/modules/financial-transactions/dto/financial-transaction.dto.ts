@@ -4,6 +4,7 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsIn,
   IsNumberString,
   IsOptional,
   IsString,
@@ -194,6 +195,20 @@ export class UpdateTransactionDto {
   isCostOfGoodsSold?: boolean;
 }
 
+export const TRANSACTION_SORT_FIELDS = [
+  'transactionDate',
+  'description',
+  'type',
+  'amount',
+  'category',
+  'counterparty',
+] as const;
+
+export type TransactionSortField = (typeof TRANSACTION_SORT_FIELDS)[number];
+
+export const SORT_ORDERS = ['asc', 'desc'] as const;
+export type SortOrder = (typeof SORT_ORDERS)[number];
+
 export class TransactionFilterQueryDto {
   @ApiPropertyOptional({ enum: TransactionType })
   @IsOptional()
@@ -245,4 +260,14 @@ export class TransactionFilterQueryDto {
   @IsOptional()
   @Type(() => Number)
   limit?: number = 25;
+
+  @ApiPropertyOptional({ enum: TRANSACTION_SORT_FIELDS, default: 'transactionDate' })
+  @IsOptional()
+  @IsIn(TRANSACTION_SORT_FIELDS)
+  sortBy?: TransactionSortField = 'transactionDate';
+
+  @ApiPropertyOptional({ enum: SORT_ORDERS, default: 'desc' })
+  @IsOptional()
+  @IsIn(SORT_ORDERS)
+  sortOrder?: SortOrder = 'desc';
 }

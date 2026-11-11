@@ -102,6 +102,8 @@ export class ToolRegistryService {
           return {
             organizationId: bundle.organizationId,
             currency: bundle.currency,
+            baseCurrency: bundle.currency,
+            conversionContext: bundle.conversionContext,
             formulaVersion: bundle.formulaVersion,
             reportingPeriod: bundle.reportingPeriod,
             metrics: bundle.metrics,
@@ -143,9 +145,11 @@ export class ToolRegistryService {
             }),
           ]);
           return {
+            baseCurrency: txPage.summary?.currency ?? 'USD',
             accounts,
             transactions: txPage.items,
             totalTransactions: txPage.pagination.total,
+            summary: txPage.summary,
             sourceRecordIds: {
               accountIds: accounts.map((a) => a.id),
               transactionIds: txPage.items.map((t) => t.id),

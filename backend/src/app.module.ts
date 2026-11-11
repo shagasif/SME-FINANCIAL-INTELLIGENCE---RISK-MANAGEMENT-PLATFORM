@@ -9,6 +9,7 @@ import { AuthModule } from './modules/auth/auth.module.js';
 import { BudgetsModule } from './modules/budgets/budgets.module.js';
 import { CashFlowForecastingModule } from './modules/cash-flow-forecasting/cash-flow-forecasting.module.js';
 import { CsvImportModule } from './modules/csv-import/csv-import.module.js';
+import { CurrencyModule } from './modules/currency/currency.module.js';
 import { FinancialAnalyticsModule } from './modules/financial-analytics/financial-analytics.module.js';
 import { FinancialTransactionsModule } from './modules/financial-transactions/financial-transactions.module.js';
 import { FinMemoryModule } from './modules/finmemory/finmemory.module.js';
@@ -27,6 +28,7 @@ import { ScenarioPlanningModule } from './modules/scenario-planning/scenario-pla
     PrismaModule,
     HealthModule,
     AuditModule,
+    CurrencyModule,
     AuthModule,
     OrganizationsModule,
     FinancialTransactionsModule,

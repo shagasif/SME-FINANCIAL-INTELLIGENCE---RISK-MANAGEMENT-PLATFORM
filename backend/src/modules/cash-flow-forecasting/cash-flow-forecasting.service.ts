@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import {
   AccountType,
   BillStatus,
@@ -11,6 +11,10 @@ import {
 import { DecimalMath } from '../../common/utils/decimal-math.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
+import {
+  AppliedExchangeRateInfo,
+  CurrencyConversionService,
+} from '../currency/currency.service.js';
 import { GenerateForecastDto } from './dto/forecast.dto.js';
 
 @Injectable()
@@ -18,6 +22,7 @@ export class CashFlowForecastingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Optional() private readonly currencyService?: CurrencyConversionService,
   ) {}
 
   async generateForecast(organizationId: string, dto: GenerateForecastDto, actorUserId: string) {
@@ -84,7 +89,56 @@ export class CashFlowForecastingService {
         }),
       ]);
 
-    const openingCashBalance = DecimalMath.sum(liquidAccounts.map((a) => a.currentBalance));
+    const targetCurrency = (org.baseCurrency || 'USD').trim().toUpperCase();
+    const preloadedRates = this.currencyService
+      ? await this.currencyService.loadRatesForOrganization(organizationId)
+      : [];
+    const missingCurrencySet = new Set<string>();
+    const appliedRateMap = new Map<string, AppliedExchangeRateInfo>();
+
+    const convertSum = <T>(
+      records: T[],
+      getAmt: (r: T) => Prisma.Decimal,
+      getCurr: (r: T) => string,
+      getDate: (r: T) => Date,
+    ): Prisma.Decimal => {
+      let sum = DecimalMath.ZERO;
+      for (const r of records) {
+        const amt = getAmt(r);
+        const fromCurr = (getCurr(r) || targetCurrency).trim().toUpperCase();
+        if (fromCurr === targetCurrency) {
+          sum = DecimalMath.add(sum, amt);
+          continue;
+        }
+        if (this.currencyService) {
+          const conv = this.currencyService.convertAmountSync({
+            rates: preloadedRates,
+            organizationId,
+            amount: amt,
+            fromCurrency: fromCurr,
+            toCurrency: targetCurrency,
+            asOfDate: getDate(r),
+          });
+          if (conv.isConverted && conv.convertedAmount !== null) {
+            sum = DecimalMath.add(sum, conv.convertedAmount);
+            if (conv.rateInfo && conv.rateInfo.source !== 'IDENTITY') {
+              const key = `${conv.rateInfo.fromCurrency}->${conv.rateInfo.toCurrency}@${conv.rateInfo.effectiveDate}`;
+              if (!appliedRateMap.has(key)) appliedRateMap.set(key, conv.rateInfo);
+            }
+            continue;
+          }
+        }
+        missingCurrencySet.add(fromCurr);
+      }
+      return sum;
+    };
+
+    const openingCashBalance = convertSum(
+      liquidAccounts,
+      (a) => a.currentBalance,
+      (a) => a.currency,
+      () => startDate,
+    );
     const nextVersion = (latestVersionRecord?.version ?? 0) + 1;
 
     // Scenario multipliers
@@ -171,14 +225,30 @@ export class CashFlowForecastingService {
         return false;
       });
 
-      const rawInvoiceInflow = DecimalMath.sum(dueInvoices.map((i) => i.outstandingBalance));
-      const rawBillOutflow = DecimalMath.sum(dueBills.map((b) => b.outstandingBalance));
-
-      const rawRecurringInflow = DecimalMath.sum(
-        matchingRecurring.filter((t) => t.type === TransactionType.INCOME).map((t) => t.amount),
+      const rawInvoiceInflow = convertSum(
+        dueInvoices,
+        (i) => i.outstandingBalance,
+        (i) => i.currency,
+        () => currentDate,
       );
-      const rawRecurringOutflow = DecimalMath.sum(
-        matchingRecurring.filter((t) => t.type === TransactionType.EXPENSE).map((t) => t.amount),
+      const rawBillOutflow = convertSum(
+        dueBills,
+        (b) => b.outstandingBalance,
+        (b) => b.currency,
+        () => currentDate,
+      );
+
+      const rawRecurringInflow = convertSum(
+        matchingRecurring.filter((t) => t.type === TransactionType.INCOME),
+        (t) => t.amount,
+        (t) => t.currency,
+        (t) => t.transactionDate,
+      );
+      const rawRecurringOutflow = convertSum(
+        matchingRecurring.filter((t) => t.type === TransactionType.EXPENSE),
+        (t) => t.amount,
+        (t) => t.currency,
+        (t) => t.transactionDate,
       );
 
       const expectedInflow = DecimalMath.mul(rawInvoiceInflow, inflowMultiplier);
@@ -229,6 +299,7 @@ export class CashFlowForecastingService {
       });
     }
 
+    const missingCurrencies = Array.from(missingCurrencySet).sort();
     const dataLimitations: string[] = [];
     if (liquidAccounts.length === 0) {
       dataLimitations.push(
@@ -243,9 +314,18 @@ export class CashFlowForecastingService {
         'No open customer invoices or recurring income rules found for inflow projection.',
       );
     }
+    if (missingCurrencies.length > 0) {
+      dataLimitations.push(
+        `Incomplete conversion: missing exchange rate for ${missingCurrencies.join(', ')} -> ${targetCurrency}; unconverted foreign amounts were excluded from consolidated ${targetCurrency} totals.`,
+      );
+    }
 
     const assumptions = {
       scenarioType,
+      baseCurrency: targetCurrency,
+      isComplete: missingCurrencies.length === 0,
+      missingCurrencies,
+      appliedRates: Array.from(appliedRateMap.values()),
       inflowMultiplier: DecimalMath.toFixed4(inflowMultiplier),
       outflowMultiplier: DecimalMath.toFixed4(outflowMultiplier),
       uncertaintyBandPct: DecimalMath.toFixed4(uncertaintyBandPct),

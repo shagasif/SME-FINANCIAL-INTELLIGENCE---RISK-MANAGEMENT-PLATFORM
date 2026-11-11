@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import {
   ForecastScenarioType,
   Prisma,
@@ -11,6 +11,7 @@ import { PrismaService } from '../../database/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { BudgetsService } from '../budgets/budgets.service.js';
 import { CashFlowForecastingService } from '../cash-flow-forecasting/cash-flow-forecasting.service.js';
+import { CurrencyConversionService } from '../currency/currency.service.js';
 import { FinancialAnalyticsService } from '../financial-analytics/financial-analytics.service.js';
 import { RiskMonitoringService } from '../risk-monitoring/risk-monitoring.service.js';
 import {
@@ -28,6 +29,7 @@ export class ReportsService {
     private readonly budgets: BudgetsService,
     private readonly riskMonitoring: RiskMonitoringService,
     private readonly audit: AuditService,
+    @Optional() private readonly currencyService?: CurrencyConversionService,
   ) {}
 
   async generateReport(organizationId: string, dto: GenerateReportDto, actorUserId: string) {
@@ -98,14 +100,47 @@ export class ReportsService {
           transactionDate: { gte: periodStart, lte: periodEnd },
         },
       });
+      const preloadedRates = this.currencyService
+        ? await this.currencyService.loadRatesForOrganization(organizationId)
+        : [];
+      const missingCurrencies = new Set<string>();
       const byCategory: Record<string, string> = {};
       for (const tx of expenses) {
-        byCategory[tx.category] = DecimalMath.toFixed4(
-          DecimalMath.add(byCategory[tx.category] ?? '0.0000', tx.amount),
-        );
+        const txCurr = (tx.currency || metricsBundle.currency).trim().toUpperCase();
+        let convertedAmt: Prisma.Decimal | null = null;
+        if (txCurr === metricsBundle.currency) {
+          convertedAmt = tx.amount;
+        } else if (this.currencyService) {
+          const conv = this.currencyService.convertAmountSync({
+            rates: preloadedRates,
+            organizationId,
+            amount: tx.amount,
+            fromCurrency: txCurr,
+            toCurrency: metricsBundle.currency,
+            asOfDate: tx.transactionDate,
+          });
+          if (conv.isConverted && conv.convertedAmount !== null) {
+            convertedAmt = conv.convertedAmount;
+          } else {
+            missingCurrencies.add(txCurr);
+          }
+        } else {
+          missingCurrencies.add(txCurr);
+        }
+
+        if (convertedAmt !== null) {
+          byCategory[tx.category] = DecimalMath.toFixed4(
+            DecimalMath.add(byCategory[tx.category] ?? '0.0000', convertedAmt),
+          );
+        }
       }
+      const missingList = Array.from(missingCurrencies).sort();
       summaryMetrics = {
-        totalExpenses: m.operatingCashFlow.components?.cashOutflows ?? '0.0000',
+        currency: metricsBundle.currency,
+        isComplete: missingList.length === 0,
+        missingCurrencies: missingList,
+        totalExpenses:
+          missingList.length === 0 ? (m.operatingCashFlow.components?.cashOutflows ?? '0.0000') : null,
         expenseGrowthPct: m.expenseGrowth.value,
         expenseCount: expenses.length,
         expensesByCategory: byCategory,
@@ -113,6 +148,7 @@ export class ReportsService {
       narrativeBody = {
         headline: 'Operating Expense & Category Breakdown Report',
         categoriesCount: Object.keys(byCategory).length,
+        conversionContext: metricsBundle.conversionContext,
       };
       sourceRecordIds.transactionIds = expenses.map((e) => e.id);
     } else if (dto.type === ReportType.BUDGET) {

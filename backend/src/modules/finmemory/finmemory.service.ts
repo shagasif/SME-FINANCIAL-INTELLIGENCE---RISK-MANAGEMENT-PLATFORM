@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma, TransactionType } from '../../generated/prisma/client.js';
 import { DecimalMath } from '../../common/utils/decimal-math.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { CashFlowForecastingService } from '../cash-flow-forecasting/cash-flow-forecasting.service.js';
+import { CurrencyConversionService } from '../currency/currency.service.js';
 import { FinancialAnalyticsService } from '../financial-analytics/financial-analytics.service.js';
 import { GenerateFinMemorySnapshotDto } from './dto/finmemory.dto.js';
 
@@ -14,6 +15,7 @@ export class FinMemoryService {
     private readonly analytics: FinancialAnalyticsService,
     private readonly forecasting: CashFlowForecastingService,
     private readonly audit: AuditService,
+    @Optional() private readonly currencyService?: CurrencyConversionService,
   ) {}
 
   async generateSnapshot(
@@ -79,10 +81,14 @@ export class FinMemoryService {
     if ((m.budgetVariance.sourceRecordIds.budgetIds?.length ?? 0) > 0) completenessPoints += 15;
     const completenessScore = DecimalMath.of(completenessPoints);
 
-    // Identify recurring patterns in period transactions
+    const preloadedRates = this.currencyService
+      ? await this.currencyService.loadRatesForOrganization(organizationId)
+      : [];
+
+    // Identify recurring patterns in period transactions (converted to Organization.baseCurrency)
     const categoryTotals = new Map<
       string,
-      { count: number; total: Prisma.Decimal; ids: string[] }
+      { count: number; total: Prisma.Decimal; ids: string[]; isComplete: boolean }
     >();
     for (const tx of periodTxs) {
       const key = `${tx.type}:${tx.category}`;
@@ -90,10 +96,32 @@ export class FinMemoryService {
         count: 0,
         total: DecimalMath.ZERO,
         ids: [],
+        isComplete: true,
       };
       existing.count += 1;
-      existing.total = DecimalMath.add(existing.total, tx.amount);
       existing.ids.push(tx.id);
+
+      const txCurr = (tx.currency || analyticsBundle.currency).trim().toUpperCase();
+      if (txCurr === analyticsBundle.currency) {
+        existing.total = DecimalMath.add(existing.total, tx.amount);
+      } else if (this.currencyService) {
+        const conv = this.currencyService.convertAmountSync({
+          rates: preloadedRates,
+          organizationId,
+          amount: tx.amount,
+          fromCurrency: txCurr,
+          toCurrency: analyticsBundle.currency,
+          asOfDate: tx.transactionDate,
+        });
+        if (conv.isConverted && conv.convertedAmount !== null) {
+          existing.total = DecimalMath.add(existing.total, conv.convertedAmount);
+        } else {
+          existing.isComplete = false;
+        }
+      } else {
+        existing.isComplete = false;
+      }
+
       categoryTotals.set(key, existing);
     }
 
@@ -102,8 +130,10 @@ export class FinMemoryService {
       return {
         type,
         category,
+        currency: analyticsBundle.currency,
         occurrenceCount: stat.count,
-        totalAmount: DecimalMath.toFixed4(stat.total),
+        totalAmount: stat.isComplete ? DecimalMath.toFixed4(stat.total) : null,
+        isComplete: stat.isComplete,
         isRecurringPattern: stat.count >= 2,
         sourceTransactionIds: stat.ids,
       };
@@ -214,6 +244,7 @@ export class FinMemoryService {
         historicalInsights: historicalInsights as unknown as Prisma.InputJsonValue,
         assumptionsAndNotes: {
           notes: dto.notes ?? null,
+          conversionContext: analyticsBundle.conversionContext ?? null,
           preservedUserDecisions: periodDecisions.map((d) => ({
             decisionId: d.id,
             targetType: d.targetType,

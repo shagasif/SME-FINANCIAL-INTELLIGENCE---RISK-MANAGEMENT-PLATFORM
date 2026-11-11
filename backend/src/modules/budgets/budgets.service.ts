@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { Prisma, TransactionType } from '../../generated/prisma/client.js';
 import { DecimalMath } from '../../common/utils/decimal-math.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
+import { CurrencyConversionService } from '../currency/currency.service.js';
 import { CreateBudgetDto, ReviseBudgetDto } from './dto/budget.dto.js';
 
 @Injectable()
@@ -10,6 +11,7 @@ export class BudgetsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Optional() private readonly currencyService?: CurrencyConversionService,
   ) {}
 
   async createBudget(organizationId: string, dto: CreateBudgetDto, actorUserId: string) {
@@ -24,6 +26,10 @@ export class BudgetsService {
       throw new BadRequestException('Total allocated budget must be strictly greater than zero');
     }
 
+    const orgCurrency = this.currencyService
+      ? await this.currencyService.getOrganizationBaseCurrency(organizationId)
+      : 'USD';
+
     const budget = await this.prisma.$transaction(async (tx) => {
       const created = await tx.budget.create({
         data: {
@@ -32,7 +38,7 @@ export class BudgetsService {
           periodType: dto.periodType,
           startDate,
           endDate,
-          currency: (dto.currency ?? 'USD').toUpperCase(),
+          currency: (dto.currency ?? orgCurrency).toUpperCase(),
           totalAllocated,
           version: 1,
           notes: dto.notes ?? null,
@@ -193,6 +199,12 @@ export class BudgetsService {
       },
     });
 
+    const targetCurrency = budget.currency.trim().toUpperCase();
+    const preloadedRates = this.currencyService
+      ? await this.currencyService.loadRatesForOrganization(organizationId)
+      : [];
+    const missingCurrencies = new Set<string>();
+
     const lineVariances = budget.lines.map((line) => {
       const matchingTxs = expenses.filter((tx) => {
         const catMatch = tx.category.toLowerCase() === line.category.toLowerCase();
@@ -203,7 +215,30 @@ export class BudgetsService {
         return true;
       });
 
-      const actualSpent = DecimalMath.sum(matchingTxs.map((t) => t.amount));
+      let actualSpent = DecimalMath.ZERO;
+      for (const tx of matchingTxs) {
+        const txCurrency = (tx.currency || targetCurrency).trim().toUpperCase();
+        if (txCurrency === targetCurrency) {
+          actualSpent = DecimalMath.add(actualSpent, tx.amount);
+        } else if (this.currencyService) {
+          const conv = this.currencyService.convertAmountSync({
+            rates: preloadedRates,
+            organizationId,
+            amount: tx.amount,
+            fromCurrency: txCurrency,
+            toCurrency: targetCurrency,
+            asOfDate: tx.transactionDate,
+          });
+          if (conv.isConverted && conv.convertedAmount !== null) {
+            actualSpent = DecimalMath.add(actualSpent, conv.convertedAmount);
+          } else {
+            missingCurrencies.add(txCurrency);
+          }
+        } else {
+          missingCurrencies.add(txCurrency);
+        }
+      }
+
       const varianceAmount = DecimalMath.sub(line.allocatedAmount, actualSpent); // Positive = under budget, Negative = overrun
       const utilizationPct =
         DecimalMath.percentage(actualSpent, line.allocatedAmount) ?? DecimalMath.ZERO;
@@ -234,6 +269,7 @@ export class BudgetsService {
       DecimalMath.percentage(totalActualSpent, budget.totalAllocated) ?? DecimalMath.ZERO;
     const totalVariancePct =
       DecimalMath.percentage(totalVarianceAmount, budget.totalAllocated) ?? DecimalMath.ZERO;
+    const missingCurrencyList = Array.from(missingCurrencies).sort();
 
     return {
       budgetId: budget.id,
@@ -242,7 +278,9 @@ export class BudgetsService {
       periodType: budget.periodType,
       periodStart: budget.startDate.toISOString(),
       periodEnd: budget.endDate.toISOString(),
-      currency: budget.currency,
+      currency: targetCurrency,
+      isComplete: missingCurrencyList.length === 0,
+      missingCurrencies: missingCurrencyList,
       formula:
         'VarianceAmount = AllocatedAmount - ActualSpent; UtilizationPct = (ActualSpent / AllocatedAmount) * 100',
       totalAllocated: DecimalMath.toFixed4(budget.totalAllocated),

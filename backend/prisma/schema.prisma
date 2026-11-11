@@ -312,6 +312,7 @@ model Organization {
   notifications        Notification[]
   followUpTasks        FollowUpTask[]
   auditEvents          AuditEvent[]
+  exchangeRates        ExchangeRate[]
 
   @@index([slug])
 }
@@ -469,6 +470,9 @@ model Invoice {
   issueDate          DateTime
   dueDate            DateTime
   currency           String        @default("USD") @db.VarChar(3)
+  subtotalAmount     Decimal       @default(0) @db.Decimal(19, 4)
+  taxRate            Decimal       @default(0) @db.Decimal(19, 4)
+  taxAmount          Decimal       @default(0) @db.Decimal(19, 4)
   totalAmount        Decimal       @db.Decimal(19, 4)
   paidAmount         Decimal       @default(0) @db.Decimal(19, 4)
   outstandingBalance Decimal       @db.Decimal(19, 4)
@@ -478,11 +482,29 @@ model Invoice {
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
-  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lineItems          InvoiceLineItem[]
   payments           PaymentRecord[]
 
   @@unique([organizationId, invoiceNumber])
   @@index([organizationId, status, dueDate])
+}
+
+model InvoiceLineItem {
+  id           String   @id @default(uuid())
+  invoiceId    String
+  lineOrder    Int      @default(0)
+  description  String
+  quantity     Decimal  @db.Decimal(19, 4)
+  unitPrice    Decimal  @db.Decimal(19, 4)
+  taxRate      Decimal  @default(0) @db.Decimal(19, 4)
+  taxAmount    Decimal  @default(0) @db.Decimal(19, 4)
+  lineSubtotal Decimal  @db.Decimal(19, 4)
+  lineTotal    Decimal  @db.Decimal(19, 4)
+
+  invoice      Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId, lineOrder])
 }
 
 model Bill {
@@ -496,6 +518,9 @@ model Bill {
   issueDate          DateTime
   dueDate            DateTime
   currency           String          @default("USD") @db.VarChar(3)
+  subtotalAmount     Decimal         @default(0) @db.Decimal(19, 4)
+  taxRate            Decimal         @default(0) @db.Decimal(19, 4)
+  taxAmount          Decimal         @default(0) @db.Decimal(19, 4)
   totalAmount        Decimal         @db.Decimal(19, 4)
   paidAmount         Decimal         @default(0) @db.Decimal(19, 4)
   outstandingBalance Decimal         @db.Decimal(19, 4)
@@ -506,10 +531,28 @@ model Bill {
   updatedAt          DateTime        @updatedAt
 
   organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lineItems          BillLineItem[]
   payments           PaymentRecord[]
 
   @@unique([organizationId, billNumber])
   @@index([organizationId, status, dueDate])
+}
+
+model BillLineItem {
+  id           String   @id @default(uuid())
+  billId       String
+  lineOrder    Int      @default(0)
+  description  String
+  quantity     Decimal  @db.Decimal(19, 4)
+  unitPrice    Decimal  @db.Decimal(19, 4)
+  taxRate      Decimal  @default(0) @db.Decimal(19, 4)
+  taxAmount    Decimal  @default(0) @db.Decimal(19, 4)
+  lineSubtotal Decimal  @db.Decimal(19, 4)
+  lineTotal    Decimal  @db.Decimal(19, 4)
+
+  bill         Bill     @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@index([billId, lineOrder])
 }
 
 model PaymentRecord {
@@ -933,4 +976,27 @@ model AuditEvent {
   @@index([organizationId, createdAt])
   @@index([actorUserId, createdAt])
   @@index([action, status])
+}
+
+// ============================================================================
+// 11. MULTI-CURRENCY EXCHANGE RATES (NON-DESTRUCTIVE ADDITION)
+// ============================================================================
+
+model ExchangeRate {
+  id             String        @id @default(uuid())
+  organizationId String?
+  fromCurrency   String        @db.VarChar(3)
+  toCurrency     String        @db.VarChar(3)
+  rate           Decimal       @db.Decimal(19, 8)
+  effectiveDate  DateTime
+  source         String        @default("SBP_M2M")
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, fromCurrency, toCurrency, effectiveDate])
+  @@index([fromCurrency, toCurrency, effectiveDate])
+  @@index([organizationId, fromCurrency, toCurrency, effectiveDate])
 }

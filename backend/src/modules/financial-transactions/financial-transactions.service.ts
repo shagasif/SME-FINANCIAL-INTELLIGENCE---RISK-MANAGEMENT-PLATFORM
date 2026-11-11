@@ -3,16 +3,21 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma, TransactionType } from '../../generated/prisma/client.js';
 import { DecimalMath } from '../../common/utils/decimal-math.js';
 import { SecurityUtil } from '../../common/utils/security.util.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
+import { CurrencyConversionService } from '../currency/currency.service.js';
 import {
   CreateFinancialAccountDto,
   CreateTransactionDto,
+  SortOrder,
+  TRANSACTION_SORT_FIELDS,
   TransactionFilterQueryDto,
+  TransactionSortField,
   UpdateTransactionDto,
 } from './dto/financial-transaction.dto.js';
 
@@ -21,6 +26,7 @@ export class FinancialTransactionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Optional() private readonly currencyService?: CurrencyConversionService,
   ) {}
 
   static computeDuplicateHash(params: {
@@ -229,10 +235,178 @@ export class FinancialTransactionsService {
     return this.serializeTransaction(transaction);
   }
 
+  /**
+   * Builds a deterministic Prisma orderBy clause from validated sort query parameters.
+   * Preserves default `transactionDate DESC, createdAt DESC` ordering when no sort is specified.
+   */
+  private buildTransactionOrderBy(
+    sortBy?: TransactionSortField,
+    sortOrder?: SortOrder,
+  ): Prisma.FinancialTransactionOrderByWithRelationInput[] {
+    const dir: Prisma.SortOrder = sortOrder === 'asc' ? 'asc' : 'desc';
+    const field: TransactionSortField =
+      sortBy && TRANSACTION_SORT_FIELDS.includes(sortBy) ? sortBy : 'transactionDate';
+
+    if (field === 'transactionDate') {
+      return [{ transactionDate: dir }, { createdAt: dir }, { id: dir }];
+    }
+
+    return [{ [field]: dir }, { transactionDate: 'desc' }, { createdAt: 'desc' }, { id: 'asc' }];
+  }
+
+  /**
+   * Builds full-dataset multi-currency ledger summary converted into Organization.baseCurrency
+   * while preserving native per-currency breakdowns and flagging missing FX rates as incomplete.
+   */
+  private async buildConvertedTransactionSummary(
+    organizationId: string,
+    summaryRows: Array<{
+      type: TransactionType;
+      amount: Prisma.Decimal;
+      currency: string;
+      transactionDate: Date;
+    }>,
+    totalCount: number,
+  ) {
+    const baseCurrency = this.currencyService
+      ? await this.currencyService.getOrganizationBaseCurrency(organizationId)
+      : 'USD';
+    const preloadedRates = this.currencyService
+      ? await this.currencyService.loadRatesForOrganization(organizationId)
+      : [];
+
+    const byCurrencyMap = new Map<
+      string,
+      {
+        incomeCount: number;
+        expenseCount: number;
+        transferCount: number;
+        totalIncome: ReturnType<typeof DecimalMath.of>;
+        totalExpenses: ReturnType<typeof DecimalMath.of>;
+      }
+    >();
+
+    let incomeCount = 0;
+    let expenseCount = 0;
+    let transferCount = 0;
+
+    let convertedIncome = DecimalMath.ZERO;
+    let convertedExpenses = DecimalMath.ZERO;
+    const missingCurrencySet = new Set<string>();
+    const appliedRateMap = new Map<
+      string,
+      { fromCurrency: string; toCurrency: string; rate: string; effectiveDate: string; source: string }
+    >();
+
+    for (const row of summaryRows) {
+      const curr = (row.currency || baseCurrency).trim().toUpperCase();
+      const existing = byCurrencyMap.get(curr) ?? {
+        incomeCount: 0,
+        expenseCount: 0,
+        transferCount: 0,
+        totalIncome: DecimalMath.ZERO,
+        totalExpenses: DecimalMath.ZERO,
+      };
+
+      const rawAmt = DecimalMath.of(row.amount);
+
+      if (row.type === TransactionType.INCOME) {
+        existing.incomeCount += 1;
+        incomeCount += 1;
+        existing.totalIncome = DecimalMath.add(existing.totalIncome, rawAmt);
+      } else if (row.type === TransactionType.EXPENSE) {
+        existing.expenseCount += 1;
+        expenseCount += 1;
+        existing.totalExpenses = DecimalMath.add(existing.totalExpenses, rawAmt);
+      } else if (row.type === TransactionType.TRANSFER) {
+        existing.transferCount += 1;
+        transferCount += 1;
+      }
+
+      byCurrencyMap.set(curr, existing);
+
+      // Convert INCOME / EXPENSE rows into Organization.baseCurrency on exact transactionDate
+      if (row.type === TransactionType.INCOME || row.type === TransactionType.EXPENSE) {
+        let convertedAmt: Prisma.Decimal | null = null;
+        if (curr === baseCurrency) {
+          convertedAmt = rawAmt;
+        } else if (this.currencyService) {
+          const conv = this.currencyService.convertAmountSync({
+            rates: preloadedRates,
+            organizationId,
+            amount: rawAmt,
+            fromCurrency: curr,
+            toCurrency: baseCurrency,
+            asOfDate: row.transactionDate,
+          });
+          if (conv.isConverted && conv.convertedAmount !== null) {
+            convertedAmt = conv.convertedAmount;
+            if (conv.rateInfo && conv.rateInfo.source !== 'IDENTITY') {
+              const rateKey = `${conv.rateInfo.fromCurrency}->${conv.rateInfo.toCurrency}@${conv.rateInfo.effectiveDate}`;
+              if (!appliedRateMap.has(rateKey)) {
+                appliedRateMap.set(rateKey, conv.rateInfo);
+              }
+            }
+          } else {
+            missingCurrencySet.add(curr);
+          }
+        } else {
+          missingCurrencySet.add(curr);
+        }
+
+        if (convertedAmt !== null) {
+          if (row.type === TransactionType.INCOME) {
+            convertedIncome = DecimalMath.add(convertedIncome, convertedAmt);
+          } else {
+            convertedExpenses = DecimalMath.add(convertedExpenses, convertedAmt);
+          }
+        }
+      }
+    }
+
+    const byCurrency = Array.from(byCurrencyMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([curr, stats]) => ({
+        currency: curr,
+        totalTransactions: stats.incomeCount + stats.expenseCount + stats.transferCount,
+        incomeCount: stats.incomeCount,
+        expenseCount: stats.expenseCount,
+        transferCount: stats.transferCount,
+        totalIncome: DecimalMath.toFixed4(stats.totalIncome),
+        totalExpenses: DecimalMath.toFixed4(stats.totalExpenses),
+        netCashMovement: DecimalMath.toFixed4(
+          DecimalMath.sub(stats.totalIncome, stats.totalExpenses),
+        ),
+      }));
+
+    const missingCurrencies = Array.from(missingCurrencySet).sort();
+    const isComplete = missingCurrencies.length === 0;
+    const hasMixedCurrencies = byCurrency.length > 1;
+
+    return {
+      totalTransactions: totalCount,
+      incomeCount,
+      expenseCount,
+      transferCount,
+      currency: baseCurrency,
+      isComplete,
+      missingCurrencies,
+      appliedRates: Array.from(appliedRateMap.values()),
+      hasMixedCurrencies,
+      totalIncome: isComplete ? DecimalMath.toFixed4(convertedIncome) : null,
+      totalExpenses: isComplete ? DecimalMath.toFixed4(convertedExpenses) : null,
+      netCashMovement: isComplete
+        ? DecimalMath.toFixed4(DecimalMath.sub(convertedIncome, convertedExpenses))
+        : null,
+      byCurrency,
+    };
+  }
+
   async listTransactions(organizationId: string, query: TransactionFilterQueryDto) {
     const page = Math.max(1, Number(query.page ?? 1));
     const limit = Math.min(100, Math.max(1, Number(query.limit ?? 25)));
     const skip = (page - 1) * limit;
+    const orderBy = this.buildTransactionOrderBy(query.sortBy, query.sortOrder);
 
     const where: Prisma.FinancialTransactionWhereInput = {
       organizationId,
@@ -263,18 +437,33 @@ export class FinancialTransactionsService {
         : {}),
     };
 
-    const [items, total] = await Promise.all([
+    const [items, total, summaryRows] = await Promise.all([
       this.prisma.financialTransaction.findMany({
         where,
         include: {
           account: { select: { id: true, code: true, name: true, type: true, currency: true } },
         },
-        orderBy: [{ transactionDate: 'desc' }, { createdAt: 'desc' }],
+        orderBy,
         skip,
         take: limit,
       }),
       this.prisma.financialTransaction.count({ where }),
+      this.prisma.financialTransaction.findMany({
+        where,
+        select: {
+          type: true,
+          amount: true,
+          currency: true,
+          transactionDate: true,
+        },
+      }),
     ]);
+
+    const summary = await this.buildConvertedTransactionSummary(
+      organizationId,
+      summaryRows,
+      total,
+    );
 
     return {
       items: items.map((t) => this.serializeTransaction(t)),
@@ -284,6 +473,7 @@ export class FinancialTransactionsService {
         total,
         totalPages: Math.ceil(total / limit),
       },
+      summary,
     };
   }
 
