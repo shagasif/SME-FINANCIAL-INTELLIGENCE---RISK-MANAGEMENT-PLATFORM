@@ -21,7 +21,7 @@ export type TransactionType = (typeof TransactionType)[keyof typeof TransactionT
 
 export const InvoiceStatus = {
   DRAFT: 'DRAFT',
-  SENT: 'SENT',
+  ISSUED: 'ISSUED',
   PARTIALLY_PAID: 'PARTIALLY_PAID',
   PAID: 'PAID',
   OVERDUE: 'OVERDUE',
@@ -31,15 +31,26 @@ export const InvoiceStatus = {
 export type InvoiceStatus = (typeof InvoiceStatus)[keyof typeof InvoiceStatus];
 
 export const BillStatus = {
-  RECEIVED: 'RECEIVED',
-  SCHEDULED: 'SCHEDULED',
+  DRAFT: 'DRAFT',
+  OPEN: 'OPEN',
   PARTIALLY_PAID: 'PARTIALLY_PAID',
   PAID: 'PAID',
   OVERDUE: 'OVERDUE',
-  DISPUTED: 'DISPUTED',
+  VOID: 'VOID',
 } as const;
 
 export type BillStatus = (typeof BillStatus)[keyof typeof BillStatus];
+
+export const PaymentMethod = {
+  BANK_TRANSFER: 'BANK_TRANSFER',
+  CASH: 'CASH',
+  CARD: 'CARD',
+  CHEQUE: 'CHEQUE',
+  DIRECT_DEBIT: 'DIRECT_DEBIT',
+  OTHER: 'OTHER',
+} as const;
+
+export type PaymentMethod = (typeof PaymentMethod)[keyof typeof PaymentMethod];
 
 export const BudgetPeriodType = {
   MONTHLY: 'MONTHLY',
@@ -85,13 +96,31 @@ export interface FinancialTransaction {
   updatedAt: string;
 }
 
+export interface DocumentLineItem {
+  id?: string;
+  lineOrder?: number;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  taxRate?: string;
+  taxAmount?: string;
+  lineSubtotal?: string;
+  lineTotal?: string;
+}
+
 export interface Invoice {
   id: string;
   organizationId: string;
   invoiceNumber: string;
   customerName: string;
+  customerEmail?: string | null;
+  category?: string;
+  department?: string | null;
   issueDate: string;
   dueDate: string;
+  subtotalAmount?: string;
+  taxRate?: string;
+  taxAmount?: string;
   totalAmount: string;
   paidAmount: string;
   outstandingBalance: string;
@@ -99,6 +128,7 @@ export interface Invoice {
   status: InvoiceStatus;
   isOverdue?: boolean;
   notes?: string | null;
+  lineItems?: DocumentLineItem[];
   payments?: PaymentRecord[];
   createdAt: string;
   updatedAt: string;
@@ -109,8 +139,14 @@ export interface Bill {
   organizationId: string;
   billNumber: string;
   supplierName: string;
+  supplierEmail?: string | null;
+  category?: string;
+  department?: string | null;
   issueDate: string;
   dueDate: string;
+  subtotalAmount?: string;
+  taxRate?: string;
+  taxAmount?: string;
   totalAmount: string;
   paidAmount: string;
   outstandingBalance: string;
@@ -118,6 +154,7 @@ export interface Bill {
   status: BillStatus;
   isOverdue?: boolean;
   notes?: string | null;
+  lineItems?: DocumentLineItem[];
   payments?: PaymentRecord[];
   createdAt: string;
   updatedAt: string;
@@ -128,25 +165,37 @@ export interface PaymentRecord {
   organizationId: string;
   invoiceId?: string | null;
   billId?: string | null;
+  transactionId?: string | null;
   amount: string;
+  currency?: string;
   paymentDate: string;
-  paymentMethod: string;
+  method: PaymentMethod | string;
   reference?: string | null;
+  notes?: string | null;
   createdAt: string;
 }
 
 export interface AgingBucketSummary {
   bucket: 'CURRENT' | '1_TO_30_DAYS' | '31_TO_60_DAYS' | '61_TO_90_DAYS' | 'OVER_90_DAYS';
-  amount: string;
   count: number;
+  amount: string;
+  recordIds?: string[];
+}
+
+export interface AgingSection {
+  totalOutstanding: string;
+  totalOverdue: string;
+  isComplete: boolean;
+  missingCurrencies: string[];
+  buckets: AgingBucketSummary[];
+  sourceRecordIds?: string[];
 }
 
 export interface AgingReportResponse {
   asOfDate: string;
-  totalReceivables: string;
-  totalPayables: string;
-  receivablesAging: AgingBucketSummary[];
-  payablesAging: AgingBucketSummary[];
+  currency: string;
+  receivablesAging: AgingSection;
+  payablesAging: AgingSection;
 }
 
 export interface BudgetLine {
@@ -207,14 +256,17 @@ export interface ImportBatch {
   accountId: string;
   fileName: string;
   totalRows: number;
-  validRows: number;
-  invalidRows: number;
+  validRowsCount?: number;
+  validRows?: number;
+  errorRowsCount?: number;
+  invalidRows?: number;
   duplicateRowsCount: number;
-  committedRows: number;
-  status: 'PENDING_CONFIRMATION' | 'COMMITTED' | 'FAILED';
+  committedRowsCount?: number;
+  committedRows?: number;
+  status: 'PENDING_PREVIEW' | 'PENDING_CONFIRMATION' | 'COMMITTED' | 'FAILED' | 'VALIDATED';
   previewRows?: Record<string, unknown>[];
-  rowErrors?: Array<{ rowNumber: number; reason: string; rawRow: Record<string, unknown> }>;
-  duplicates?: Array<{ rowNumber: number; duplicateKey: string; matchedExistingId: string }>;
-  sanitizationNotes?: string[];
+  rowErrors?: Array<{ rowNumber: number; reason?: string; errors?: string[]; rawRow?: Record<string, unknown> }>;
+  duplicates?: Array<{ rowNumber: number; duplicateKey?: string; duplicateHash?: string; matchedExistingId?: string }>;
+  sanitizationNotes?: unknown[];
   createdAt: string;
 }
