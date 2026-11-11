@@ -115,4 +115,35 @@ describe('apiClient HTTP Service', () => {
     expect(authStorage.getToken()).toBeNull();
     expect(unauthorizedSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('persists and retrieves serialized active organization data synchronously', () => {
+    const orgData = {
+      id: 'org-456',
+      name: 'Star Logistics Ltd',
+      slug: 'star-logistics',
+      baseCurrency: 'PKR',
+      role: 'BUSINESS_OWNER',
+    };
+
+    authStorage.setActiveOrg(orgData);
+    expect(authStorage.getActiveOrgId()).toBe('org-456');
+    expect(authStorage.getActiveOrg()).toEqual(orgData);
+
+    authStorage.clearActiveOrgId();
+    expect(authStorage.getActiveOrgId()).toBeNull();
+    expect(authStorage.getActiveOrg()).toBeNull();
+  });
+
+  it('clears active organization data when clearToken is invoked', () => {
+    authStorage.setToken('sample-token');
+    authStorage.setActiveOrg({ id: 'org-789', name: 'Alpha Ltd' });
+
+    expect(authStorage.getToken()).toBe('sample-token');
+    expect(authStorage.getActiveOrgId()).toBe('org-789');
+
+    authStorage.clearToken();
+    expect(authStorage.getToken()).toBeNull();
+    expect(authStorage.getActiveOrgId()).toBeNull();
+    expect(authStorage.getActiveOrg()).toBeNull();
+  });
 });

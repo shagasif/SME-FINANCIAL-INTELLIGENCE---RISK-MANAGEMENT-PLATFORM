@@ -16,6 +16,7 @@ export class ApiClientError extends Error {
 const DEFAULT_TIMEOUT_MS = 15000;
 const TOKEN_STORAGE_KEY = 'sme_finance_auth_token';
 const ORG_STORAGE_KEY = 'sme_finance_active_org_id';
+const ORG_DATA_STORAGE_KEY = 'sme_finance_active_org_data';
 
 let onUnauthorizedCallback: (() => void) | null = null;
 
@@ -35,6 +36,7 @@ export const authStorage = {
   clearToken(): void {
     sessionStorage.removeItem(TOKEN_STORAGE_KEY);
     localStorage.removeItem(TOKEN_STORAGE_KEY);
+    this.clearActiveOrgId();
   },
   getActiveOrgId(): string | null {
     return sessionStorage.getItem(ORG_STORAGE_KEY) || localStorage.getItem(ORG_STORAGE_KEY);
@@ -43,9 +45,33 @@ export const authStorage = {
     sessionStorage.setItem(ORG_STORAGE_KEY, orgId);
     localStorage.setItem(ORG_STORAGE_KEY, orgId);
   },
+  getActiveOrg<T = unknown>(): T | null {
+    const raw =
+      sessionStorage.getItem(ORG_DATA_STORAGE_KEY) || localStorage.getItem(ORG_DATA_STORAGE_KEY);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return null;
+    }
+  },
+  setActiveOrg<T extends { id?: string }>(org: T | null): void {
+    if (!org) {
+      this.clearActiveOrgId();
+      return;
+    }
+    const serialized = JSON.stringify(org);
+    sessionStorage.setItem(ORG_DATA_STORAGE_KEY, serialized);
+    localStorage.setItem(ORG_DATA_STORAGE_KEY, serialized);
+    if (org.id) {
+      this.setActiveOrgId(org.id);
+    }
+  },
   clearActiveOrgId(): void {
     sessionStorage.removeItem(ORG_STORAGE_KEY);
     localStorage.removeItem(ORG_STORAGE_KEY);
+    sessionStorage.removeItem(ORG_DATA_STORAGE_KEY);
+    localStorage.removeItem(ORG_DATA_STORAGE_KEY);
   },
   registerUnauthorizedHandler(callback: () => void): void {
     onUnauthorizedCallback = callback;
@@ -160,8 +186,9 @@ export function apiPost<T>(
   body?: unknown,
   signal?: AbortSignal,
   headers?: Record<string, string>,
+  timeoutMs?: number,
 ): Promise<T> {
-  return request<T>(path, { method: 'POST', body, signal, headers });
+  return request<T>(path, { method: 'POST', body, signal, headers, timeoutMs });
 }
 
 export function apiPatch<T>(

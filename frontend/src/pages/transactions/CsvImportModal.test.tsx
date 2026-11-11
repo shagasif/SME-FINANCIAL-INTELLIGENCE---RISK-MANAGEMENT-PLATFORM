@@ -602,4 +602,126 @@ describe('CsvImportModal Component', () => {
     fireEvent.change(amountSelect, { target: { value: 'RawData' } });
     expect(amountSelect.value).toBe('RawData');
   });
+
+  it('progresses an XLSX file through Step 1, Step 2 AI mapping, and Step 3 preview without extension rejection', async () => {
+    const mockPost = vi.mocked(apiClient.apiPost);
+    mockPost.mockImplementation(async (url: string, body?: unknown) => {
+      if (url.includes('/auto-map')) {
+        return {
+          success: true,
+          provider: 'deterministic-grounded',
+          externalCredentialsConfigured: false,
+          workflowRunId: 'wf-xlsx-100',
+          taskClassification: 'FILE_SCHEMA_PROFILING_AND_COLUMN_MAPPING',
+          durationMs: 20,
+          analystResult: {
+            detectedMappings: {
+              dateColumn: 'Date',
+              amountColumn: 'Amount',
+              descriptionColumn: 'Description',
+            },
+            confidenceScores: { date: 0.95, amount: 0.95, description: 0.9 },
+            fieldAnalysis: {},
+            unmappedHeaders: [],
+            notes: 'XLSX profiled',
+          },
+          verifierResult: {
+            isApproved: true,
+            verifiedMappings: {
+              dateColumn: 'Date',
+              amountColumn: 'Amount',
+              descriptionColumn: 'Description',
+            },
+            validationErrors: [],
+            confidenceScore: 0.94,
+            requiresManualReview: false,
+            notes: 'Verifier AI approved XLSX mappings',
+          },
+        };
+      }
+      if (url.includes('/preview')) {
+        expect((body as { fileName?: string })?.fileName).toBe('bank_statements.xlsx');
+        return {
+          id: 'batch-xlsx-100',
+          organizationId: orgId,
+          accountId: 'acc-1',
+          fileName: 'bank_statements.xlsx',
+          totalRows: 2,
+          validRowsCount: 2,
+          errorRowsCount: 0,
+          duplicateRowsCount: 0,
+          previewRows: [
+            {
+              transactionDate: '2026-10-01T00:00:00.000Z',
+              amount: '450.00',
+              description: 'Software License',
+              type: 'EXPENSE',
+            },
+          ],
+          rowErrors: [],
+          status: 'VALIDATED',
+        };
+      }
+      return {};
+    });
+
+    // Create XLSX workbook
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['Date', 'Amount', 'Description'],
+      ['2026-10-01', '450.00', 'Software License'],
+    ]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+    const wbArray = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+    const excelFile = new File([wbArray], 'bank_statements.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+
+    render(
+      <CsvImportModal
+        isOpen={true}
+        onClose={mockOnClose}
+        accounts={mockAccounts}
+        orgId={orgId}
+        onSuccess={mockOnSuccess}
+      />,
+    );
+
+    const fileInput = screen.getByTestId('csv-file-input');
+    fireEvent.change(fileInput, { target: { files: [excelFile] } });
+
+    // Step 1: File is recognized as Excel XLSX and auto-map is triggered
+    await waitFor(() => {
+      expect(screen.getByText('bank_statements.xlsx')).toBeInTheDocument();
+      expect(screen.getByText('Excel (XLSX)')).toBeInTheDocument();
+      expect(mockPost).toHaveBeenCalledWith(
+        `/v1/organizations/${orgId}/csv-imports/auto-map`,
+        expect.any(Object),
+      );
+    });
+
+    // Proceed to Step 2
+    fireEvent.click(screen.getByRole('button', { name: /Continue to Column Mapping/i }));
+
+    // Step 2: Auto mapping completes
+    await waitFor(() => {
+      expect(screen.getByText('AI Agent Auto-Mapping Active')).toBeInTheDocument();
+      expect(screen.getByText(/Verified by Verifier AI \(94%\)/i)).toBeInTheDocument();
+    });
+
+    // Step 2 -> Step 3: Click Validate & Preview Batch
+    const previewBtn = screen.getByRole('button', { name: /Validate & Preview Batch/i });
+    expect(previewBtn).not.toBeDisabled();
+    fireEvent.click(previewBtn);
+
+    // Step 3: Displays validation preview without any "Only .csv files are permitted" error,
+    // and properly parses and formats the Date and KPI counts
+    await waitFor(() => {
+      expect(screen.queryByText(/Only \.csv files are permitted/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/Validated Preview Records/i)).toBeInTheDocument();
+      expect(screen.getByText('Software License')).toBeInTheDocument();
+      expect(screen.getByText('2026-10-01')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Commit 2 Records to Ledger/i })).toBeInTheDocument();
+    });
+  });
 });

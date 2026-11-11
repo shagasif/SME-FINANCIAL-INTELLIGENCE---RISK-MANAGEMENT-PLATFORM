@@ -222,8 +222,9 @@ export function CsvImportModal({
       }
     } catch (err: unknown) {
       console.warn('AI column auto-mapping request encountered an error, falling back:', err);
+      const detail = err instanceof ApiClientError && err.message ? ` (${err.message})` : '';
       setAiMappingError(
-        'Supervisor AI Orchestrator could not complete automatic mapping. Manual selection enabled.',
+        `Supervisor AI Orchestrator could not complete automatic mapping${detail}. Manual selection enabled.`,
       );
     } finally {
       setIsAiMappingLoading(false);
@@ -1049,17 +1050,21 @@ export function CsvImportModal({
               </div>
               <div className="p-3 rounded-xl bg-[var(--surface-canvas)] border border-emerald-500/20 text-emerald-700 dark:text-emerald-400">
                 <span className="text-[10px] uppercase block opacity-80">Valid Rows</span>
-                <span className="font-mono text-base font-bold">{createdBatch.validRows}</span>
+                <span className="font-mono text-base font-bold">
+                  {createdBatch.validRowsCount ?? createdBatch.validRows ?? 0}
+                </span>
               </div>
               <div className="p-3 rounded-xl bg-[var(--surface-canvas)] border border-amber-500/20 text-amber-700 dark:text-amber-400">
                 <span className="text-[10px] uppercase block opacity-80">Duplicates</span>
                 <span className="font-mono text-base font-bold">
-                  {createdBatch.duplicateRowsCount}
+                  {createdBatch.duplicateRowsCount ?? 0}
                 </span>
               </div>
               <div className="p-3 rounded-xl bg-[var(--surface-canvas)] border border-red-500/20 text-red-600 dark:text-red-400">
                 <span className="text-[10px] uppercase block opacity-80">Invalid Rows</span>
-                <span className="font-mono text-base font-bold">{createdBatch.invalidRows}</span>
+                <span className="font-mono text-base font-bold">
+                  {createdBatch.errorRowsCount ?? createdBatch.invalidRows ?? 0}
+                </span>
               </div>
             </div>
 
@@ -1094,7 +1099,10 @@ export function CsvImportModal({
                       key={idx}
                       className="p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-400 font-mono text-[11px]"
                     >
-                      Row {err.rowNumber}: {err.reason}
+                      Row {err.rowNumber}:{' '}
+                      {Array.isArray(err.errors)
+                        ? err.errors.join('; ')
+                        : err.reason || 'Validation error'}
                     </div>
                   ))}
                 </div>
@@ -1121,7 +1129,11 @@ export function CsvImportModal({
                       {createdBatch.previewRows.map((r, i) => (
                         <tr key={i} className="hover:bg-[var(--surface-elevated)]/30">
                           <td className="px-3 py-2 whitespace-nowrap font-mono">
-                            {String(r.date || '—')}
+                            {(() => {
+                              const rawDate = r.transactionDate || r.date;
+                              if (!rawDate || typeof rawDate !== 'string') return '—';
+                              return rawDate.includes('T') ? rawDate.split('T')[0] : rawDate;
+                            })()}
                           </td>
                           <td className="px-3 py-2 truncate max-w-[200px]">
                             {String(r.description || '—')}
@@ -1140,24 +1152,30 @@ export function CsvImportModal({
               </div>
             )}
 
-            <div className="flex justify-between items-center pt-4 border-t border-[var(--border-subtle)]">
-              <Button variant="outline" onClick={() => setStep(2)}>
-                Back to Mapping
-              </Button>
-              <Button
-                variant="primary"
-                onClick={handleCommitBatch}
-                isLoading={isLoading}
-                disabled={createdBatch.validRows === 0}
-              >
-                Commit{' '}
-                {skipDuplicates
-                  ? createdBatch.validRows - createdBatch.duplicateRowsCount
-                  : createdBatch.validRows}{' '}
-                Records to Ledger
-                <Check className="w-4 h-4 ml-1.5" />
-              </Button>
-            </div>
+            {(() => {
+              const validCount = createdBatch.validRowsCount ?? createdBatch.validRows ?? 0;
+              const duplicateCount = createdBatch.duplicateRowsCount ?? 0;
+              const recordsToCommit = skipDuplicates
+                ? Math.max(0, validCount - duplicateCount)
+                : validCount;
+
+              return (
+                <div className="flex justify-between items-center pt-4 border-t border-[var(--border-subtle)]">
+                  <Button variant="outline" onClick={() => setStep(2)}>
+                    Back to Mapping
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={handleCommitBatch}
+                    isLoading={isLoading}
+                    disabled={validCount === 0}
+                  >
+                    Commit {recordsToCommit} Records to Ledger
+                    <Check className="w-4 h-4 ml-1.5" />
+                  </Button>
+                </div>
+              );
+            })()}
           </div>
         )}
 

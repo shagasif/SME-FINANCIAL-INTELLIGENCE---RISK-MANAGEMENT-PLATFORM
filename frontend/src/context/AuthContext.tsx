@@ -12,7 +12,10 @@ import { AuthContext } from './authContextDef';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserSummary | null>(null);
-  const [activeOrg, setActiveOrg] = useState<OrganizationSummary | null>(null);
+  const [activeOrg, setActiveOrg] = useState<OrganizationSummary | null>(() => {
+    if (!authStorage.getToken()) return null;
+    return authStorage.getActiveOrg<OrganizationSummary>();
+  });
   const [memberships, setMemberships] = useState<OrganizationMembershipSummary[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(() => Boolean(authStorage.getToken()));
 
@@ -32,14 +35,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const savedOrgId = preferredOrgId || authStorage.getActiveOrgId();
       const matched = members.find((m) => m.organizationId === savedOrgId) || members[0];
 
-      setActiveOrg({
+      const orgSummary: OrganizationSummary = {
         id: matched.organizationId,
         name: matched.organizationName,
         slug: matched.organizationSlug,
         baseCurrency: matched.baseCurrency,
         role: matched.role,
-      });
-      authStorage.setActiveOrgId(matched.organizationId);
+      };
+
+      setActiveOrg(orgSummary);
+      authStorage.setActiveOrg(orgSummary);
     },
     [],
   );
