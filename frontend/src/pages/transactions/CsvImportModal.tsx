@@ -1,4 +1,5 @@
-import { useState, type ChangeEvent } from 'react';
+import { useRef, useState, type ChangeEvent } from 'react';
+import * as XLSX from 'xlsx';
 import {
   AlertCircle,
   AlertTriangle,
@@ -15,6 +16,53 @@ import { Select } from '../../components/ui/Select';
 import { apiPost, ApiClientError } from '../../services/apiClient';
 import type { FinancialAccount, ImportBatch } from '../../types/financial.types';
 
+type SupportedImportFormat = 'csv' | 'xlsx' | 'xls' | 'json';
+
+function detectFileFormat(file: File): SupportedImportFormat | null {
+  const name = file.name.toLowerCase();
+  if (name.endsWith('.csv') || file.type === 'text/csv') return 'csv';
+  if (
+    name.endsWith('.xlsx') ||
+    file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  ) {
+    return 'xlsx';
+  }
+  if (name.endsWith('.xls') || file.type === 'application/vnd.ms-excel') {
+    return 'xls';
+  }
+  if (name.endsWith('.json') || file.type === 'application/json') {
+    return 'json';
+  }
+  return null;
+}
+
+function jsonArrayToCsv(records: Record<string, unknown>[]): string {
+  if (!records || records.length === 0) return '';
+  const headers = Array.from(
+    new Set(
+      records.flatMap((item) =>
+        item && typeof item === 'object' && !Array.isArray(item) ? Object.keys(item) : [],
+      ),
+    ),
+  );
+  if (headers.length === 0) return '';
+
+  const escapeCell = (val: unknown): string => {
+    if (val === null || val === undefined) return '';
+    const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
+    if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+
+  const lines = [
+    headers.map(escapeCell).join(','),
+    ...records.map((r) => headers.map((h) => escapeCell(r[h])).join(',')),
+  ];
+  return lines.join('\n');
+}
+
 interface CsvImportModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -30,12 +78,20 @@ export function CsvImportModal({
   orgId,
   onSuccess,
 }: CsvImportModalProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id || '');
   const [fileName, setFileName] = useState('');
+  const [fileFormat, setFileFormat] = useState<SupportedImportFormat | null>(null);
   const [csvContent, setCsvContent] = useState('');
   const [headers, setHeaders] = useState<string[]>([]);
   const [previewSample, setPreviewSample] = useState<string[][]>([]);
+
+  // Excel multi-sheet support
+  const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [sheetNames, setSheetNames] = useState<string[]>([]);
+  const [selectedSheet, setSelectedSheet] = useState<string>('');
 
   // Step 2 Mapping state
   const [dateColumn, setDateColumn] = useState('');
@@ -56,9 +112,13 @@ export function CsvImportModal({
   const resetState = () => {
     setStep(1);
     setFileName('');
+    setFileFormat(null);
     setCsvContent('');
     setHeaders([]);
     setPreviewSample([]);
+    setWorkbook(null);
+    setSheetNames([]);
+    setSelectedSheet('');
     setDateColumn('');
     setAmountColumn('');
     setDescriptionColumn('');
@@ -68,6 +128,9 @@ export function CsvImportModal({
     setCreatedBatch(null);
     setError(null);
     setIsLoading(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   const handleClose = () => {
@@ -75,54 +138,207 @@ export function CsvImportModal({
     onClose();
   };
 
-  // Step 1: File selection & parsing
+  const handleBrowseClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const processCsvText = (text: string) => {
+    setCsvContent(text);
+
+    const lines = text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    if (lines.length < 2) {
+      setError('The selected file or worksheet must have at least one header row and one data row.');
+      setHeaders([]);
+      setPreviewSample([]);
+      return;
+    }
+
+    const parsedHeaders = lines[0].split(',').map((h) => h.trim().replace(/^["']|["']$/g, ''));
+    if (parsedHeaders.length === 0 || parsedHeaders.every((h) => !h)) {
+      setError('The selected file or worksheet does not contain valid column headers.');
+      setHeaders([]);
+      setPreviewSample([]);
+      return;
+    }
+
+    setHeaders(parsedHeaders);
+
+    const samples = lines
+      .slice(1, 4)
+      .map((l) => l.split(',').map((cell) => cell.trim().replace(/^["']|["']$/g, '')));
+    setPreviewSample(samples);
+
+    // Auto-detect columns intelligently
+    const lower = parsedHeaders.map((h) => h.toLowerCase());
+    const findCol = (keys: string[]) =>
+      parsedHeaders[lower.findIndex((h) => keys.some((k) => h.includes(k)))] || '';
+
+    setDateColumn(findCol(['date', 'timestamp', 'time']));
+    setAmountColumn(findCol(['amount', 'total', 'sum', 'value']));
+    setDescriptionColumn(findCol(['desc', 'memo', 'narration', 'detail']));
+    setTypeColumn(findCol(['type', 'direction', 'dr_cr']));
+    setCategoryColumn(findCol(['cat', 'class']));
+    setCounterpartyColumn(findCol(['payee', 'vendor', 'customer', 'counterparty', 'merchant']));
+  };
+
+  const handleSheetChange = (sheetName: string) => {
+    setSelectedSheet(sheetName);
+    if (!workbook) return;
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) {
+      setError(`Worksheet "${sheetName}" was not found in the Excel workbook.`);
+      return;
+    }
+    setError(null);
+    const sheetCsv = XLSX.utils.sheet_to_csv(sheet);
+    processCsvText(sheetCsv);
+  };
+
+  // Step 1: File selection & parsing for CSV, XLSX, XLS, and JSON
   const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Reset input value so re-uploading the same file triggers onChange
+    e.target.value = '';
+
     setError(null);
+
+    const lowerName = file.name.toLowerCase();
+
+    // Explicitly reject PDF files
+    if (lowerName.endsWith('.pdf') || file.type === 'application/pdf') {
+      setError('PDF files are not supported. Please upload a CSV, XLSX, XLS, or JSON financial statement.');
+      setFileName('');
+      setFileFormat(null);
+      setCsvContent('');
+      setHeaders([]);
+      setPreviewSample([]);
+      setWorkbook(null);
+      setSheetNames([]);
+      setSelectedSheet('');
+      return;
+    }
+
+    const detected = detectFileFormat(file);
+    if (!detected) {
+      setError('Unsupported file type. Please upload a CSV, XLSX, XLS, or JSON financial statement.');
+      setFileName('');
+      setFileFormat(null);
+      setCsvContent('');
+      setHeaders([]);
+      setPreviewSample([]);
+      setWorkbook(null);
+      setSheetNames([]);
+      setSelectedSheet('');
+      return;
+    }
+
     setFileName(file.name);
+    setFileFormat(detected);
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = (event.target?.result as string) || '';
-      setCsvContent(text);
+    if (detected === 'csv') {
+      setWorkbook(null);
+      setSheetNames([]);
+      setSelectedSheet('');
 
-      const lines = text
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter(Boolean);
-      if (lines.length < 2) {
-        setError('The selected CSV file must have at least one header row and one data row.');
-        return;
-      }
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const text = (event.target?.result as string) || '';
+          processCsvText(text);
+        } catch {
+          setError('Failed to parse CSV file content. Please check file formatting.');
+          setHeaders([]);
+          setPreviewSample([]);
+        }
+      };
+      reader.onerror = () => {
+        setError('Failed to read the selected CSV file. Please try again.');
+      };
+      reader.readAsText(file);
+    } else if (detected === 'xlsx' || detected === 'xls') {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const buffer = event.target?.result as ArrayBuffer;
+          const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+          if (!wb.SheetNames || wb.SheetNames.length === 0) {
+            setError('The selected Excel workbook contains no worksheets.');
+            setHeaders([]);
+            setPreviewSample([]);
+            return;
+          }
+          setWorkbook(wb);
+          setSheetNames(wb.SheetNames);
+          const initialSheet = wb.SheetNames[0];
+          setSelectedSheet(initialSheet);
 
-      const parsedHeaders = lines[0].split(',').map((h) => h.trim().replace(/^["']|["']$/g, ''));
-      setHeaders(parsedHeaders);
+          const sheet = wb.Sheets[initialSheet];
+          const sheetCsv = XLSX.utils.sheet_to_csv(sheet);
+          processCsvText(sheetCsv);
+        } catch {
+          setError('Failed to parse Excel workbook. Please verify the file is not corrupted.');
+          setHeaders([]);
+          setPreviewSample([]);
+        }
+      };
+      reader.onerror = () => {
+        setError('Failed to read the selected Excel file. Please try again.');
+      };
+      reader.readAsArrayBuffer(file);
+    } else if (detected === 'json') {
+      setWorkbook(null);
+      setSheetNames([]);
+      setSelectedSheet('');
 
-      const samples = lines
-        .slice(1, 4)
-        .map((l) => l.split(',').map((cell) => cell.trim().replace(/^["']|["']$/g, '')));
-      setPreviewSample(samples);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const text = (event.target?.result as string) || '';
+          const parsed = JSON.parse(text);
 
-      // Auto-detect columns intelligently
-      const lower = parsedHeaders.map((h) => h.toLowerCase());
-      const findCol = (keys: string[]) =>
-        parsedHeaders[lower.findIndex((h) => keys.some((k) => h.includes(k)))] || '';
+          let records: Record<string, unknown>[] = [];
+          if (Array.isArray(parsed)) {
+            records = parsed;
+          } else if (parsed && typeof parsed === 'object') {
+            if (Array.isArray(parsed.transactions)) {
+              records = parsed.transactions;
+            } else if (Array.isArray(parsed.items)) {
+              records = parsed.items;
+            } else if (Array.isArray(parsed.records)) {
+              records = parsed.records;
+            } else if (Array.isArray(parsed.data)) {
+              records = parsed.data;
+            } else {
+              records = [parsed];
+            }
+          }
 
-      setDateColumn(findCol(['date', 'timestamp', 'time']));
-      setAmountColumn(findCol(['amount', 'total', 'sum', 'value']));
-      setDescriptionColumn(findCol(['desc', 'memo', 'narration', 'detail']));
-      setTypeColumn(findCol(['type', 'direction', 'dr_cr']));
-      setCategoryColumn(findCol(['cat', 'class']));
-      setCounterpartyColumn(findCol(['payee', 'vendor', 'customer', 'counterparty', 'merchant']));
-    };
+          if (records.length === 0) {
+            setError('The JSON file must contain an array of transaction records.');
+            setHeaders([]);
+            setPreviewSample([]);
+            return;
+          }
 
-    reader.onerror = () => {
-      setError('Failed to read the selected file.');
-    };
-
-    reader.readAsText(file);
+          const generatedCsv = jsonArrayToCsv(records);
+          processCsvText(generatedCsv);
+        } catch {
+          setError('Failed to parse JSON file content. Ensure the file contains valid JSON formatted records.');
+          setHeaders([]);
+          setPreviewSample([]);
+        }
+      };
+      reader.onerror = () => {
+        setError('Failed to read the selected JSON file. Please try again.');
+      };
+      reader.readAsText(file);
+    }
   };
 
   // Step 2 -> Step 3: Call preview API
@@ -206,7 +422,7 @@ export function CsvImportModal({
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
-      title="4-Step CSV Financial Import Wizard"
+      title="4-Step Financial File Import Wizard (CSV, Excel, JSON)"
       size="xl"
     >
       <div className="space-y-6">
@@ -283,33 +499,77 @@ export function CsvImportModal({
             <div className="border-2 border-dashed border-[var(--border-subtle)] rounded-2xl p-8 text-center bg-[var(--surface-canvas)]/50 hover:bg-[var(--surface-elevated)]/40 transition-colors">
               <FileSpreadsheet className="w-10 h-10 text-[var(--accent-teal)] mx-auto mb-3" />
               <p className="text-sm font-semibold text-[var(--text-primary)]">
-                Select CSV bank or ledger statement
+                Select CSV, Excel (.xlsx, .xls), or JSON statement
               </p>
-              <p className="text-xs text-[var(--text-muted)] mt-1 mb-4">
-                Supports UTF-8 encoded files with header row (up to 2MB)
+              <p className="text-xs text-[var(--text-muted)] mt-1 mb-2">
+                Supported formats: CSV, XLSX, XLS, JSON (up to 5MB)
+              </p>
+              <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium mb-4">
+                Note: PDF files are strictly not supported.
               </p>
 
-              <label className="inline-flex">
+              <div className="inline-flex flex-col items-center">
                 <input
+                  ref={fileInputRef}
                   type="file"
-                  accept=".csv,text/csv"
+                  accept=".csv,.xlsx,.xls,.json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/json"
                   onChange={handleFileUpload}
                   className="sr-only"
+                  aria-label="Upload financial file"
+                  data-testid="csv-file-input"
                 />
-                <Button variant="primary" size="md" type="button" className="cursor-pointer">
+                <Button
+                  variant="primary"
+                  size="md"
+                  type="button"
+                  onClick={handleBrowseClick}
+                  className="cursor-pointer"
+                >
                   <Upload className="w-4 h-4 mr-1.5" />
-                  Browse CSV File
+                  Browse Financial File
                 </Button>
-              </label>
+              </div>
 
               {fileName && (
-                <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--surface-card)] border border-[var(--border-subtle)] text-xs text-[var(--text-primary)]">
-                  <FileText className="w-3.5 h-3.5 text-[var(--accent-teal)]" />
-                  <span className="font-medium">{fileName}</span>
-                  <span className="text-[var(--text-muted)]">({headers.length} columns)</span>
+                <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--surface-card)] border border-[var(--border-subtle)] text-xs text-[var(--text-primary)]">
+                    <FileText className="w-3.5 h-3.5 text-[var(--accent-teal)]" />
+                    <span className="font-medium">{fileName}</span>
+                    {fileFormat && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-[var(--accent-teal)]/10 text-[var(--accent-teal)] border border-[var(--accent-teal)]/20">
+                        {fileFormat === 'xlsx' || fileFormat === 'xls'
+                          ? `Excel (${fileFormat.toUpperCase()})`
+                          : fileFormat.toUpperCase()}
+                      </span>
+                    )}
+                    <span className="text-[var(--text-muted)]">({headers.length} columns)</span>
+                  </div>
                 </div>
               )}
             </div>
+
+            {sheetNames.length > 1 && (
+              <div className="p-4 rounded-xl bg-[var(--surface-card)] border border-[var(--border-subtle)] space-y-2 text-left">
+                <div className="flex items-center justify-between">
+                  <label
+                    htmlFor="worksheetSelect"
+                    className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider"
+                  >
+                    Select Excel Worksheet
+                  </label>
+                  <span className="text-[11px] text-[var(--text-muted)] font-mono">
+                    {sheetNames.length} worksheets detected
+                  </span>
+                </div>
+                <Select
+                  id="worksheetSelect"
+                  value={selectedSheet}
+                  onChange={(e) => handleSheetChange(e.target.value)}
+                  options={sheetNames.map((s) => ({ value: s, label: s }))}
+                  helperText="Choose which worksheet to extract transactions from"
+                />
+              </div>
+            )}
 
             {previewSample.length > 0 && (
               <div className="space-y-2">

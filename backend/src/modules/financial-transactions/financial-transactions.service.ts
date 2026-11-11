@@ -39,27 +39,50 @@ export class FinancialTransactionsService {
   }
 
   async createAccount(organizationId: string, dto: CreateFinancialAccountDto, actorUserId: string) {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { baseCurrency: true },
+    });
+    if (!org) {
+      throw new NotFoundException('Organization not found');
+    }
+
+    let accountCode = dto.code?.trim();
+    if (!accountCode) {
+      const existingAccounts = await this.prisma.financialAccount.findMany({
+        where: { organizationId },
+        select: { code: true },
+      });
+      const codes = new Set(existingAccounts.map((a) => a.code));
+      let candidate = 1010;
+      while (codes.has(String(candidate))) {
+        candidate += 10;
+      }
+      accountCode = String(candidate);
+    }
+
     const existing = await this.prisma.financialAccount.findUnique({
       where: {
         organizationId_code: {
           organizationId,
-          code: dto.code.trim(),
+          code: accountCode,
         },
       },
     });
     if (existing) {
-      throw new ConflictException(`Account code ${dto.code} already exists in this organization`);
+      throw new ConflictException(`Account code ${accountCode} already exists in this organization`);
     }
 
     const opening = DecimalMath.of(dto.openingBalance ?? '0.0000');
+    const currency = (dto.currency?.trim() || org.baseCurrency || 'PKR').toUpperCase();
 
     const account = await this.prisma.financialAccount.create({
       data: {
         organizationId,
-        code: dto.code.trim(),
+        code: accountCode,
         name: dto.name.trim(),
         type: dto.type,
-        currency: (dto.currency ?? 'USD').toUpperCase(),
+        currency,
         openingBalance: opening,
         currentBalance: opening,
         institution: dto.institution?.trim() ?? null,
@@ -77,6 +100,7 @@ export class FinancialTransactionsService {
         code: account.code,
         name: account.name,
         type: account.type,
+        currency: account.currency,
         openingBalance: DecimalMath.toFixed4(account.openingBalance),
       },
     });
@@ -243,7 +267,7 @@ export class FinancialTransactionsService {
       this.prisma.financialTransaction.findMany({
         where,
         include: {
-          account: { select: { id: true, code: true, name: true, type: true } },
+          account: { select: { id: true, code: true, name: true, type: true, currency: true } },
         },
         orderBy: [{ transactionDate: 'desc' }, { createdAt: 'desc' }],
         skip,

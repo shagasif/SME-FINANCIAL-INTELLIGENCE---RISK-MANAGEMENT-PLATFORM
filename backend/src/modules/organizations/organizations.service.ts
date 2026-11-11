@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { MembershipStatus, RoleType } from '../../generated/prisma/client.js';
+import { AccountType, MembershipStatus, Prisma, RoleType } from '../../generated/prisma/client.js';
 import { SecurityUtil } from '../../common/utils/security.util.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -23,6 +23,11 @@ export class OrganizationsService {
       .replace(/^-|-$/g, '');
     const slug = `${baseSlug || 'org'}-${SecurityUtil.generateRandomToken(3)}`;
 
+    const resolvedBaseCurrency = this.resolveOrganizationCurrency(
+      dto.baseCurrency,
+      dto.country,
+    );
+
     const organization = await this.prisma.$transaction(async (tx) => {
       const org = await tx.organization.create({
         data: {
@@ -30,7 +35,7 @@ export class OrganizationsService {
           slug,
           registrationNumber: dto.registrationNumber?.trim() ?? null,
           industry: dto.industry?.trim() ?? null,
-          baseCurrency: (dto.baseCurrency ?? 'USD').toUpperCase(),
+          baseCurrency: resolvedBaseCurrency,
           fiscalYearStartMonth: dto.fiscalYearStartMonth ?? 1,
           isSyntheticDemo: dto.isSyntheticDemo ?? false,
         },
@@ -43,6 +48,42 @@ export class OrganizationsService {
           role: RoleType.BUSINESS_OWNER,
           status: MembershipStatus.ACTIVE,
         },
+      });
+
+      // Seed initial starter accounts in organization's base currency
+      await tx.financialAccount.createMany({
+        data: [
+          {
+            organizationId: org.id,
+            code: '1010',
+            name: 'Operating Account',
+            type: AccountType.BANK,
+            currency: resolvedBaseCurrency,
+            openingBalance: new Prisma.Decimal('0.0000'),
+            currentBalance: new Prisma.Decimal('0.0000'),
+            isLiquid: true,
+          },
+          {
+            organizationId: org.id,
+            code: '1020',
+            name: 'Payroll Reserve',
+            type: AccountType.BANK,
+            currency: resolvedBaseCurrency,
+            openingBalance: new Prisma.Decimal('0.0000'),
+            currentBalance: new Prisma.Decimal('0.0000'),
+            isLiquid: true,
+          },
+          {
+            organizationId: org.id,
+            code: '1030',
+            name: 'Petty Cash',
+            type: AccountType.CASH,
+            currency: resolvedBaseCurrency,
+            openingBalance: new Prisma.Decimal('0.0000'),
+            currentBalance: new Prisma.Decimal('0.0000'),
+            isLiquid: true,
+          },
+        ],
       });
 
       return org;
@@ -180,5 +221,46 @@ export class OrganizationsService {
     });
 
     return updated;
+  }
+
+  private resolveOrganizationCurrency(baseCurrency?: string, country?: string): string {
+    if (baseCurrency?.trim()) {
+      return baseCurrency.trim().toUpperCase();
+    }
+    const normalizedCountry = country?.trim().toLowerCase();
+    if (
+      !normalizedCountry ||
+      normalizedCountry === 'pakistan' ||
+      normalizedCountry === 'pk' ||
+      normalizedCountry === 'pak'
+    ) {
+      return 'PKR';
+    }
+    if (
+      normalizedCountry === 'united states' ||
+      normalizedCountry === 'us' ||
+      normalizedCountry === 'usa'
+    ) {
+      return 'USD';
+    }
+    if (
+      normalizedCountry === 'united kingdom' ||
+      normalizedCountry === 'uk' ||
+      normalizedCountry === 'gb' ||
+      normalizedCountry === 'great britain'
+    ) {
+      return 'GBP';
+    }
+    if (normalizedCountry === 'european union' || normalizedCountry === 'eu') {
+      return 'EUR';
+    }
+    if (
+      normalizedCountry === 'united arab emirates' ||
+      normalizedCountry === 'uae' ||
+      normalizedCountry === 'ae'
+    ) {
+      return 'AED';
+    }
+    return 'PKR';
   }
 }

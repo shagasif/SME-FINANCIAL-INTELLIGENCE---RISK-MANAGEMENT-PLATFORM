@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, FileSpreadsheet, Plus, RefreshCw, Search, ShieldAlert } from 'lucide-react';
+import {
+  AlertCircle,
+  Building2,
+  FileSpreadsheet,
+  Plus,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+} from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
 import { apiGet, ApiClientError } from '../../services/apiClient';
 import { Button } from '../../components/ui/Button';
@@ -10,15 +18,16 @@ import { formatCurrency, formatDate } from '../../utils/formatters';
 import type { FinancialAccount, FinancialTransaction } from '../../types/financial.types';
 import { CsvImportModal } from './CsvImportModal';
 import { NewTransactionModal } from './NewTransactionModal';
+import { ManageAccountsModal } from './ManageAccountsModal';
 import { DEFAULT_DEMO_ORG } from '../../config/demo.config';
 
 const DEFAULT_ACCOUNTS: FinancialAccount[] = [
   {
     id: 'acc-001',
     organizationId: DEFAULT_DEMO_ORG.id,
-    name: 'Operating Account (Silicon Valley Bank)',
+    name: 'Primary Operating Account',
     accountType: 'BANK',
-    currency: 'USD',
+    currency: 'PKR',
     openingBalance: '1000000.00',
     currentBalance: '1248500.00',
     isArchived: false,
@@ -28,9 +37,9 @@ const DEFAULT_ACCOUNTS: FinancialAccount[] = [
   {
     id: 'acc-002',
     organizationId: DEFAULT_DEMO_ORG.id,
-    name: 'Payroll Reserve (Chase)',
+    name: 'Payroll Reserve',
     accountType: 'BANK',
-    currency: 'USD',
+    currency: 'PKR',
     openingBalance: '200000.00',
     currentBalance: '250000.00',
     isArchived: false,
@@ -138,6 +147,7 @@ export function TransactionsPage() {
   // Modals
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
   const [isNewTxModalOpen, setIsNewTxModalOpen] = useState(false);
+  const [isAccountsModalOpen, setIsAccountsModalOpen] = useState(false);
 
   // Loading & error
   const [isLoading, setIsLoading] = useState(true);
@@ -159,17 +169,17 @@ export function TransactionsPage() {
     apiGet<FinancialAccount[]>(`/v1/organizations/${activeOrgId}/accounts`)
       .then((accs) => {
         if (!isMounted) return;
-        setAccounts(Array.isArray(accs) && accs.length > 0 ? accs : DEFAULT_ACCOUNTS);
+        setAccounts(Array.isArray(accs) ? accs : []);
       })
       .catch(() => {
         if (!isMounted) return;
-        setAccounts((prev) => (prev.length > 0 ? prev : DEFAULT_ACCOUNTS));
+        setAccounts((prev) => (prev.length > 0 ? prev : activeOrg ? [] : DEFAULT_ACCOUNTS));
       });
 
     return () => {
       isMounted = false;
     };
-  }, [activeOrgId]);
+  }, [activeOrgId, activeOrg]);
 
   // Fetch Transactions
   useEffect(() => {
@@ -220,12 +230,16 @@ export function TransactionsPage() {
     reloadKey,
   ]);
 
-  const currency = effectiveOrg.baseCurrency || 'USD';
+  const currency = effectiveOrg.baseCurrency || 'PKR';
 
   const safeAccounts = Array.isArray(accounts) ? accounts : [];
+  const accountMap = Object.fromEntries(safeAccounts.map((a) => [a.id, a]));
   const accountFilterOptions = [
     { value: '', label: 'All Accounts' },
-    ...safeAccounts.map((a) => ({ value: a.id, label: a.name })),
+    ...safeAccounts.map((a) => ({
+      value: a.id,
+      label: `${a.name} (${a.currency})`,
+    })),
   ];
 
   const typeFilterOptions = [
@@ -260,6 +274,16 @@ export function TransactionsPage() {
             Refresh
           </Button>
 
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsAccountsModalOpen(true)}
+            title="Manage Financial Accounts"
+          >
+            <Building2 className="w-3.5 h-3.5 mr-1.5 text-[var(--accent-teal)]" />
+            Accounts ({safeAccounts.length})
+          </Button>
+
           {canMutateLedger && (
             <>
               <Button
@@ -269,7 +293,7 @@ export function TransactionsPage() {
                 title="Import CSV Statement"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 mr-1.5 text-[var(--accent-teal)]" />
-                Import CSV
+                Import File
               </Button>
 
               <Button
@@ -315,6 +339,61 @@ export function TransactionsPage() {
           </div>
           <Button variant="ghost" size="sm" onClick={handleRefresh}>
             Try Again
+          </Button>
+        </div>
+      )}
+
+      {/* Account Balances Strip */}
+      {safeAccounts.length > 0 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {safeAccounts.map((acc) => {
+            const isSelected = selectedAccountId === acc.id;
+            return (
+              <div
+                key={acc.id}
+                onClick={() => {
+                  setSelectedAccountId(isSelected ? '' : acc.id);
+                  setPagination((p) => ({ ...p, page: 1 }));
+                }}
+                className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
+                  isSelected
+                    ? 'border-[var(--accent-teal)] bg-[var(--surface-elevated)] ring-1 ring-[var(--accent-teal)]'
+                    : 'border-[var(--border-subtle)] bg-[var(--surface-card)] hover:border-[var(--border-strong)]'
+                }`}
+                title={`Filter ledger by ${acc.name}`}
+              >
+                <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-1">
+                  <span className="font-semibold text-[var(--text-secondary)] truncate max-w-[140px]">
+                    {acc.name}
+                  </span>
+                  <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--surface-elevated)] border border-[var(--border-subtle)] text-[var(--accent-teal)]">
+                    {acc.currency}
+                  </span>
+                </div>
+                <div className="text-lg font-bold font-mono text-[var(--text-primary)]">
+                  {formatCurrency(acc.currentBalance, acc.currency)}
+                </div>
+                <div className="text-[11px] text-[var(--text-muted)] mt-1 flex items-center justify-between">
+                  <span className="uppercase text-[10px] tracking-wider">
+                    {acc.type || acc.accountType || 'BANK'}
+                  </span>
+                  {acc.institution && (
+                    <span className="truncate max-w-[110px]">{acc.institution}</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="p-4 rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--surface-card)] text-center space-y-2">
+          <p className="text-xs text-[var(--text-muted)]">
+            No financial accounts found. Create your Operating, Payroll, Savings, or Cash account to
+            organize transactions.
+          </p>
+          <Button variant="primary" size="sm" onClick={() => setIsAccountsModalOpen(true)}>
+            <Plus className="w-3.5 h-3.5 mr-1.5" />
+            Create Financial Account
           </Button>
         </div>
       )}
@@ -400,7 +479,7 @@ export function TransactionsPage() {
                         {tx.description}
                       </td>
                       <td className="py-3 px-4 text-[var(--text-secondary)] whitespace-nowrap">
-                        {tx.account?.name || 'General'}
+                        {tx.account?.name || accountMap[tx.accountId]?.name || 'General'}
                       </td>
                       <td className="py-3 px-4 text-[var(--text-muted)] whitespace-nowrap">
                         <span className="px-2 py-0.5 rounded-md bg-[var(--surface-canvas)] border border-[var(--border-subtle)] text-[10px]">
@@ -434,7 +513,10 @@ export function TransactionsPage() {
                           }
                         >
                           {isIncome ? '+' : isExpense ? '-' : ''}
-                          {formatCurrency(tx.amount, currency)}
+                          {formatCurrency(
+                            tx.amount,
+                            tx.currency || accountMap[tx.accountId]?.currency || currency,
+                          )}
                         </span>
                       </td>
                     </tr>
@@ -481,11 +563,28 @@ export function TransactionsPage() {
         </div>
       </div>
 
+      {/* Financial Accounts Management Modal */}
+      <ManageAccountsModal
+        isOpen={isAccountsModalOpen}
+        onClose={() => setIsAccountsModalOpen(false)}
+        accounts={safeAccounts}
+        orgId={effectiveOrg.id}
+        defaultCurrency={currency}
+        onSuccess={() => {
+          handleRefresh();
+          apiGet<FinancialAccount[]>(`/v1/organizations/${activeOrgId}/accounts`)
+            .then((accs) => {
+              setAccounts(Array.isArray(accs) ? accs : []);
+            })
+            .catch(() => {});
+        }}
+      />
+
       {/* CSV Import Modal */}
       <CsvImportModal
         isOpen={isCsvModalOpen}
         onClose={() => setIsCsvModalOpen(false)}
-        accounts={accounts}
+        accounts={safeAccounts}
         orgId={effectiveOrg.id}
         onSuccess={handleRefresh}
       />
@@ -494,7 +593,7 @@ export function TransactionsPage() {
       <NewTransactionModal
         isOpen={isNewTxModalOpen}
         onClose={() => setIsNewTxModalOpen(false)}
-        accounts={accounts}
+        accounts={safeAccounts}
         orgId={effectiveOrg.id}
         onSuccess={handleRefresh}
       />

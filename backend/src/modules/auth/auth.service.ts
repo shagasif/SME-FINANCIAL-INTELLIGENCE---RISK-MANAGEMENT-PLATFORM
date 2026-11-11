@@ -5,7 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { MembershipStatus, RoleType } from '../../generated/prisma/client.js';
+import { AccountType, MembershipStatus, Prisma, RoleType } from '../../generated/prisma/client.js';
 import { SecurityUtil } from '../../common/utils/security.util.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
@@ -28,6 +28,47 @@ export class AuthService {
     return (
       this.config.get<string>('JWT_SECRET') ?? 'sme-financial-intelligence-dev-jwt-secret-key-2026'
     );
+  }
+
+  private resolveOrganizationCurrency(baseCurrency?: string, country?: string): string {
+    if (baseCurrency?.trim()) {
+      return baseCurrency.trim().toUpperCase();
+    }
+    const normalizedCountry = country?.trim().toLowerCase();
+    if (
+      !normalizedCountry ||
+      normalizedCountry === 'pakistan' ||
+      normalizedCountry === 'pk' ||
+      normalizedCountry === 'pak'
+    ) {
+      return 'PKR';
+    }
+    if (
+      normalizedCountry === 'united states' ||
+      normalizedCountry === 'us' ||
+      normalizedCountry === 'usa'
+    ) {
+      return 'USD';
+    }
+    if (
+      normalizedCountry === 'united kingdom' ||
+      normalizedCountry === 'uk' ||
+      normalizedCountry === 'gb' ||
+      normalizedCountry === 'great britain'
+    ) {
+      return 'GBP';
+    }
+    if (normalizedCountry === 'european union' || normalizedCountry === 'eu') {
+      return 'EUR';
+    }
+    if (
+      normalizedCountry === 'united arab emirates' ||
+      normalizedCountry === 'uae' ||
+      normalizedCountry === 'ae'
+    ) {
+      return 'AED';
+    }
+    return 'PKR';
   }
 
   async register(dto: RegisterUserDto, ipAddress?: string, userAgent?: string) {
@@ -58,12 +99,16 @@ export class AuthService {
           .replace(/[^a-z0-9]+/g, '-')
           .replace(/^-|-$/g, '');
         const slug = `${baseSlug || 'org'}-${SecurityUtil.generateRandomToken(3)}`;
+        const resolvedBaseCurrency = this.resolveOrganizationCurrency(
+          dto.baseCurrency,
+          dto.country,
+        );
 
         organization = await tx.organization.create({
           data: {
             name: dto.organizationName.trim(),
             slug,
-            baseCurrency: (dto.baseCurrency ?? 'USD').toUpperCase(),
+            baseCurrency: resolvedBaseCurrency,
           },
         });
 
@@ -74,6 +119,42 @@ export class AuthService {
             role: RoleType.BUSINESS_OWNER,
             status: MembershipStatus.ACTIVE,
           },
+        });
+
+        // Seed initial clean, unbranded starter accounts in the organization's base currency
+        await tx.financialAccount.createMany({
+          data: [
+            {
+              organizationId: organization.id,
+              code: '1010',
+              name: 'Operating Account',
+              type: AccountType.BANK,
+              currency: resolvedBaseCurrency,
+              openingBalance: new Prisma.Decimal('0.0000'),
+              currentBalance: new Prisma.Decimal('0.0000'),
+              isLiquid: true,
+            },
+            {
+              organizationId: organization.id,
+              code: '1020',
+              name: 'Payroll Reserve',
+              type: AccountType.BANK,
+              currency: resolvedBaseCurrency,
+              openingBalance: new Prisma.Decimal('0.0000'),
+              currentBalance: new Prisma.Decimal('0.0000'),
+              isLiquid: true,
+            },
+            {
+              organizationId: organization.id,
+              code: '1030',
+              name: 'Petty Cash',
+              type: AccountType.CASH,
+              currency: resolvedBaseCurrency,
+              openingBalance: new Prisma.Decimal('0.0000'),
+              currentBalance: new Prisma.Decimal('0.0000'),
+              isLiquid: true,
+            },
+          ],
         });
       }
 

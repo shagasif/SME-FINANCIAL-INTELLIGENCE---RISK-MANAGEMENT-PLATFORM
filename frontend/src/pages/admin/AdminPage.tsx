@@ -357,11 +357,14 @@ export function AdminPage() {
                 onChange={(e) => setBaseCurrency(e.target.value)}
                 className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-2 text-xs font-semibold"
               >
+                <option value="PKR">PKR (₨ - Pakistani Rupee)</option>
                 <option value="USD">USD ($ - United States Dollar)</option>
                 <option value="EUR">EUR (€ - Euro)</option>
                 <option value="GBP">GBP (£ - British Pound)</option>
+                <option value="AED">AED (AED - UAE Dirham)</option>
                 <option value="CAD">CAD ($ - Canadian Dollar)</option>
                 <option value="AUD">AUD ($ - Australian Dollar)</option>
+                <option value="SAR">SAR (SAR - Saudi Riyal)</option>
                 <option value="SGD">SGD ($ - Singapore Dollar)</option>
               </select>
             </div>

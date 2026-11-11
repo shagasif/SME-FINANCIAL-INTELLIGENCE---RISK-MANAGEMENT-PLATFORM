@@ -18,13 +18,14 @@ import {
 } from '../../../generated/prisma/client.js';
 
 export class CreateFinancialAccountDto {
-  @ApiProperty({ example: '1010' })
+  @ApiPropertyOptional({ example: '1010' })
+  @IsOptional()
   @IsString()
   @MinLength(1)
   @MaxLength(30)
-  code!: string;
+  code?: string;
 
-  @ApiProperty({ example: 'Primary Operating Checking' })
+  @ApiProperty({ example: 'Operating Account' })
   @IsString()
   @MinLength(2)
   @MaxLength(120)
@@ -34,19 +35,19 @@ export class CreateFinancialAccountDto {
   @IsEnum(AccountType)
   type!: AccountType;
 
-  @ApiPropertyOptional({ example: 'USD', default: 'USD' })
+  @ApiPropertyOptional({ example: 'PKR', description: 'ISO 4217 currency code (defaults to organization base currency)' })
   @IsOptional()
   @IsString()
   @MinLength(3)
   @MaxLength(3)
-  currency?: string = 'USD';
+  currency?: string;
 
   @ApiPropertyOptional({ example: '125000.0000', default: '0.0000' })
   @IsOptional()
   @IsNumberString()
   openingBalance?: string = '0.0000';
 
-  @ApiPropertyOptional({ example: 'First Commercial Bank' })
+  @ApiPropertyOptional({ example: 'Commercial Bank' })
   @IsOptional()
   @IsString()
   @MaxLength(120)

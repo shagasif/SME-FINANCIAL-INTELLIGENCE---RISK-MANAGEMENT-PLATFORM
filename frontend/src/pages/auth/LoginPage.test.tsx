@@ -49,7 +49,7 @@ describe('LoginPage Component', () => {
     );
 
     expect(screen.getByLabelText(/Work Email Address/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Password/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Password$/i, { selector: 'input' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Sign In to Workspace/i })).toBeInTheDocument();
     expect(screen.getByText(/Forgot password\?/i)).toBeInTheDocument();
     expect(screen.getByText(/Register organization/i)).toBeInTheDocument();
@@ -97,7 +97,7 @@ describe('LoginPage Component', () => {
     );
 
     const emailInput = screen.getByLabelText(/Work Email Address/i);
-    const passwordInput = screen.getByLabelText(/Password/i);
+    const passwordInput = screen.getByLabelText(/^Password$/i, { selector: 'input' });
     const submitBtn = screen.getByRole('button', { name: /Sign In to Workspace/i });
 
     fireEvent.change(emailInput, { target: { value: 'realuser@enterprise.com' } });
@@ -129,7 +129,7 @@ describe('LoginPage Component', () => {
     );
 
     const emailInput = screen.getByLabelText(/Work Email Address/i);
-    const passwordInput = screen.getByLabelText(/Password/i);
+    const passwordInput = screen.getByLabelText(/^Password$/i, { selector: 'input' });
     const submitBtn = screen.getByRole('button', { name: /Sign In to Workspace/i });
 
     fireEvent.change(emailInput, { target: { value: 'invalid@apex.local' } });
@@ -141,5 +141,31 @@ describe('LoginPage Component', () => {
         /Invalid email or password. Please verify your credentials./i,
       );
     });
+  });
+
+  it('toggles password visibility when clicking the eye button without changing its value', () => {
+    render(
+      <BrowserRouter>
+        <LoginPage />
+      </BrowserRouter>,
+    );
+
+    const passwordInput = screen.getByLabelText(/^Password$/i, { selector: 'input' }) as HTMLInputElement;
+    expect(passwordInput.type).toBe('password');
+
+    fireEvent.change(passwordInput, { target: { value: 'SecretPassword123!' } });
+    expect(passwordInput.value).toBe('SecretPassword123!');
+
+    const toggleBtn = screen.getByRole('button', { name: /Show password/i });
+    fireEvent.click(toggleBtn);
+
+    expect(passwordInput.type).toBe('text');
+    expect(passwordInput.value).toBe('SecretPassword123!');
+
+    const hideBtn = screen.getByRole('button', { name: /Hide password/i });
+    fireEvent.click(hideBtn);
+
+    expect(passwordInput.type).toBe('password');
+    expect(passwordInput.value).toBe('SecretPassword123!');
   });
 });

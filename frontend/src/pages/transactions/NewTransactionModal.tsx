@@ -71,6 +71,9 @@ export function NewTransactionModal({
     onClose();
   };
 
+  const selectedAccount = accounts.find((a) => a.id === accountId);
+  const accountCurrency = selectedAccount?.currency || 'PKR';
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!accountId || !amount || !description || !transactionDate) {
@@ -92,6 +95,7 @@ export function NewTransactionModal({
         accountId,
         type,
         amount: numAmount.toFixed(4),
+        currency: accountCurrency,
         transactionDate: new Date(transactionDate).toISOString(),
         description: description.trim(),
         category,
@@ -152,7 +156,7 @@ export function NewTransactionModal({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input
             id="modalAmount"
-            label="Amount (Positive Decimal) *"
+            label={selectedAccount ? `Amount (${accountCurrency}) *` : 'Amount (Positive Decimal) *'}
             type="number"
             step="0.01"
             min="0.01"
@@ -160,6 +164,7 @@ export function NewTransactionModal({
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="0.00"
+            helperText={`Monetary value denominated in ${accountCurrency}`}
           />
 
           <Input

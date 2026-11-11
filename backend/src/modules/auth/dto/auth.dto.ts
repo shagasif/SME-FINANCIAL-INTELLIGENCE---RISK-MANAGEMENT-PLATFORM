@@ -24,7 +24,13 @@ export class RegisterUserDto {
   @MaxLength(150)
   organizationName?: string;
 
-  @ApiPropertyOptional({ example: 'USD', default: 'USD' })
+  @ApiPropertyOptional({ example: 'Pakistan' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  country?: string;
+
+  @ApiPropertyOptional({ example: 'PKR', default: 'PKR' })
   @IsOptional()
   @IsString()
   @MinLength(3)

@@ -52,11 +52,15 @@ export type BudgetPeriodType = (typeof BudgetPeriodType)[keyof typeof BudgetPeri
 export interface FinancialAccount {
   id: string;
   organizationId: string;
+  code?: string;
   name: string;
-  accountType: AccountType;
+  accountType?: AccountType;
+  type?: AccountType;
   currency: string;
   openingBalance: string;
   currentBalance: string;
+  institution?: string | null;
+  isLiquid?: boolean;
   isArchived: boolean;
   createdAt: string;
   updatedAt: string;
@@ -66,9 +70,10 @@ export interface FinancialTransaction {
   id: string;
   organizationId: string;
   accountId: string;
-  account?: { id: string; name: string; currency: string };
+  account?: { id: string; code?: string; name: string; currency?: string; type?: string };
   type: TransactionType;
   amount: string;
+  currency?: string;
   date: string;
   category: string;
   department?: string | null;
