@@ -300,30 +300,66 @@ describe('CsvImportModal Component', () => {
 
   it('enforces tenant isolation and displays duplicate warning in Step 3', async () => {
     const mockPost = vi.mocked(apiClient.apiPost);
-    mockPost.mockResolvedValueOnce({
-      id: 'batch-999',
-      organizationId: orgId,
-      accountId: 'acc-1',
-      fileName: 'bank_transactions.csv',
-      totalRows: 10,
-      validRows: 8,
-      duplicateRowsCount: 2,
-      invalidRows: 0,
-      previewRows: [
-        {
-          date: '2026-10-15',
-          amount: '1500.00',
-          description: 'Client Invoice Payment',
-          type: 'INCOME',
-        },
-      ],
-      rowErrors: [],
-      status: 'PREVIEW',
-    });
-
-    mockPost.mockResolvedValueOnce({
-      success: true,
-      batchId: 'batch-999',
+    mockPost.mockImplementation(async (url: string) => {
+      if (url.includes('/auto-map')) {
+        return {
+          success: true,
+          provider: 'gemini',
+          externalCredentialsConfigured: true,
+          workflowRunId: 'wf-1',
+          taskClassification: 'FILE_SCHEMA_PROFILING_AND_COLUMN_MAPPING',
+          durationMs: 35,
+          analystResult: {
+            detectedMappings: {
+              dateColumn: 'Date',
+              amountColumn: 'Amount',
+              descriptionColumn: 'Description',
+            },
+            confidenceScores: { date: 0.95, amount: 0.95, description: 0.9 },
+            fieldAnalysis: {},
+            unmappedHeaders: [],
+            notes: 'Profiled',
+          },
+          verifierResult: {
+            isApproved: true,
+            verifiedMappings: {
+              dateColumn: 'Date',
+              amountColumn: 'Amount',
+              descriptionColumn: 'Description',
+            },
+            validationErrors: [],
+            confidenceScore: 0.93,
+            requiresManualReview: false,
+            notes: 'Verified',
+          },
+        };
+      }
+      if (url.includes('/confirm')) {
+        return {
+          success: true,
+          batchId: 'batch-999',
+        };
+      }
+      return {
+        id: 'batch-999',
+        organizationId: orgId,
+        accountId: 'acc-1',
+        fileName: 'bank_transactions.csv',
+        totalRows: 10,
+        validRows: 8,
+        duplicateRowsCount: 2,
+        invalidRows: 0,
+        previewRows: [
+          {
+            date: '2026-10-15',
+            amount: '1500.00',
+            description: 'Client Invoice Payment',
+            type: 'INCOME',
+          },
+        ],
+        rowErrors: [],
+        status: 'PREVIEW',
+      };
     });
 
     render(
@@ -390,5 +426,180 @@ describe('CsvImportModal Component', () => {
       expect(screen.getByText('Import Committed Successfully!')).toBeInTheDocument();
       expect(mockOnSuccess).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('dispatches auto-map to Supervisor Orchestrator and renders AI confidence pills and Verifier AI badge in Step 2', async () => {
+    const mockPost = vi.mocked(apiClient.apiPost);
+    mockPost.mockResolvedValueOnce({
+      success: true,
+      provider: 'gemini',
+      externalCredentialsConfigured: true,
+      workflowRunId: 'wf-super-42',
+      taskClassification: 'FILE_SCHEMA_PROFILING_AND_COLUMN_MAPPING',
+      durationMs: 88,
+      analystResult: {
+        detectedMappings: {
+          dateColumn: 'TxnDate',
+          amountColumn: 'NetValue',
+          descriptionColumn: 'MemoText',
+        },
+        confidenceScores: {
+          date: 0.95,
+          amount: 0.92,
+          description: 0.88,
+        },
+        fieldAnalysis: {
+          date: 'Mapped to TxnDate. ISO-8601 syntax confirmed.',
+          amount: 'Mapped to NetValue. Valid decimal numbers found.',
+          description: 'Mapped to MemoText. Customer narratives detected.',
+        },
+        unmappedHeaders: [],
+        notes: 'Mapped 3 fields with high confidence',
+      },
+      verifierResult: {
+        isApproved: true,
+        verifiedMappings: {
+          dateColumn: 'TxnDate',
+          amountColumn: 'NetValue',
+          descriptionColumn: 'MemoText',
+        },
+        validationErrors: [],
+        confidenceScore: 0.93,
+        requiresManualReview: false,
+        notes: 'All checks passed',
+      },
+    });
+
+    render(
+      <CsvImportModal
+        isOpen={true}
+        onClose={mockOnClose}
+        accounts={mockAccounts}
+        orgId={orgId}
+        onSuccess={mockOnSuccess}
+      />,
+    );
+
+    const fileInput = screen.getByTestId('csv-file-input');
+    const csvContent = 'TxnDate,NetValue,MemoText\n2026-10-01,150.00,Client Payment\n';
+    fireEvent.change(fileInput, {
+      target: { files: [new File([csvContent], 'statement.csv', { type: 'text/csv' })] },
+    });
+
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith(
+        `/v1/organizations/${orgId}/csv-imports/auto-map`,
+        expect.objectContaining({
+          fileName: 'statement.csv',
+          headers: ['TxnDate', 'NetValue', 'MemoText'],
+        }),
+      );
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Continue to Column Mapping/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('AI Agent Auto-Mapping Active')).toBeInTheDocument();
+      expect(screen.getByText(/Verified by Verifier AI \(93%\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/95% Confidence/i)).toBeInTheDocument();
+      expect(screen.getByText(/92% Confidence/i)).toBeInTheDocument();
+      expect(screen.getByText(/88% Confidence/i)).toBeInTheDocument();
+      expect(screen.getByText(/Mapped to TxnDate. ISO-8601 syntax confirmed./i)).toBeInTheDocument();
+    });
+
+    // Verify selects are populated with AI suggested values
+    const dateSelect = screen.getByLabelText(/Transaction Date \*/i) as HTMLSelectElement;
+    expect(dateSelect.value).toBe('TxnDate');
+
+    const amountSelect = screen.getByLabelText(/Amount \*/i) as HTMLSelectElement;
+    expect(amountSelect.value).toBe('NetValue');
+
+    const descSelect = screen.getByLabelText(/Description \/ Memo \*/i) as HTMLSelectElement;
+    expect(descSelect.value).toBe('MemoText');
+  });
+
+  it('displays Verifier AI warning when columns are ambiguous or missing, and allows manual override', async () => {
+    const mockPost = vi.mocked(apiClient.apiPost);
+    mockPost.mockResolvedValueOnce({
+      success: true,
+      provider: 'deterministic-grounded',
+      externalCredentialsConfigured: false,
+      workflowRunId: 'wf-flagged-99',
+      taskClassification: 'FILE_SCHEMA_PROFILING_AND_COLUMN_MAPPING',
+      durationMs: 25,
+      analystResult: {
+        detectedMappings: {
+          dateColumn: 'PostingDate',
+          amountColumn: null,
+          descriptionColumn: 'Remarks',
+        },
+        confidenceScores: {
+          date: 0.65,
+          amount: 0,
+          description: 0.70,
+        },
+        fieldAnalysis: {
+          date: 'Ambiguity detected with ValueDate.',
+          amount: 'No unambiguous numeric amount column identified.',
+          description: 'Mapped to Remarks.',
+        },
+        unmappedHeaders: ['ValueDate', 'RawData'],
+        notes: 'Manual confirmation required',
+      },
+      verifierResult: {
+        isApproved: false,
+        verifiedMappings: {
+          dateColumn: 'PostingDate',
+          amountColumn: null,
+          descriptionColumn: 'Remarks',
+        },
+        validationErrors: [
+          'Required field "Amount" is not mapped.',
+          'Confidence for Date is below standard threshold (ambiguous with ValueDate).',
+        ],
+        confidenceScore: 0.52,
+        requiresManualReview: true,
+        notes: 'Flagged for user manual mapping',
+      },
+    });
+
+    render(
+      <CsvImportModal
+        isOpen={true}
+        onClose={mockOnClose}
+        accounts={mockAccounts}
+        orgId={orgId}
+        onSuccess={mockOnSuccess}
+      />,
+    );
+
+    const fileInput = screen.getByTestId('csv-file-input');
+    const csvContent = 'PostingDate,ValueDate,RawData,Remarks\n2026-10-01,2026-10-02,500.00,Client Payment\n';
+    fireEvent.change(fileInput, {
+      target: { files: [new File([csvContent], 'ambiguous.csv', { type: 'text/csv' })] },
+    });
+
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith(
+        `/v1/organizations/${orgId}/csv-imports/auto-map`,
+        expect.any(Object),
+      );
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Continue to Column Mapping/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Review Required: Ambiguous or Missing Columns/i),
+      ).toBeInTheDocument();
+      expect(screen.getByText(/Required field "Amount" is not mapped./i)).toBeInTheDocument();
+      expect(screen.getByText(/65% Review Suggested/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Unmapped/i).length).toBeGreaterThan(0);
+    });
+
+    // Manually override Amount column to RawData
+    const amountSelect = screen.getByLabelText(/Amount \*/i) as HTMLSelectElement;
+    fireEvent.change(amountSelect, { target: { value: 'RawData' } });
+    expect(amountSelect.value).toBe('RawData');
   });
 });

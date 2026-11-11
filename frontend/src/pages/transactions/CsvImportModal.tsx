@@ -8,6 +8,9 @@ import {
   CheckCircle2,
   FileSpreadsheet,
   FileText,
+  Loader2,
+  ShieldCheck,
+  Sparkles,
   Upload,
 } from 'lucide-react';
 import { Modal } from '../../components/ui/Modal';
@@ -15,6 +18,39 @@ import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
 import { apiPost, ApiClientError } from '../../services/apiClient';
 import type { FinancialAccount, ImportBatch } from '../../types/financial.types';
+
+export interface AiMappingResponse {
+  success: boolean;
+  provider: string;
+  externalCredentialsConfigured: boolean;
+  workflowRunId: string;
+  taskClassification: string;
+  durationMs: number;
+  analystResult: {
+    detectedMappings: {
+      dateColumn?: string | null;
+      amountColumn?: string | null;
+      descriptionColumn?: string | null;
+      typeColumn?: string | null;
+      categoryColumn?: string | null;
+      counterpartyColumn?: string | null;
+      departmentColumn?: string | null;
+      referenceColumn?: string | null;
+    };
+    confidenceScores: Record<string, number>;
+    fieldAnalysis: Record<string, string>;
+    unmappedHeaders: string[];
+    notes: string;
+  };
+  verifierResult: {
+    isApproved: boolean;
+    verifiedMappings: Record<string, string | null>;
+    validationErrors: string[];
+    confidenceScore: number;
+    requiresManualReview: boolean;
+    notes: string;
+  };
+}
 
 type SupportedImportFormat = 'csv' | 'xlsx' | 'xls' | 'json';
 
@@ -105,6 +141,11 @@ export function CsvImportModal({
   const [createdBatch, setCreatedBatch] = useState<ImportBatch | null>(null);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
 
+  // AI Multi-Agent Orchestration state (Supervisor, Finance Data Analyst & Verifier AI)
+  const [aiMappingResult, setAiMappingResult] = useState<AiMappingResponse | null>(null);
+  const [isAiMappingLoading, setIsAiMappingLoading] = useState(false);
+  const [aiMappingError, setAiMappingError] = useState<string | null>(null);
+
   // General loading & error states
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -126,6 +167,9 @@ export function CsvImportModal({
     setCategoryColumn('');
     setCounterpartyColumn('');
     setCreatedBatch(null);
+    setAiMappingResult(null);
+    setIsAiMappingLoading(false);
+    setAiMappingError(null);
     setError(null);
     setIsLoading(false);
     if (fileInputRef.current) {
@@ -142,7 +186,51 @@ export function CsvImportModal({
     fileInputRef.current?.click();
   };
 
-  const processCsvText = (text: string) => {
+  const triggerAiAutoMap = async (
+    headersList: string[],
+    sampleRowsList: string[][],
+    targetFileName: string,
+  ) => {
+    if (!headersList || headersList.length === 0) return;
+
+    setIsAiMappingLoading(true);
+    setAiMappingError(null);
+
+    try {
+      const res = await apiPost<AiMappingResponse>(
+        `/v1/organizations/${orgId}/csv-imports/auto-map`,
+        {
+          fileName: targetFileName || 'uploaded_statement.csv',
+          headers: headersList,
+          sampleRows: sampleRowsList,
+        },
+      );
+
+      if (res && res.success) {
+        setAiMappingResult(res);
+
+        const mappings =
+          res.verifierResult?.verifiedMappings || res.analystResult?.detectedMappings;
+        if (mappings) {
+          if (mappings.dateColumn) setDateColumn(mappings.dateColumn);
+          if (mappings.amountColumn) setAmountColumn(mappings.amountColumn);
+          if (mappings.descriptionColumn) setDescriptionColumn(mappings.descriptionColumn);
+          if (mappings.typeColumn) setTypeColumn(mappings.typeColumn);
+          if (mappings.categoryColumn) setCategoryColumn(mappings.categoryColumn);
+          if (mappings.counterpartyColumn) setCounterpartyColumn(mappings.counterpartyColumn);
+        }
+      }
+    } catch (err: unknown) {
+      console.warn('AI column auto-mapping request encountered an error, falling back:', err);
+      setAiMappingError(
+        'Supervisor AI Orchestrator could not complete automatic mapping. Manual selection enabled.',
+      );
+    } finally {
+      setIsAiMappingLoading(false);
+    }
+  };
+
+  const processCsvText = (text: string, currentFileName?: string) => {
     setCsvContent(text);
 
     const lines = text
@@ -154,6 +242,7 @@ export function CsvImportModal({
       setError('The selected file or worksheet must have at least one header row and one data row.');
       setHeaders([]);
       setPreviewSample([]);
+      setAiMappingResult(null);
       return;
     }
 
@@ -162,6 +251,7 @@ export function CsvImportModal({
       setError('The selected file or worksheet does not contain valid column headers.');
       setHeaders([]);
       setPreviewSample([]);
+      setAiMappingResult(null);
       return;
     }
 
@@ -172,7 +262,7 @@ export function CsvImportModal({
       .map((l) => l.split(',').map((cell) => cell.trim().replace(/^["']|["']$/g, '')));
     setPreviewSample(samples);
 
-    // Auto-detect columns intelligently
+    // Initial baseline heuristic while AI agent orchestration executes
     const lower = parsedHeaders.map((h) => h.toLowerCase());
     const findCol = (keys: string[]) =>
       parsedHeaders[lower.findIndex((h) => keys.some((k) => h.includes(k)))] || '';
@@ -183,6 +273,17 @@ export function CsvImportModal({
     setTypeColumn(findCol(['type', 'direction', 'dr_cr']));
     setCategoryColumn(findCol(['cat', 'class']));
     setCounterpartyColumn(findCol(['payee', 'vendor', 'customer', 'counterparty', 'merchant']));
+
+    // Extract up to 10 sample rows for backend AI Supervisor Orchestrator
+    const extendedSampleRows = lines
+      .slice(1, 11)
+      .map((l) => l.split(',').map((cell) => cell.trim().replace(/^["']|["']$/g, '')));
+
+    triggerAiAutoMap(
+      parsedHeaders,
+      extendedSampleRows,
+      currentFileName || fileName || 'uploaded_statement.csv',
+    );
   };
 
   const handleSheetChange = (sheetName: string) => {
@@ -195,7 +296,7 @@ export function CsvImportModal({
     }
     setError(null);
     const sheetCsv = XLSX.utils.sheet_to_csv(sheet);
-    processCsvText(sheetCsv);
+    processCsvText(sheetCsv, `${fileName} [${sheetName}]`);
   };
 
   // Step 1: File selection & parsing for CSV, XLSX, XLS, and JSON
@@ -250,7 +351,7 @@ export function CsvImportModal({
       reader.onload = (event) => {
         try {
           const text = (event.target?.result as string) || '';
-          processCsvText(text);
+          processCsvText(text, file.name);
         } catch {
           setError('Failed to parse CSV file content. Please check file formatting.');
           setHeaders([]);
@@ -280,7 +381,7 @@ export function CsvImportModal({
 
           const sheet = wb.Sheets[initialSheet];
           const sheetCsv = XLSX.utils.sheet_to_csv(sheet);
-          processCsvText(sheetCsv);
+          processCsvText(sheetCsv, `${file.name} [${initialSheet}]`);
         } catch {
           setError('Failed to parse Excel workbook. Please verify the file is not corrupted.');
           setHeaders([]);
@@ -327,7 +428,7 @@ export function CsvImportModal({
           }
 
           const generatedCsv = jsonArrayToCsv(records);
-          processCsvText(generatedCsv);
+          processCsvText(generatedCsv, file.name);
         } catch {
           setError('Failed to parse JSON file content. Ensure the file contains valid JSON formatted records.');
           setHeaders([]);
@@ -406,6 +507,56 @@ export function CsvImportModal({
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const renderConfidenceBadge = (fieldKey: string) => {
+    if (isAiMappingLoading) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] text-[var(--text-muted)] animate-pulse">
+          <Loader2 className="w-3 h-3 animate-spin" />
+          Profiling...
+        </span>
+      );
+    }
+    if (!aiMappingResult) return null;
+
+    const score = aiMappingResult.analystResult?.confidenceScores?.[fieldKey] ?? 0;
+    const mappings =
+      aiMappingResult.verifierResult?.verifiedMappings ||
+      aiMappingResult.analystResult?.detectedMappings;
+    const mappedHeader = mappings?.[`${fieldKey}Column` as keyof typeof mappings];
+
+    if (!mappedHeader || score === 0) {
+      return (
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[var(--surface-elevated)] text-[var(--text-muted)] border border-[var(--border-subtle)]">
+          Unmapped
+        </span>
+      );
+    }
+
+    if (score >= 0.85) {
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+          <Check className="w-2.5 h-2.5" />
+          {Math.round(score * 100)}% Confidence
+        </span>
+      );
+    }
+
+    if (score >= 0.6) {
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+          <AlertTriangle className="w-2.5 h-2.5" />
+          {Math.round(score * 100)}% Review Suggested
+        </span>
+      );
+    }
+
+    return (
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30">
+        Low Confidence ({Math.round(score * 100)}%)
+      </span>
+    );
   };
 
   const headerOptions = [
@@ -618,65 +769,252 @@ export function CsvImportModal({
         {/* Step 2: Column Mapping */}
         {step === 2 && (
           <div className="space-y-4">
-            <p className="text-xs text-[var(--text-secondary)]">
-              Map your CSV columns to the platform ledger schema. Date, Amount, and Description are
-              required.
-            </p>
+            {/* AI Orchestration Header & Controls */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-[var(--border-subtle)]">
+              <div>
+                <p className="text-xs font-semibold text-[var(--text-primary)]">
+                  Step 2: AI Column Mapping & Ledger Schema Alignment
+                </p>
+                <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                  Mappings identified by Finance Data Analyst and independently audited by Verifier AI. You may manually adjust any selection.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                type="button"
+                onClick={() => {
+                  if (headers.length > 0) {
+                    const extendedRows = previewSample.length > 0 ? previewSample : [];
+                    triggerAiAutoMap(headers, extendedRows, fileName || 'statement.csv');
+                  }
+                }}
+                disabled={isAiMappingLoading || headers.length === 0}
+                className="self-start sm:self-auto text-xs"
+              >
+                {isAiMappingLoading ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                    Profiling...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5 mr-1.5 text-[var(--accent-teal)]" />
+                    Re-run AI Mapping
+                  </>
+                )}
+              </Button>
+            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Select
-                id="dateCol"
-                label="Transaction Date *"
-                value={dateColumn}
-                onChange={(e) => setDateColumn(e.target.value)}
-                options={headerOptions}
-                helperText="ISO-8601 or YYYY-MM-DD format"
-              />
+            {/* AI Loading Banner */}
+            {isAiMappingLoading && (
+              <div className="p-3.5 rounded-xl border border-[var(--accent-teal)]/30 bg-[var(--accent-teal)]/5 flex items-center gap-3">
+                <Loader2 className="w-5 h-5 text-[var(--accent-teal)] animate-spin flex-shrink-0" />
+                <div className="text-xs">
+                  <p className="font-semibold text-[var(--text-primary)]">
+                    Supervisor Orchestrator running Finance Data Analyst & Verifier AI...
+                  </p>
+                  <p className="text-[var(--text-muted)] mt-0.5">
+                    Analyzing column semantics, inspecting representative sample rows, and enforcing required ledger guardrails.
+                  </p>
+                </div>
+              </div>
+            )}
 
-              <Select
-                id="amountCol"
-                label="Amount *"
-                value={amountColumn}
-                onChange={(e) => setAmountColumn(e.target.value)}
-                options={headerOptions}
-                helperText="Numeric amount (currency symbols stripped automatically)"
-              />
+            {/* AI Result Card */}
+            {!isAiMappingLoading && aiMappingResult && (
+              <div className="p-3.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-[var(--accent-teal)]/10 text-[var(--accent-teal)] flex items-center justify-center">
+                      <Sparkles className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-[var(--text-primary)]">
+                          AI Agent Auto-Mapping Active
+                        </span>
+                        {aiMappingResult.verifierResult?.isApproved ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                            <ShieldCheck className="w-3 h-3" />
+                            Verified by Verifier AI ({Math.round(aiMappingResult.verifierResult.confidenceScore * 100)}%)
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                            <AlertTriangle className="w-3 h-3" />
+                            Review Required: Ambiguous or Missing Columns
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                        Supervisor Orchestrator &bull; Analyst: Finance Data Analyst &bull; Engine: {aiMappingResult.provider} {aiMappingResult.externalCredentialsConfigured ? '(External Model)' : '(Grounded Deterministic Engine)'} &bull; {aiMappingResult.durationMs}ms
+                      </p>
+                    </div>
+                  </div>
+                </div>
 
-              <Select
-                id="descCol"
-                label="Description / Memo *"
-                value={descriptionColumn}
-                onChange={(e) => setDescriptionColumn(e.target.value)}
-                options={headerOptions}
-                helperText="Primary journal line text"
-              />
+                {aiMappingResult.verifierResult?.validationErrors && aiMappingResult.verifierResult.validationErrors.length > 0 && (
+                  <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-300 space-y-1">
+                    <p className="font-semibold flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                      Verifier AI Audit Notes:
+                    </p>
+                    <ul className="list-disc list-inside pl-1 space-y-0.5 text-[11px]">
+                      {aiMappingResult.verifierResult.validationErrors.map((err, idx) => (
+                        <li key={idx}>{err}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
 
-              <Select
-                id="typeCol"
-                label="Transaction Type (Optional)"
-                value={typeColumn}
-                onChange={(e) => setTypeColumn(e.target.value)}
-                options={headerOptions}
-                helperText="INCOME, EXPENSE, or TRANSFER"
-              />
+            {aiMappingError && (
+              <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <span>{aiMappingError}</span>
+              </div>
+            )}
 
-              <Select
-                id="catCol"
-                label="Category (Optional)"
-                value={categoryColumn}
-                onChange={(e) => setCategoryColumn(e.target.value)}
-                options={headerOptions}
-                helperText="Chart of accounts classification"
-              />
+            {/* Mapping Fields Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label
+                    htmlFor="dateCol"
+                    className="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase"
+                  >
+                    Transaction Date *
+                  </label>
+                  {renderConfidenceBadge('date')}
+                </div>
+                <Select
+                  id="dateCol"
+                  aria-label="Transaction Date *"
+                  value={dateColumn}
+                  onChange={(e) => setDateColumn(e.target.value)}
+                  options={headerOptions}
+                  helperText={
+                    aiMappingResult?.analystResult?.fieldAnalysis?.date ||
+                    'ISO-8601 or YYYY-MM-DD format'
+                  }
+                />
+              </div>
 
-              <Select
-                id="counterpartyCol"
-                label="Counterparty / Vendor (Optional)"
-                value={counterpartyColumn}
-                onChange={(e) => setCounterpartyColumn(e.target.value)}
-                options={headerOptions}
-                helperText="Customer, vendor, or merchant name"
-              />
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label
+                    htmlFor="amountCol"
+                    className="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase"
+                  >
+                    Amount *
+                  </label>
+                  {renderConfidenceBadge('amount')}
+                </div>
+                <Select
+                  id="amountCol"
+                  aria-label="Amount *"
+                  value={amountColumn}
+                  onChange={(e) => setAmountColumn(e.target.value)}
+                  options={headerOptions}
+                  helperText={
+                    aiMappingResult?.analystResult?.fieldAnalysis?.amount ||
+                    'Numeric amount (currency symbols stripped automatically)'
+                  }
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label
+                    htmlFor="descCol"
+                    className="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase"
+                  >
+                    Description / Memo *
+                  </label>
+                  {renderConfidenceBadge('description')}
+                </div>
+                <Select
+                  id="descCol"
+                  aria-label="Description / Memo *"
+                  value={descriptionColumn}
+                  onChange={(e) => setDescriptionColumn(e.target.value)}
+                  options={headerOptions}
+                  helperText={
+                    aiMappingResult?.analystResult?.fieldAnalysis?.description ||
+                    'Primary journal line text'
+                  }
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label
+                    htmlFor="typeCol"
+                    className="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase"
+                  >
+                    Transaction Type (Optional)
+                  </label>
+                  {renderConfidenceBadge('type')}
+                </div>
+                <Select
+                  id="typeCol"
+                  aria-label="Transaction Type (Optional)"
+                  value={typeColumn}
+                  onChange={(e) => setTypeColumn(e.target.value)}
+                  options={headerOptions}
+                  helperText={
+                    aiMappingResult?.analystResult?.fieldAnalysis?.type ||
+                    'INCOME, EXPENSE, or TRANSFER'
+                  }
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label
+                    htmlFor="catCol"
+                    className="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase"
+                  >
+                    Category (Optional)
+                  </label>
+                  {renderConfidenceBadge('category')}
+                </div>
+                <Select
+                  id="catCol"
+                  aria-label="Category (Optional)"
+                  value={categoryColumn}
+                  onChange={(e) => setCategoryColumn(e.target.value)}
+                  options={headerOptions}
+                  helperText={
+                    aiMappingResult?.analystResult?.fieldAnalysis?.category ||
+                    'Chart of accounts classification'
+                  }
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label
+                    htmlFor="counterpartyCol"
+                    className="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase"
+                  >
+                    Counterparty / Vendor (Optional)
+                  </label>
+                  {renderConfidenceBadge('counterparty')}
+                </div>
+                <Select
+                  id="counterpartyCol"
+                  aria-label="Counterparty / Vendor (Optional)"
+                  value={counterpartyColumn}
+                  onChange={(e) => setCounterpartyColumn(e.target.value)}
+                  options={headerOptions}
+                  helperText={
+                    aiMappingResult?.analystResult?.fieldAnalysis?.counterparty ||
+                    'Customer, vendor, or merchant name'
+                  }
+                />
+              </div>
             </div>
 
             <div className="flex justify-between items-center pt-4 border-t border-[var(--border-subtle)]">
