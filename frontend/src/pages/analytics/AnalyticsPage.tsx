@@ -9,7 +9,6 @@ import {
   ChevronUp,
   Info,
   RefreshCw,
-  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
 import { apiGet, ApiClientError } from '../../services/apiClient';
@@ -266,7 +265,7 @@ export function AnalyticsPage() {
       return (
         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
           <CheckCircle2 className="h-3 w-3" />
-          Deterministic
+          Verified
         </span>
       );
     }
@@ -302,8 +301,7 @@ export function AnalyticsPage() {
             Financial Analytics
           </h1>
           <p className="mt-1 text-xs text-[var(--text-muted)]">
-            Deterministic, mathematically verified financial metrics with formula traceability,
-            citations, and data limitation disclosures.
+            Track key financial health, liquidity, and efficiency metrics for your business.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -317,22 +315,6 @@ export function AnalyticsPage() {
             <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-        </div>
-      </div>
-
-      {/* Deterministic Integrity Banner */}
-      <div className="flex items-start gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 text-xs text-emerald-800 dark:text-emerald-200">
-        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-        <div className="space-y-1">
-          <p className="font-semibold text-emerald-950 dark:text-emerald-300">
-            Mathematical Precision Guarantee (Zero AI Hallucinations)
-          </p>
-          <p className="text-[11px] leading-relaxed text-emerald-800/80 dark:text-emerald-300/80">
-            Every metric below is evaluated using the platform&apos;s authoritative Decimal engine
-            (v1.0.0-decimal). No calculations are delegated to statistical or generative AI models.
-            Every result includes explicit source transaction references, formulas, and verified
-            data boundaries.
-          </p>
         </div>
       </div>
 
@@ -487,25 +469,24 @@ export function AnalyticsPage() {
                     </p>
                   )}
 
-                  {/* Formula Preview */}
-                  {result?.formula && (
-                    <div className="mt-3 rounded-lg bg-[var(--surface-subtle)] p-2.5 font-mono text-[11px] text-[var(--text-secondary)] break-all border border-[var(--border-subtle)]">
-                      <span className="text-[10px] text-[var(--text-muted)] block font-sans font-medium mb-0.5">
-                        Formula ({result.formulaVersion || 'v1.0'}):
-                      </span>
-                      {result.formula}
-                    </div>
-                  )}
-
-                  {/* Expanded Section: Citations & Data Limitations */}
+                  {/* Expanded Section: Formula, Records Count & Notes (Hidden until 'View Formula' clicked) */}
                   {isExpanded && result && (
                     <div className="mt-3 space-y-3 pt-3 border-t border-[var(--border-subtle)] text-xs">
+                      {result.formula && (
+                        <div className="rounded-lg bg-[var(--surface-subtle)] p-2.5 font-mono text-[11px] text-[var(--text-secondary)] break-all border border-[var(--border-subtle)]">
+                          <span className="text-[10px] text-[var(--text-muted)] block font-sans font-medium mb-0.5">
+                            Formula:
+                          </span>
+                          {result.formula}
+                        </div>
+                      )}
+
                       {/* Citations Count */}
                       <div>
                         <div className="flex items-center justify-between">
                           <span className="font-medium text-[var(--text-secondary)] flex items-center gap-1.5">
                             <BookOpen className="h-3 w-3 text-[var(--text-muted)]" />
-                            Source Record IDs:
+                            Source Records:
                           </span>
                           <span className="font-mono text-[11px] text-[var(--text-primary)] font-semibold">
                             {citationIds.length} records
@@ -532,7 +513,7 @@ export function AnalyticsPage() {
                         <div>
                           <span className="font-medium text-[var(--text-secondary)] flex items-center gap-1.5 mb-1">
                             <Info className="h-3 w-3 text-amber-500" />
-                            Data Limitations Disclosed:
+                            Notes:
                           </span>
                           <ul className="space-y-1 pl-4 list-disc text-[11px] text-[var(--text-muted)]">
                             {result.dataLimitations.map((lim, idx) => (
@@ -551,16 +532,17 @@ export function AnalyticsPage() {
                 <div className="mt-4 flex items-center justify-between pt-3 border-t border-[var(--border-subtle)]">
                   {result ? (
                     <button
+                      type="button"
                       onClick={() => toggleExpand(meta.key)}
-                      className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--brand-primary)] hover:underline"
+                      className="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--brand-primary)] hover:underline cursor-pointer"
                     >
                       {isExpanded ? (
                         <>
-                          <ChevronUp className="h-3 w-3" /> Hide Details
+                          <ChevronUp className="h-3 w-3" /> Hide Formula
                         </>
                       ) : (
                         <>
-                          <ChevronDown className="h-3 w-3" /> View Citations & Scope
+                          <ChevronDown className="h-3 w-3" /> View Formula
                         </>
                       )}
                     </button>
@@ -575,7 +557,7 @@ export function AnalyticsPage() {
                       onClick={() => setInspectMetric({ meta, result })}
                       className="h-7 px-2 text-[11px]"
                     >
-                      Audit Details
+                      Details
                     </Button>
                   )}
                 </div>
@@ -612,8 +594,7 @@ export function AnalyticsPage() {
 
             <div className="space-y-1">
               <label className="text-[11px] font-semibold text-[var(--text-secondary)]">
-                Authoritative Mathematical Formula (
-                {inspectMetric.result.formulaVersion || 'v1.0.0-decimal'}):
+                Calculation Formula:
               </label>
               <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-subtle)] p-2.5 font-mono text-[11px] text-[var(--text-primary)]">
                 {inspectMetric.result.formula}

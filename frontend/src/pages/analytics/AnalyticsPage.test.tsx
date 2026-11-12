@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as useAuthModule from '../../context/useAuth';
 import { RoleType } from '../../types/auth.types';
@@ -77,18 +77,15 @@ describe('AnalyticsPage Component', () => {
       ok: true,
       status: 200,
       headers: new Headers({ 'content-type': 'application/json' }),
-      json: async () => ({
-        success: true,
-        data: mockMetrics,
-      }),
+      json: async () => mockMetrics,
     });
 
     render(<AnalyticsPage />);
 
     expect(screen.getByText('Financial Analytics')).toBeInTheDocument();
     expect(
-      screen.getByText(/Mathematical Precision Guarantee \(Zero AI Hallucinations\)/i),
-    ).toBeInTheDocument();
+      screen.queryByText(/Mathematical Precision Guarantee \(Zero AI Hallucinations\)/i),
+    ).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByText('Operating Cash Flow (OCF)')).toBeInTheDocument();
@@ -96,6 +93,18 @@ describe('AnalyticsPage Component', () => {
     });
 
     expect(screen.getByText('Days Sales Outstanding (DSO)')).toBeInTheDocument();
+    expect(screen.getAllByText('Verified').length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText(/Deterministic/i)).not.toBeInTheDocument();
+
+    // Formula stays hidden by default until user clicks 'View Formula'
+    expect(
+      screen.queryByText('Cash Inflows from Operations - Cash Outflows for Operations'),
+    ).not.toBeInTheDocument();
+    const formulaButtons = screen.getAllByRole('button', { name: /View Formula/i });
+    fireEvent.click(formulaButtons[0]);
+    expect(
+      screen.getByText('Cash Inflows from Operations - Cash Outflows for Operations'),
+    ).toBeInTheDocument();
   });
 
   it('renders backend COMPUTED metrics, SCHEDULE aging values, and UNSUPPORTED_MISSING_DATA incomplete FX warnings cleanly', async () => {

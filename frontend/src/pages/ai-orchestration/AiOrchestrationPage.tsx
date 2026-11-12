@@ -310,8 +310,7 @@ export function AiOrchestrationPage() {
             Multi-Agent AI Orchestration Dashboard
           </h1>
           <p className="text-xs text-[var(--text-muted)] mt-1">
-            Central Supervisor, 8 Specialist Agents, Verifier AI, 9 Registered Skills, 8 MCP Sandbox
-            Tools, and 10-step lifecycle auditing.
+            Automated financial analysis workflows, specialist reviews, and approval history.
           </p>
         </div>
 

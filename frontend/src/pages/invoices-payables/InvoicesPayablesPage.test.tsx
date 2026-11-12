@@ -173,7 +173,7 @@ describe('InvoicesPayablesPage Component (Phase 1 Fixes)', () => {
 
     await waitFor(() => {
       expect(screen.getByText('INV-2026-001')).toBeInTheDocument();
-      expect(screen.getByText(/Accounts Receivable Aging Schedule \(USD\)/i)).toBeInTheDocument();
+      expect(screen.getByText('Receivables Aging Summary')).toBeInTheDocument();
       expect(screen.getByText(/Incomplete FX \(EUR\)/i)).toBeInTheDocument();
       expect(screen.getByText(/Partial Total:\s*\$668\.78/i)).toBeInTheDocument();
       expect(screen.getByText('$669')).toBeInTheDocument();
@@ -407,11 +407,19 @@ describe('InvoicesPayablesPage Component (Phase 1 Fixes)', () => {
       ).toBe(true);
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /New Invoice \(AR\)/i }));
+    expect(
+      screen.getByText('Manage customer invoices, supplier bills, and overdue balances.'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Refresh$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Import$/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Create New/i }));
+    expect(screen.getByRole('menuitem', { name: /New Bill/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('menuitem', { name: /New Invoice/i }));
 
     fireEvent.change(screen.getByLabelText(/Invoice Number/i), { target: { value: 'INV-LI-1' } });
     fireEvent.change(screen.getByLabelText(/Customer Legal Name/i), {
-      target: { value: 'Karachi Exports' },
+      target: { value: 'karachi exports' },
     });
     fireEvent.change(screen.getByLabelText(/Revenue Category/i), {
       target: { value: 'Advisory Services' },
@@ -443,6 +451,7 @@ describe('InvoicesPayablesPage Component (Phase 1 Fixes)', () => {
     });
     expect(createdPayload).toMatchObject({
       invoiceNumber: 'INV-LI-1',
+      customerName: 'Karachi Exports',
       category: 'Advisory Services',
       department: 'Finance',
       lineItems: [
@@ -543,28 +552,46 @@ describe('InvoicesPayablesPage Component (Phase 1 Fixes)', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Issue/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^View$/i })).toBeInTheDocument();
     });
+    // Row actions show only clean icons (View, Edit, Void) without inline Issue pill button
+    expect(screen.queryByRole('button', { name: /Issue/i })).not.toBeInTheDocument();
 
-    // View Detail & Payment History modal
-    fireEvent.click(screen.getByRole('button', { name: /View/i }));
+    // View Detail & Payment History modal via inline icon button with tooltip
+    const viewBtn = screen.getByRole('button', { name: /^View$/i });
+    expect(viewBtn).toHaveAttribute('title', 'View');
+    expect(screen.getByRole('button', { name: /^Edit$/i })).toHaveAttribute('title', 'Edit');
+    expect(screen.getByRole('button', { name: /^Void$/i })).toHaveAttribute('title', 'Void');
+    fireEvent.click(viewBtn);
     await waitFor(() => {
       expect(screen.getByText(/Invoice Details — INV-D1/i)).toBeInTheDocument();
       expect(screen.getByText('Consulting Package')).toBeInTheDocument();
       expect(screen.getByText('WIRE-55')).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByRole('button', { name: /^Close$/i }));
 
-    // Activate DRAFT -> ISSUED
-    fireEvent.click(screen.getByRole('button', { name: /Issue/i }));
+    // Issue Invoice button inside View modal header transitions DRAFT -> ISSUED
+    const modalIssueBtn = screen.getByRole('button', { name: /^Issue Invoice$/i });
+    fireEvent.click(modalIssueBtn);
     await waitFor(() => {
       expect(
-        calls.some((c) => c.method === 'PATCH' && c.url.endsWith('/invoices/inv-draft-1')),
-      ).toBe(true);
+        calls.filter((c) => c.method === 'PATCH' && c.url.endsWith('/invoices/inv-draft-1')).length,
+      ).toBe(1);
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Close$/i }));
+
+    // Selecting row reveals top selection bar with Issue Invoice button
+    fireEvent.click(screen.getByLabelText('Select INV-D1'));
+    const selectionBar = screen.getByRole('region', { name: /Selection actions/i });
+    expect(selectionBar).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Issue Invoice$/i }));
+    await waitFor(() => {
+      expect(
+        calls.filter((c) => c.method === 'PATCH' && c.url.endsWith('/invoices/inv-draft-1')).length,
+      ).toBe(2);
     });
 
-    // Void unpaid invoice
-    fireEvent.click(screen.getByRole('button', { name: /Void/i }));
+    // Void unpaid invoice via inline icon button
+    fireEvent.click(screen.getByRole('button', { name: /^Void$/i }));
     await waitFor(() => {
       expect(screen.getByText(/Void Invoice INV-D1/i)).toBeInTheDocument();
     });
@@ -578,5 +605,84 @@ describe('InvoicesPayablesPage Component (Phase 1 Fixes)', () => {
         calls.some((c) => c.method === 'POST' && c.url.endsWith('/invoices/inv-draft-1/void')),
       ).toBe(true);
     });
+  });
+
+  it('displays unpaid, partially paid, paid settled, and excluded draft summary counts and amounts cleanly', async () => {
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      ...baseAuthMock,
+      activeOrg: {
+        ...baseAuthMock.activeOrg,
+        baseCurrency: 'PKR',
+      },
+    });
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((req: RequestInfo | URL) => {
+      const url = req.toString();
+      const jsonHeader = { 'Content-Type': 'application/json' };
+      if (url.includes('/aging')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              asOfDate: '2026-11-12T00:00:00.000Z',
+              currency: 'PKR',
+              receivablesAging: {
+                totalOutstanding: '25000.0000',
+                totalOverdue: '15000.0000',
+                isComplete: true,
+                missingCurrencies: [],
+                buckets: [
+                  { bucket: 'CURRENT', count: 1, amount: '10000.0000' },
+                  { bucket: '1_TO_30_DAYS', count: 1, amount: '15000.0000' },
+                ],
+              },
+              payablesAging: {
+                totalOutstanding: '0.0000',
+                totalOverdue: '0.0000',
+                isComplete: true,
+                missingCurrencies: [],
+                buckets: [],
+              },
+              receivablesSummary: {
+                draft: { count: 1, totalAmount: '55000.0000' },
+                unpaid: { count: 1, totalAmount: '10000.0000', outstandingAmount: '10000.0000' },
+                partiallyPaid: {
+                  count: 1,
+                  totalAmount: '20000.0000',
+                  paidAmount: '5000.0000',
+                  outstandingAmount: '15000.0000',
+                },
+                paid: { count: 1, totalAmount: '399.9600', paidAmount: '399.9600' },
+                activeOutstandingTotal: '25000.0000',
+                isComplete: true,
+                missingCurrencies: [],
+              },
+            }),
+            { status: 200, headers: jsonHeader },
+          ),
+        );
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200, headers: jsonHeader }));
+    });
+
+    render(
+      <BrowserRouter>
+        <InvoicesPayablesPage />
+      </BrowserRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Receivables Aging Summary')).toBeInTheDocument();
+      expect(screen.getByText(/Total Outstanding:\s*PKR\s*25,000\.00/i)).toBeInTheDocument();
+      expect(screen.getByText(/\(Excludes\s*PKR\s*55,000\s*in drafts\)/i)).toBeInTheDocument();
+    });
+
+    const totalEl = screen.getByText(/Total Outstanding:/i);
+    expect(totalEl.className).toContain('tabular-nums');
+    expect(totalEl.className).not.toContain('font-mono');
+
+    expect(screen.queryByText(/Unpaid Active/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Partially Paid/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Paid Settled/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Drafts — Excluded/i)).not.toBeInTheDocument();
   });
 });

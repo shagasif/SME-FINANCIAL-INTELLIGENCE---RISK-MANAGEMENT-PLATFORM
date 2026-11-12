@@ -31,7 +31,7 @@ export function AiAssistantPage() {
     {
       id: 'welcome',
       sender: 'ASSISTANT',
-      text: 'Hello! I am your AI Finance Assistant, grounded in deterministic Decimal math and double-entry accounting. Ask me about your cash runway, margins, overdue invoices, or risk alerts.',
+      text: 'Hello! I am your AI Finance Assistant. Ask me about your cash runway, margins, overdue invoices, or risk alerts.',
       timestamp: new Date().toISOString(),
     },
   ]);
@@ -183,8 +183,7 @@ export function AiAssistantPage() {
             AI Finance Assistant
           </h1>
           <p className="text-xs text-[var(--text-muted)] mt-0.5">
-            Grounded financial intelligence queries backed by verifiable Decimal calculations and
-            citations.
+            Ask questions about your cash flow, invoices, margins, and alerts.
           </p>
         </div>
 
@@ -249,7 +248,7 @@ export function AiAssistantPage() {
 
               {msg.latencyMs !== undefined && (
                 <div className="mt-1 text-[9px] text-[var(--text-muted)] text-right">
-                  Latency: {msg.latencyMs}ms &bull; Formula: {msg.formulaVersion}
+                  Response time: {msg.latencyMs}ms
                 </div>
               )}
             </div>

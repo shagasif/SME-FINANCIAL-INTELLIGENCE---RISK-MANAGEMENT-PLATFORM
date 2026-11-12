@@ -275,13 +275,35 @@ interface MetricResult<T = string | null> {
 }
 
 interface AgingScheduleValues {
-  current: string;
-  days1to30: string;
-  days31to60: string;
-  days61to90: string;
-  days90Plus: string;
-  totalOutstanding: string;
+  current?: string | null;
+  days1to30?: string | null;
+  days31to60?: string | null;
+  days61to90?: string | null;
+  days90Plus?: string | null;
+  totalOutstanding?: string | null;
+  totalOverdue?: string | null;
+  isComplete?: boolean;
+  missingCurrencies?: string[];
+  buckets?: Array<{
+    bucket: string;
+    count: number;
+    amount: string | null;
+    recordIds?: string[];
+  }>;
   sourceRecordIds?: string[];
+}
+
+function resolveAgingBucketAmount(
+  schedule: AgingScheduleValues | undefined,
+  bucketName: 'CURRENT' | '1_TO_30_DAYS' | '31_TO_60_DAYS' | '61_TO_90_DAYS' | 'OVER_90_DAYS',
+  legacyKey: 'current' | 'days1to30' | 'days31to60' | 'days61to90' | 'days90Plus',
+): string | null | undefined {
+  if (!schedule) return undefined;
+  if (Array.isArray(schedule.buckets)) {
+    const matched = schedule.buckets.find((b) => b.bucket === bucketName);
+    if (matched) return matched.amount;
+  }
+  return schedule[legacyKey];
 }
 
 interface AnalyticsMetricsResponse {
@@ -405,7 +427,6 @@ export function OverviewDashboardPage() {
     ? null
     : metrics?.cashRunway?.components?.liquidCashBalance ||
       metrics?.quickRatio?.components?.liquidCash ||
-      metrics?.workingCapital?.components?.currentAssets ||
       '0.00';
 
   const isAlertActive = (a: RiskAlert) =>
@@ -650,13 +671,26 @@ export function OverviewDashboardPage() {
                 </span>
               </div>
 
+              {metrics.receivableAging.value.isComplete === false &&
+                Array.isArray(metrics.receivableAging.value.missingCurrencies) &&
+                metrics.receivableAging.value.missingCurrencies.length > 0 && (
+                  <p className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1">
+                    Missing FX rate(s) to {currency}:{' '}
+                    {metrics.receivableAging.value.missingCurrencies.join(', ')}
+                  </p>
+                )}
+
               <div className="grid grid-cols-5 gap-2 pt-2 text-center text-xs">
                 <div className="p-2 rounded-lg bg-[var(--surface-canvas)] border border-[var(--border-subtle)]">
                   <span className="text-[10px] text-[var(--text-muted)] uppercase block">
                     Current
                   </span>
                   <span className="font-mono font-semibold text-[var(--text-primary)] mt-0.5 block truncate">
-                    {formatCurrency(metrics.receivableAging.value.current, currency, 0)}
+                    {formatCurrency(
+                      resolveAgingBucketAmount(metrics.receivableAging.value, 'CURRENT', 'current'),
+                      currency,
+                      0,
+                    )}
                   </span>
                 </div>
                 <div className="p-2 rounded-lg bg-[var(--surface-canvas)] border border-[var(--border-subtle)]">
@@ -664,7 +698,15 @@ export function OverviewDashboardPage() {
                     1-30d
                   </span>
                   <span className="font-mono font-semibold text-[var(--text-primary)] mt-0.5 block truncate">
-                    {formatCurrency(metrics.receivableAging.value.days1to30, currency, 0)}
+                    {formatCurrency(
+                      resolveAgingBucketAmount(
+                        metrics.receivableAging.value,
+                        '1_TO_30_DAYS',
+                        'days1to30',
+                      ),
+                      currency,
+                      0,
+                    )}
                   </span>
                 </div>
                 <div className="p-2 rounded-lg bg-[var(--surface-canvas)] border border-[var(--border-subtle)]">
@@ -672,22 +714,55 @@ export function OverviewDashboardPage() {
                     31-60d
                   </span>
                   <span className="font-mono font-semibold text-[var(--text-primary)] mt-0.5 block truncate">
-                    {formatCurrency(metrics.receivableAging.value.days31to60, currency, 0)}
+                    {formatCurrency(
+                      resolveAgingBucketAmount(
+                        metrics.receivableAging.value,
+                        '31_TO_60_DAYS',
+                        'days31to60',
+                      ),
+                      currency,
+                      0,
+                    )}
                   </span>
                 </div>
                 <div className="p-2 rounded-lg bg-[var(--surface-canvas)] border border-amber-500/20 text-amber-700 dark:text-amber-400">
                   <span className="text-[10px] uppercase block opacity-80">61-90d</span>
                   <span className="font-mono font-semibold mt-0.5 block truncate">
-                    {formatCurrency(metrics.receivableAging.value.days61to90, currency, 0)}
+                    {formatCurrency(
+                      resolveAgingBucketAmount(
+                        metrics.receivableAging.value,
+                        '61_TO_90_DAYS',
+                        'days61to90',
+                      ),
+                      currency,
+                      0,
+                    )}
                   </span>
                 </div>
                 <div className="p-2 rounded-lg bg-[var(--surface-canvas)] border border-red-500/20 text-red-600 dark:text-red-400">
                   <span className="text-[10px] uppercase block opacity-80">90d+</span>
                   <span className="font-mono font-semibold mt-0.5 block truncate">
-                    {formatCurrency(metrics.receivableAging.value.days90Plus, currency, 0)}
+                    {formatCurrency(
+                      resolveAgingBucketAmount(
+                        metrics.receivableAging.value,
+                        'OVER_90_DAYS',
+                        'days90Plus',
+                      ),
+                      currency,
+                      0,
+                    )}
                   </span>
                 </div>
               </div>
+
+              {Number(metrics.receivableAging.components?.draftCount || 0) > 0 && (
+                <p className="text-[11px] text-[var(--text-muted)]">
+                  Drafts excluded from AR ({metrics.receivableAging.components?.draftCount}):{' '}
+                  <span className="font-mono font-semibold text-[var(--text-secondary)]">
+                    {formatCurrency(metrics.receivableAging.components?.draftTotal, currency)}
+                  </span>
+                </p>
+              )}
             </div>
           ) : (
             <div className="py-8 text-center text-xs text-[var(--text-muted)]">
@@ -726,13 +801,26 @@ export function OverviewDashboardPage() {
                 </span>
               </div>
 
+              {metrics.payableAging.value.isComplete === false &&
+                Array.isArray(metrics.payableAging.value.missingCurrencies) &&
+                metrics.payableAging.value.missingCurrencies.length > 0 && (
+                  <p className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1">
+                    Missing FX rate(s) to {currency}:{' '}
+                    {metrics.payableAging.value.missingCurrencies.join(', ')}
+                  </p>
+                )}
+
               <div className="grid grid-cols-5 gap-2 pt-2 text-center text-xs">
                 <div className="p-2 rounded-lg bg-[var(--surface-canvas)] border border-[var(--border-subtle)]">
                   <span className="text-[10px] text-[var(--text-muted)] uppercase block">
                     Current
                   </span>
                   <span className="font-mono font-semibold text-[var(--text-primary)] mt-0.5 block truncate">
-                    {formatCurrency(metrics.payableAging.value.current, currency, 0)}
+                    {formatCurrency(
+                      resolveAgingBucketAmount(metrics.payableAging.value, 'CURRENT', 'current'),
+                      currency,
+                      0,
+                    )}
                   </span>
                 </div>
                 <div className="p-2 rounded-lg bg-[var(--surface-canvas)] border border-[var(--border-subtle)]">
@@ -740,7 +828,15 @@ export function OverviewDashboardPage() {
                     1-30d
                   </span>
                   <span className="font-mono font-semibold text-[var(--text-primary)] mt-0.5 block truncate">
-                    {formatCurrency(metrics.payableAging.value.days1to30, currency, 0)}
+                    {formatCurrency(
+                      resolveAgingBucketAmount(
+                        metrics.payableAging.value,
+                        '1_TO_30_DAYS',
+                        'days1to30',
+                      ),
+                      currency,
+                      0,
+                    )}
                   </span>
                 </div>
                 <div className="p-2 rounded-lg bg-[var(--surface-canvas)] border border-[var(--border-subtle)]">
@@ -748,22 +844,55 @@ export function OverviewDashboardPage() {
                     31-60d
                   </span>
                   <span className="font-mono font-semibold text-[var(--text-primary)] mt-0.5 block truncate">
-                    {formatCurrency(metrics.payableAging.value.days31to60, currency, 0)}
+                    {formatCurrency(
+                      resolveAgingBucketAmount(
+                        metrics.payableAging.value,
+                        '31_TO_60_DAYS',
+                        'days31to60',
+                      ),
+                      currency,
+                      0,
+                    )}
                   </span>
                 </div>
                 <div className="p-2 rounded-lg bg-[var(--surface-canvas)] border border-amber-500/20 text-amber-700 dark:text-amber-400">
                   <span className="text-[10px] uppercase block opacity-80">61-90d</span>
                   <span className="font-mono font-semibold mt-0.5 block truncate">
-                    {formatCurrency(metrics.payableAging.value.days61to90, currency, 0)}
+                    {formatCurrency(
+                      resolveAgingBucketAmount(
+                        metrics.payableAging.value,
+                        '61_TO_90_DAYS',
+                        'days61to90',
+                      ),
+                      currency,
+                      0,
+                    )}
                   </span>
                 </div>
                 <div className="p-2 rounded-lg bg-[var(--surface-canvas)] border border-red-500/20 text-red-600 dark:text-red-400">
                   <span className="text-[10px] uppercase block opacity-80">90d+</span>
                   <span className="font-mono font-semibold mt-0.5 block truncate">
-                    {formatCurrency(metrics.payableAging.value.days90Plus, currency, 0)}
+                    {formatCurrency(
+                      resolveAgingBucketAmount(
+                        metrics.payableAging.value,
+                        'OVER_90_DAYS',
+                        'days90Plus',
+                      ),
+                      currency,
+                      0,
+                    )}
                   </span>
                 </div>
               </div>
+
+              {Number(metrics.payableAging.components?.draftCount || 0) > 0 && (
+                <p className="text-[11px] text-[var(--text-muted)]">
+                  Drafts excluded from AP ({metrics.payableAging.components?.draftCount}):{' '}
+                  <span className="font-mono font-semibold text-[var(--text-secondary)]">
+                    {formatCurrency(metrics.payableAging.components?.draftTotal, currency)}
+                  </span>
+                </p>
+              )}
             </div>
           ) : (
             <div className="py-8 text-center text-xs text-[var(--text-muted)]">

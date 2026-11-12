@@ -139,4 +139,170 @@ describe('AdminPage Component', () => {
     ).toBeInTheDocument();
     expect(screen.queryByText('Administration & Organization Governance')).not.toBeInTheDocument();
   });
+
+  it('persists PKR base currency via PATCH without timeZone and updates active org context', async () => {
+    const updateActiveOrganization = vi.fn();
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: { id: 'owner-1', email: 'owner@star.com', fullName: 'Star Owner', isPlatformAdmin: false },
+      activeOrg: { id: 'org-star', name: 'star', slug: 'star', baseCurrency: 'USD', role: RoleType.BUSINESS_OWNER },
+      memberships: [
+        {
+          organizationId: 'org-star',
+          organizationName: 'star',
+          organizationSlug: 'star',
+          baseCurrency: 'USD',
+          role: RoleType.BUSINESS_OWNER,
+        },
+      ],
+      activeRole: RoleType.BUSINESS_OWNER,
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      switchOrganization: vi.fn(),
+      updateActiveOrganization,
+      hasRole: () => true,
+      canMutateLedger: true,
+      canManageBudgets: true,
+      canRunAiWorkflows: true,
+      canExportReports: true,
+      isAuditor: false,
+    });
+
+    const patchPayloads: Array<Record<string, unknown>> = [];
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith('/v1/organizations/org-star') && (!init?.method || init.method === 'GET')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: 'org-star',
+              name: 'star',
+              slug: 'star',
+              baseCurrency: 'USD',
+              fiscalYearStartMonth: 7,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      if (url.endsWith('/v1/organizations/org-star') && init?.method === 'PATCH') {
+        const body = JSON.parse(String(init.body || '{}')) as Record<string, unknown>;
+        patchPayloads.push(body);
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: 'org-star',
+              name: 'star',
+              slug: 'star',
+              baseCurrency: 'PKR',
+              fiscalYearStartMonth: 7,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    });
+    globalThis.fetch = fetchMock;
+
+    render(<AdminPage />);
+
+    const currencySelect = (await screen.findByLabelText(/Base Functional Currency/i)) as HTMLSelectElement;
+    const fiscalSelect = (await screen.findByLabelText(/Fiscal Year Start Month/i)) as HTMLSelectElement;
+    await waitFor(() => {
+      expect(currencySelect.value).toBe('USD');
+      expect(fiscalSelect.value).toBe('7');
+    });
+
+    fireEvent.change(currencySelect, { target: { value: 'PKR' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save Workspace Settings/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Organization governance settings updated successfully.')).toBeInTheDocument();
+    });
+
+    expect(patchPayloads).toHaveLength(1);
+    expect(patchPayloads[0]).toEqual({
+      name: 'star',
+      baseCurrency: 'PKR',
+      fiscalYearStartMonth: 7,
+    });
+    expect(patchPayloads[0]).not.toHaveProperty('timeZone');
+    expect(updateActiveOrganization).toHaveBeenCalledWith({
+      name: 'star',
+      baseCurrency: 'PKR',
+    });
+  });
+
+  it('retains persisted PKR currency on fresh load and surfaces save errors cleanly', async () => {
+    const updateActiveOrganization = vi.fn();
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: { id: 'owner-1', email: 'owner@star.com', fullName: 'Star Owner', isPlatformAdmin: false },
+      activeOrg: { id: 'org-star', name: 'star', slug: 'star', baseCurrency: 'PKR', role: RoleType.BUSINESS_OWNER },
+      memberships: [],
+      activeRole: RoleType.BUSINESS_OWNER,
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      switchOrganization: vi.fn(),
+      updateActiveOrganization,
+      hasRole: () => true,
+      canMutateLedger: true,
+      canManageBudgets: true,
+      canRunAiWorkflows: true,
+      canExportReports: true,
+      isAuditor: false,
+    });
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith('/v1/organizations/org-star') && init?.method === 'PATCH') {
+        return Promise.resolve(
+          new Response(JSON.stringify({ message: 'Forbidden resource' }), {
+            status: 403,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      if (url.endsWith('/v1/organizations/org-star')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: 'org-star',
+              name: 'star',
+              slug: 'star',
+              baseCurrency: 'PKR',
+              fiscalYearStartMonth: 7,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    });
+
+    render(<AdminPage />);
+
+    const currencySelect = (await screen.findByLabelText(/Base Functional Currency/i)) as HTMLSelectElement;
+    await waitFor(() => {
+      expect(currencySelect.value).toBe('PKR');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Save Workspace Settings/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Forbidden resource')).toBeInTheDocument();
+    });
+    expect(updateActiveOrganization).not.toHaveBeenCalled();
+  });
 });

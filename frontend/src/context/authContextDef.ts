@@ -20,6 +20,7 @@ export interface AuthContextValue {
   ) => Promise<AuthSessionPayload>;
   logout: () => Promise<void>;
   switchOrganization: (orgId: string) => void;
+  updateActiveOrganization?: (patch: Partial<OrganizationSummary>) => void;
   hasRole: (roles: RoleType[]) => boolean;
   canMutateLedger: boolean;
   canManageBudgets: boolean;

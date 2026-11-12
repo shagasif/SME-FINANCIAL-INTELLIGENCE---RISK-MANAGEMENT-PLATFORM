@@ -73,7 +73,9 @@ export function Button({
       ) : (
         leftIcon
       )}
-      <span>{children}</span>
+      <span className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap">
+        {children}
+      </span>
       {!isLoading && rightIcon}
     </button>
   );

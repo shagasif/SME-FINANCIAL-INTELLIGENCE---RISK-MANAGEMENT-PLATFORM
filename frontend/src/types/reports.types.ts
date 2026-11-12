@@ -26,16 +26,97 @@ export const TaskPriority = {
 
 export type TaskPriority = (typeof TaskPriority)[keyof typeof TaskPriority];
 
+export interface ExecutiveKpiCard {
+  label: string;
+  value: string;
+  secondaryLabel?: string;
+  secondaryValue?: string;
+  status: 'VERIFIED' | 'MISSING_DATA';
+  subtext?: string;
+}
+
+export interface ExecutiveTableColumn {
+  label: string;
+  align?: 'left' | 'right' | 'center';
+  isNumeric?: boolean;
+}
+
+export interface ExecutiveTableRow {
+  cells: string[];
+  tone?: 'normal' | 'positive' | 'warning' | 'danger';
+  isTotal?: boolean;
+}
+
+export interface ExecutiveTable {
+  title: string;
+  columns: ExecutiveTableColumn[];
+  rows: ExecutiveTableRow[];
+  note?: string;
+}
+
+export interface ExecutiveRiskItem {
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  title: string;
+  detail: string;
+  sourceTag: string;
+}
+
+export interface ExecutiveActionItem {
+  priority: number;
+  title: string;
+  rationale: string;
+  targetArea: string;
+  impact: 'HIGH' | 'MEDIUM' | 'LOW';
+}
+
+export interface ExecutiveDataGrounding {
+  reportingPeriodStart: string;
+  reportingPeriodEnd: string;
+  currency: string;
+  recordCounts: {
+    accounts: number;
+    transactions: number;
+    invoices: number;
+    bills: number;
+    budgets: number;
+    riskAlerts: number;
+    forecasts: number;
+  };
+  dataSources: string[];
+  missingInputs: string[];
+  methodologyNote: string;
+}
+
+export interface ExecutiveBrief {
+  schemaVersion: '2.0';
+  reportType: ReportType;
+  executiveSummary: string[];
+  kpis: ExecutiveKpiCard[];
+  tables: ExecutiveTable[];
+  risksAndAnomalies: ExecutiveRiskItem[];
+  prioritizedActionPlan: ExecutiveActionItem[];
+  dataGrounding: ExecutiveDataGrounding;
+}
+
 export interface ReportRecord {
   id: string;
   organizationId: string;
   title: string;
-  reportType: ReportType;
-  generatedByUserId: string;
-  summary: string;
-  sections: Array<{ heading: string; content: string; keyMetrics?: Record<string, unknown> }>;
+  type?: ReportType;
+  reportType?: ReportType;
+  currency?: string;
+  periodStart?: string;
+  periodEnd?: string;
+  generatedById?: string;
+  generatedByUserId?: string;
+  summary?: string;
+  summaryMetrics?: Record<string, unknown>;
+  narrativeBody?: Record<string, unknown> & {
+    executiveBrief?: ExecutiveBrief;
+  };
+  sections?: Array<{ heading: string; content: string; keyMetrics?: Record<string, unknown> }>;
   sourceRecordIds: Record<string, string[]>;
-  dataLimitations: string[];
+  dataLimitations?: string[];
   createdAt: string;
 }
 

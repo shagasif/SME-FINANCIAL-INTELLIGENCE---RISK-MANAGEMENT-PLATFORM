@@ -111,3 +111,29 @@ export function formatDate(date: string | Date | null | undefined): string {
     year: 'numeric',
   });
 }
+
+/**
+ * Formats customer and supplier names into clean Title Case (e.g. "sara" -> "Sara")
+ * while preserving mixed-case brand names (e.g. "NorthStar").
+ */
+export function toTitleCasePartyName(value: string): string {
+  const collapsed = value.trim().replace(/\s+/g, ' ');
+  if (!collapsed || /^['=+\-@]/.test(collapsed)) {
+    return collapsed;
+  }
+  return collapsed
+    .split(' ')
+    .map((word) =>
+      word
+        .split('-')
+        .map((part) => {
+          if (!part) return part;
+          if (part === part.toLowerCase() || part === part.toUpperCase()) {
+            return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+          }
+          return part.charAt(0).toUpperCase() + part.slice(1);
+        })
+        .join('-'),
+    )
+    .join(' ');
+}

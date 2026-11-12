@@ -3,7 +3,6 @@ import {
   AlertCircle,
   BrainCircuit,
   CheckCircle2,
-  Database,
   Eye,
   GitCompare,
   Plus,
@@ -217,8 +216,7 @@ export function FinMemoryPage() {
             FinMemory Intelligence
           </h1>
           <p className="text-xs text-[var(--text-muted)] mt-1">
-            Temporal episodic financial memory, immutable snapshot lineage, and deterministic delta
-            comparisons.
+            Saved financial snapshots and period-to-period comparisons.
           </p>
         </div>
 
@@ -279,22 +277,6 @@ export function FinMemoryPage() {
           </div>
         </div>
       )}
-
-      {/* FinMemory Architecture Notice */}
-      <div className="flex items-start gap-3 rounded-xl border border-[var(--brand-primary)]/20 bg-[var(--brand-primary)]/5 p-4 text-xs text-[var(--text-secondary)]">
-        <Database className="mt-0.5 h-4 w-4 shrink-0 text-[var(--brand-primary)]" />
-        <div className="space-y-1">
-          <p className="font-semibold text-[var(--text-primary)]">
-            Episodic Financial Memory Architecture
-          </p>
-          <p className="text-[11px] leading-relaxed text-[var(--text-muted)]">
-            FinMemory persists frozen points of financial truth across past months and quarters.
-            Each snapshot seals 10 deterministic financial metrics, underlying double-entry
-            citations, and semantic vector embeddings enabling AI agents to ground multi-quarter
-            reasoning without hallucination.
-          </p>
-        </div>
-      </div>
 
       {error && (
         <div className="flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-600 dark:text-rose-400">

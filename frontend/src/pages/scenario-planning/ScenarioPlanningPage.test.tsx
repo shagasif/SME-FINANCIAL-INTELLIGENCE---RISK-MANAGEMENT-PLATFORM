@@ -42,7 +42,7 @@ describe('ScenarioPlanningPage Component', () => {
     render(<ScenarioPlanningPage />);
 
     expect(screen.getByText('Scenario Planning & What-If Simulation')).toBeInTheDocument();
-    expect(screen.getByText('Authoritative Ledger Sandbox Isolation')).toBeInTheDocument();
+    expect(screen.queryByText('Authoritative Ledger Sandbox Isolation')).not.toBeInTheDocument();
     expect(screen.getByText('Run What-If Simulation')).toBeInTheDocument();
   });
 

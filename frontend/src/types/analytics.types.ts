@@ -9,6 +9,11 @@ export interface AgingScheduleMetricValue {
     amount: string | null;
     recordIds: string[];
   }>;
+  current?: string | null;
+  days1to30?: string | null;
+  days31to60?: string | null;
+  days61to90?: string | null;
+  days90Plus?: string | null;
   sourceRecordIds?: string[];
 }
 

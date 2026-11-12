@@ -126,6 +126,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     syncActiveOrganization(memberships, orgId);
   };
 
+  const updateActiveOrganization = (patch: Partial<OrganizationSummary>) => {
+    setActiveOrg((prev) => {
+      if (!prev) return prev;
+      const updated: OrganizationSummary = {
+        ...prev,
+        ...patch,
+      };
+      authStorage.setActiveOrg(updated);
+      return updated;
+    });
+
+    setMemberships((prev) =>
+      prev.map((m) =>
+        activeOrg && m.organizationId === activeOrg.id
+          ? {
+              ...m,
+              organizationName: patch.name ?? m.organizationName,
+              baseCurrency: patch.baseCurrency ?? m.baseCurrency,
+            }
+          : m,
+      ),
+    );
+  };
+
   const hasRole = (roles: RoleType[]): boolean => {
     if (user?.isPlatformAdmin) return true;
     if (!activeRole) return false;
@@ -178,6 +202,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         logout,
         switchOrganization,
+        updateActiveOrganization,
         hasRole,
         canMutateLedger,
         canManageBudgets,

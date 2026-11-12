@@ -76,7 +76,7 @@ describe('FinMemoryPage Component', () => {
     render(<FinMemoryPage />);
 
     expect(screen.getByText('FinMemory Intelligence')).toBeInTheDocument();
-    expect(screen.getByText(/Episodic Financial Memory Architecture/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Episodic Financial Memory Architecture/i)).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByText('2026-M02')).toBeInTheDocument();

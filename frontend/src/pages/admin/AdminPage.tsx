@@ -34,7 +34,7 @@ export interface WorkspaceMemberRecord {
 }
 
 export function AdminPage() {
-  const { user, activeOrg, hasRole, activeRole } = useAuth();
+  const { user, activeOrg, isLoading: isAuthLoading, hasRole, activeRole, updateActiveOrganization } = useAuth();
   const effectiveOrg = activeOrg || DEFAULT_DEMO_ORG;
   const activeOrgId = effectiveOrg.id;
 
@@ -47,7 +47,6 @@ export function AdminPage() {
   const [orgName, setOrgName] = useState(effectiveOrg.name || '');
   const [baseCurrency, setBaseCurrency] = useState(activeOrg?.baseCurrency || 'USD');
   const [fiscalYearStart, setFiscalYearStart] = useState('1');
-  const [timezone, setTimezone] = useState('America/New_York');
   const [isSavingOrg, setIsSavingOrg] = useState(false);
   const [orgSuccessNotice, setOrgSuccessNotice] = useState<string | null>(null);
 
@@ -66,6 +65,36 @@ export function AdminPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    if (isAuthLoading || !activeOrgId || !isAuthorizedAdmin) return;
+
+    let isMounted = true;
+    apiGet<{
+      name?: string;
+      baseCurrency?: string;
+      fiscalYearStartMonth?: number;
+    }>(`/v1/organizations/${activeOrgId}`)
+      .then((orgDetail) => {
+        if (!isMounted || !orgDetail || Array.isArray(orgDetail)) return;
+        if (orgDetail.name) {
+          setOrgName(orgDetail.name);
+        }
+        if (orgDetail.baseCurrency) {
+          setBaseCurrency(orgDetail.baseCurrency.toUpperCase());
+        }
+        if (typeof orgDetail.fiscalYearStartMonth === 'number') {
+          setFiscalYearStart(String(orgDetail.fiscalYearStartMonth));
+        }
+      })
+      .catch(() => {
+        // Active organization context remains available if detail hydration fails.
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeOrgId, isAuthLoading, isAuthorizedAdmin]);
 
   useEffect(() => {
     if (!activeOrgId || !isAuthorizedAdmin) return;
@@ -155,12 +184,33 @@ export function AdminPage() {
     setOrgSuccessNotice(null);
     setError(null);
 
+    const normalizedName = orgName.trim();
+    const normalizedCurrency = baseCurrency.trim().toUpperCase();
+    const parsedFiscalMonth = parseInt(fiscalYearStart, 10);
+
     try {
-      await apiPatch(`/v1/organizations/${activeOrgId}`, {
-        name: orgName.trim(),
-        baseCurrency,
-        fiscalYearStartMonth: parseInt(fiscalYearStart, 10),
-        timeZone: timezone,
+      const updatedOrg = await apiPatch<{
+        name?: string;
+        baseCurrency?: string;
+        fiscalYearStartMonth?: number;
+      }>(`/v1/organizations/${activeOrgId}`, {
+        name: normalizedName,
+        baseCurrency: normalizedCurrency,
+        fiscalYearStartMonth: parsedFiscalMonth,
+      });
+      const persistedName = updatedOrg?.name || normalizedName;
+      const persistedCurrency = (updatedOrg?.baseCurrency || normalizedCurrency).toUpperCase();
+      const persistedFiscalMonth =
+        typeof updatedOrg?.fiscalYearStartMonth === 'number'
+          ? String(updatedOrg.fiscalYearStartMonth)
+          : fiscalYearStart;
+
+      setOrgName(persistedName);
+      setBaseCurrency(persistedCurrency);
+      setFiscalYearStart(persistedFiscalMonth);
+      updateActiveOrganization?.({
+        name: persistedName,
+        baseCurrency: persistedCurrency,
       });
       setOrgSuccessNotice('Organization governance settings updated successfully.');
     } catch (err) {
@@ -349,10 +399,14 @@ export function AdminPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="text-[11px] font-semibold text-[var(--text-secondary)] block mb-1">
+              <label
+                htmlFor="orgBaseCurrency"
+                className="text-[11px] font-semibold text-[var(--text-secondary)] block mb-1"
+              >
                 Base Functional Currency *
               </label>
               <select
+                id="orgBaseCurrency"
                 value={baseCurrency}
                 onChange={(e) => setBaseCurrency(e.target.value)}
                 className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-2 text-xs font-semibold"
@@ -370,10 +424,14 @@ export function AdminPage() {
             </div>
 
             <div>
-              <label className="text-[11px] font-semibold text-[var(--text-secondary)] block mb-1">
+              <label
+                htmlFor="orgFiscalYearStart"
+                className="text-[11px] font-semibold text-[var(--text-secondary)] block mb-1"
+              >
                 Fiscal Year Start Month *
               </label>
               <select
+                id="orgFiscalYearStart"
                 value={fiscalYearStart}
                 onChange={(e) => setFiscalYearStart(e.target.value)}
                 className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-2 text-xs font-semibold"
@@ -384,24 +442,6 @@ export function AdminPage() {
                 <option value="10">October (Federal/State cycle)</option>
               </select>
             </div>
-          </div>
-
-          <div>
-            <label className="text-[11px] font-semibold text-[var(--text-secondary)] block mb-1">
-              Reporting Timezone *
-            </label>
-            <select
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value)}
-              className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-2 text-xs font-semibold"
-            >
-              <option value="America/New_York">Eastern Time (US & Canada)</option>
-              <option value="America/Chicago">Central Time (US & Canada)</option>
-              <option value="America/Denver">Mountain Time (US & Canada)</option>
-              <option value="America/Los_Angeles">Pacific Time (US & Canada)</option>
-              <option value="Europe/London">London (GMT/BST)</option>
-              <option value="Asia/Singapore">Singapore (SGT)</option>
-            </select>
           </div>
 
           <div className="flex justify-end pt-3 border-t border-[var(--border-subtle)]">

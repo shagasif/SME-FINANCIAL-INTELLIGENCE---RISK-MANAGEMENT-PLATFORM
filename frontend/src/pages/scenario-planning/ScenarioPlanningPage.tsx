@@ -6,7 +6,6 @@ import {
   Calculator,
   History,
   Play,
-  ShieldCheck,
   TrendingDown,
   TrendingUp,
 } from 'lucide-react';
@@ -221,8 +220,7 @@ export function ScenarioPlanningPage() {
             <span>Scenario Planning &amp; What-If Simulation</span>
           </h1>
           <p className="text-xs text-[var(--text-muted)] mt-1">
-            Simulate revenue shocks, expense spikes, and working capital delays against
-            deterministic baseline forecasts.
+            Test how revenue changes, expense spikes, or payment delays affect future cash.
           </p>
         </div>
 
@@ -250,21 +248,6 @@ export function ScenarioPlanningPage() {
           >
             Rapid Growth
           </button>
-        </div>
-      </div>
-
-      {/* Authoritative Ledger Sandbox Isolation Guarantee Banner */}
-      <div className="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-xs text-emerald-800 dark:text-emerald-300">
-        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-        <div className="space-y-1">
-          <p className="font-semibold text-emerald-950 dark:text-emerald-200">
-            Authoritative Ledger Sandbox Isolation
-          </p>
-          <p className="text-[11px] leading-relaxed opacity-90">
-            All scenario models are executed strictly in memory against deterministic projection
-            matrices. Simulations NEVER modify actual general ledger accounts, invoices, or bank
-            balances.
-          </p>
         </div>
       </div>
 

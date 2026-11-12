@@ -72,7 +72,9 @@ describe('RiskCenterPage Component', () => {
     render(<RiskCenterPage />);
 
     expect(screen.getByText('Financial Risk & Anomaly Center')).toBeInTheDocument();
-    expect(screen.getByText(/Compliance & Statistical Anomaly Disclosure/i)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Compliance & Statistical Anomaly Disclosure/i),
+    ).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByText('High Single Transaction Outlier')).toBeInTheDocument();

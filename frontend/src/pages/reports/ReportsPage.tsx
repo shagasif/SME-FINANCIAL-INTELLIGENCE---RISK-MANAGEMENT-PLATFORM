@@ -1,6 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useMemo, useEffect, useState } from 'react';
 import {
   AlertCircle,
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Download,
   Eye,
   FileSpreadsheet,
@@ -8,6 +12,8 @@ import {
   Lock,
   Plus,
   RefreshCw,
+  ShieldAlert,
+  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
 import { apiGet, apiPost, ApiClientError } from '../../services/apiClient';
@@ -17,7 +23,9 @@ import { Modal } from '../../components/ui/Modal';
 import { Drawer } from '../../components/ui/Drawer';
 import { Skeleton } from '../../components/ui/LoadingSpinner';
 import { formatDate } from '../../utils/formatters';
-import { ReportType, type ReportRecord } from '../../types/reports.types';
+import { resolveExecutiveBrief } from '../../utils/reportBriefAdapter';
+import { buildExecutiveReportPdfBytes } from '../../utils/reportPdfGenerator';
+import { ReportType, type ExecutiveBrief, type ReportRecord } from '../../types/reports.types';
 import { DEFAULT_DEMO_ORG } from '../../config/demo.config';
 
 const DEFAULT_REPORTS: ReportRecord[] = [
@@ -77,9 +85,19 @@ export function ReportsPage() {
 
   // Report View Drawer
   const [inspectReport, setInspectReport] = useState<ReportRecord | null>(null);
+  const [showSourceIds, setShowSourceIds] = useState(false);
 
   // Export State
   const [exportNotice, setExportNotice] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+
+  const inspectBrief = useMemo(
+    () =>
+      inspectReport
+        ? resolveExecutiveBrief(inspectReport, effectiveOrg.baseCurrency || 'USD')
+        : null,
+    [inspectReport, effectiveOrg.baseCurrency],
+  );
 
   useEffect(() => {
     if (!activeOrgId) return;
@@ -127,12 +145,16 @@ export function ReportsPage() {
     setModalError(null);
 
     try {
-      await apiPost(`/v1/organizations/${activeOrgId}/reports`, {
+      const created = await apiPost<ReportRecord>(`/v1/organizations/${activeOrgId}/reports`, {
         title: title.trim(),
         type: reportType,
       });
       setIsGenerateModalOpen(false);
       setTitle('');
+      setShowSourceIds(false);
+      if (created && created.id) {
+        setInspectReport(created);
+      }
       setIsLoading(true);
       setReloadKey((k) => k + 1);
     } catch (err) {
@@ -146,7 +168,7 @@ export function ReportsPage() {
     }
   };
 
-  const handleExport = async (reportId: string, format: 'json' | 'csv' = 'json') => {
+  const handleExport = async (report: ReportRecord, format: 'PDF' | 'CSV' = 'PDF') => {
     if (isAuditor || !canExportReports) {
       setExportNotice(
         'Export Restricted for Auditor Role: Platform compliance policy prohibits unredacted report file downloads (HTTP 403 Forbidden). On-screen inspection is permitted.',
@@ -154,25 +176,55 @@ export function ReportsPage() {
       return;
     }
 
+    setIsExporting(true);
+    setExportNotice(null);
     try {
-      const data = await apiGet<unknown>(
-        `/v1/organizations/${activeOrgId}/reports/${reportId}/export?format=${format}`,
-      );
-      const blob = new Blob([JSON.stringify(data, null, 2)], {
-        type: format === 'json' ? 'application/json' : 'text/csv',
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `report-${reportId}.${format}`;
-      a.click();
-      URL.revokeObjectURL(url);
+      if (format === 'CSV') {
+        const res = await apiGet<{ content: string; fileName?: string }>(
+          `/v1/organizations/${activeOrgId}/reports/${report.id}/export?format=CSV`,
+        );
+        const blob = new Blob([res.content ?? ''], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = res.fileName || `report-${report.id.slice(0, 8)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const res = await apiGet<{
+          fileName?: string;
+          documentStructure?: {
+            executiveBrief?: ExecutiveBrief | null;
+          };
+        }>(`/v1/organizations/${activeOrgId}/reports/${report.id}/export?format=PDF`);
+        const briefForPdf =
+          res.documentStructure?.executiveBrief ??
+          resolveExecutiveBrief(report, effectiveOrg.baseCurrency || 'USD');
+        const pdfBytes = buildExecutiveReportPdfBytes(
+          report,
+          briefForPdf,
+          effectiveOrg.name || 'Organization',
+        );
+        const pdfBuffer = new ArrayBuffer(pdfBytes.byteLength);
+        new Uint8Array(pdfBuffer).set(pdfBytes);
+        const blob = new Blob([pdfBuffer], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download =
+          res.fileName ||
+          `${(report.reportType || report.type || 'report').toLowerCase()}_${report.id.slice(0, 8)}.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
     } catch (err) {
       if (err instanceof ApiClientError) {
         setExportNotice(err.message);
       } else {
-        setExportNotice('Failed to download report export.');
+        setExportNotice(`Failed to download ${format} report export.`);
       }
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -182,7 +234,7 @@ export function ReportsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[var(--border-subtle)]">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--text-primary)] flex items-center gap-2">
-            <FileText className="w-6 h-6 text-[var(--brand-primary)]" />
+            <FileText className="w-6 h-6 text-[var(--accent-primary)]" />
             Financial Reports & Executive Dossiers
           </h1>
           <p className="text-xs text-[var(--text-muted)] mt-1">
@@ -287,23 +339,34 @@ export function ReportsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border-subtle)] font-medium">
-                {reports.map((report) => (
-                  <tr
-                    key={report.id}
-                    className="hover:bg-[var(--surface-elevated)]/40 transition-colors"
-                  >
-                    <td className="py-3 px-4 font-semibold text-[var(--text-primary)]">
-                      {report.title}
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="rounded bg-[var(--surface-elevated)] px-2 py-0.5 font-mono text-[10px] text-[var(--brand-primary)]">
-                        {report.reportType}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 max-w-sm text-[var(--text-secondary)] line-clamp-1">
-                      {report.summary}
-                    </td>
-                    <td className="py-3 px-4 text-right text-[11px] text-[var(--text-muted)]">
+                {reports.map((report) => {
+                  const displayType = report.reportType || report.type || 'REPORT';
+                  const previewBrief = resolveExecutiveBrief(
+                    report,
+                    effectiveOrg.baseCurrency || 'USD',
+                  );
+                  const headlineSummary =
+                    report.summary ||
+                    previewBrief.executiveSummary[0] ||
+                    'Generated from authoritative ledger records';
+
+                  return (
+                    <tr
+                      key={report.id}
+                      className="hover:bg-[var(--surface-elevated)]/40 transition-colors"
+                    >
+                      <td className="py-3 px-4 font-semibold text-[var(--text-primary)]">
+                        {report.title}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="rounded bg-[var(--surface-elevated)] px-2 py-0.5 font-mono text-[10px] text-[var(--accent-primary)]">
+                          {displayType}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 max-w-sm text-[var(--text-secondary)] line-clamp-1">
+                        {headlineSummary}
+                      </td>
+                    <td className="py-3 px-4 text-right text-[11px] text-[var(--text-muted)] tabular-nums">
                       {formatDate(report.createdAt)}
                     </td>
                     <td className="py-3 px-4 text-center">
@@ -311,7 +374,10 @@ export function ReportsPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => setInspectReport(report)}
+                          onClick={() => {
+                            setShowSourceIds(false);
+                            setInspectReport(report);
+                          }}
                           className="h-7 px-2 text-[11px] flex items-center gap-1"
                         >
                           <Eye className="h-3 w-3" />
@@ -319,17 +385,17 @@ export function ReportsPage() {
                         </Button>
 
                         <button
-                          onClick={() => handleExport(report.id, 'json')}
-                          disabled={isAuditor || !canExportReports}
+                          onClick={() => handleExport(report, 'PDF')}
+                          disabled={isAuditor || !canExportReports || isExporting}
                           className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
                             isAuditor || !canExportReports
                               ? 'cursor-not-allowed text-gray-400 bg-gray-100 dark:bg-gray-800 dark:text-gray-500'
-                              : 'text-[var(--brand-primary)] hover:bg-[var(--surface-hover)]'
+                              : 'text-[var(--accent-primary)] hover:bg-[var(--surface-elevated)] cursor-pointer'
                           }`}
                           title={
                             isAuditor || !canExportReports
                               ? 'Report export is restricted for Auditor roles'
-                              : 'Download JSON Export'
+                              : 'Download Executive PDF Brief'
                           }
                         >
                           {isAuditor ? (
@@ -342,7 +408,8 @@ export function ReportsPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -351,47 +418,435 @@ export function ReportsPage() {
 
       {/* Report View Drawer */}
       <Drawer
-        isOpen={Boolean(inspectReport)}
-        onClose={() => setInspectReport(null)}
-        title={inspectReport?.title || 'Report Inspection'}
-        width="lg"
+        isOpen={Boolean(inspectReport && inspectBrief)}
+        onClose={() => {
+          setInspectReport(null);
+          setShowSourceIds(false);
+        }}
+        title={inspectReport?.title || 'Executive Financial Brief'}
+        subtitle={
+          inspectBrief && inspectReport
+            ? `Period: ${formatDate(inspectBrief.dataGrounding.reportingPeriodStart)} – ${formatDate(inspectBrief.dataGrounding.reportingPeriodEnd)} · Generated ${formatDate(inspectReport.createdAt)}`
+            : undefined
+        }
+        headerBadge={
+          inspectBrief && (
+            <>
+              <span className="inline-flex items-center rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--accent-primary)]">
+                {inspectBrief.reportType.replace(/_/g, ' ')}
+              </span>
+              <span className="inline-flex items-center rounded-md border border-[var(--border-subtle)] bg-[var(--surface-bg)] px-2 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)]">
+                {inspectBrief.dataGrounding.currency}
+              </span>
+            </>
+          )
+        }
+        headerActions={
+          inspectReport && (
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleExport(inspectReport, 'PDF')}
+                disabled={isAuditor || !canExportReports || isExporting}
+                title={
+                  isAuditor || !canExportReports
+                    ? 'Export is restricted for Auditor role'
+                    : 'Export Executive PDF'
+                }
+                className="h-8 px-2.5 text-xs"
+              >
+                {isAuditor ? (
+                  <Lock className="h-3.5 w-3.5 mr-1" />
+                ) : (
+                  <Download className="h-3.5 w-3.5 mr-1" />
+                )}
+                Export PDF
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleExport(inspectReport, 'CSV')}
+                disabled={isAuditor || !canExportReports || isExporting}
+                title={
+                  isAuditor || !canExportReports
+                    ? 'Export is restricted for Auditor role'
+                    : 'Export Raw CSV'
+                }
+                className="h-8 px-2 text-xs text-[var(--text-secondary)]"
+              >
+                CSV
+              </Button>
+            </div>
+          )
+        }
+        width="xl"
       >
-        {inspectReport && (
-          <div className="space-y-4 text-xs">
-            <div className="flex items-center justify-between rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-3">
-              <div>
-                <span className="text-[10px] uppercase font-bold text-[var(--brand-primary)]">
-                  Report Type
+        {inspectReport && inspectBrief && (
+          <div className="space-y-6 text-xs text-[var(--text-primary)]">
+            {/* 1. Executive Summary */}
+            <section className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--accent-primary)]">
+                  Executive Summary
+                </h3>
+                <span className="text-[10px] font-medium text-[var(--text-muted)]">
+                  Grounded Financial Brief
                 </span>
-                <div className="font-semibold text-sm text-[var(--text-primary)] mt-0.5">
-                  {inspectReport.reportType}
-                </div>
               </div>
-              <div className="text-right">
-                <span className="text-[10px] uppercase font-bold text-[var(--text-muted)]">
-                  Generated
-                </span>
-                <div className="font-mono text-xs text-[var(--text-secondary)] mt-0.5">
-                  {formatDate(inspectReport.createdAt)}
-                </div>
+              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-bg)] p-4 space-y-2">
+                {inspectBrief.executiveSummary.map((sentence, idx) => (
+                  <p
+                    key={idx}
+                    className="text-[13px] leading-relaxed text-[var(--text-secondary)]"
+                  >
+                    {sentence}
+                  </p>
+                ))}
               </div>
-            </div>
+            </section>
 
-            <div className="space-y-1">
-              <span className="font-bold text-[var(--text-primary)]">Executive Summary:</span>
-              <p className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-subtle)] p-3 text-xs leading-relaxed text-[var(--text-secondary)]">
-                {inspectReport.summary}
-              </p>
-            </div>
+            {/* 2. Key Financial KPIs */}
+            {inspectBrief.kpis.length > 0 && (
+              <section className="space-y-3 border-t border-[var(--border-subtle)] pt-5">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--accent-primary)]">
+                    Key Financial KPIs
+                  </h3>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[var(--status-ok-bg)] px-2 py-0.5 text-[10px] font-semibold text-[var(--status-ok-text)]">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Verified Ledger
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {inspectBrief.kpis.map((kpi, idx) => (
+                    <div
+                      key={idx}
+                      className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-bg)] p-3.5 space-y-1"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                          {kpi.label}
+                        </span>
+                        {kpi.status === 'MISSING_DATA' && (
+                          <span className="rounded bg-[var(--status-warn-bg)] px-1.5 py-0.5 text-[9px] font-semibold text-[var(--status-warn-text)]">
+                            Missing Data
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-baseline justify-between gap-2 pt-0.5">
+                        <span
+                          className={`text-base font-bold tabular-nums tracking-tight ${
+                            kpi.status === 'MISSING_DATA'
+                              ? 'text-[var(--status-warn-text)]'
+                              : 'text-[var(--text-primary)]'
+                          }`}
+                        >
+                          {kpi.value}
+                        </span>
+                        {kpi.secondaryValue && (
+                          <span className="text-xs font-semibold tabular-nums text-[var(--text-secondary)]">
+                            {kpi.secondaryLabel ? `${kpi.secondaryLabel} ` : ''}
+                            {kpi.secondaryValue}
+                          </span>
+                        )}
+                      </div>
+                      {kpi.subtext && (
+                        <p className="text-[11px] text-[var(--text-muted)] leading-snug tabular-nums">
+                          {kpi.subtext}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
 
-            {inspectReport.sections?.map((sec, idx) => (
-              <div key={idx} className="space-y-1 border-t border-[var(--border-subtle)] pt-3">
-                <h3 className="font-bold text-sm text-[var(--text-primary)]">{sec.heading}</h3>
-                <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                  {sec.content}
-                </p>
+            {/* 3. Core Performance Breakdown */}
+            {inspectBrief.tables.length > 0 && (
+              <section className="space-y-4 border-t border-[var(--border-subtle)] pt-5">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--accent-primary)]">
+                    Core Performance Breakdown
+                  </h3>
+                  <span className="text-[10px] font-medium text-[var(--text-muted)]">
+                    Verified Calculations ({inspectBrief.dataGrounding.currency})
+                  </span>
+                </div>
+
+                {inspectBrief.tables.map((table, tIdx) => (
+                  <div
+                    key={tIdx}
+                    className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-bg)] overflow-hidden"
+                  >
+                    <div className="px-3.5 py-2.5 border-b border-[var(--border-subtle)] flex items-center justify-between gap-2 bg-[var(--surface-elevated)]/45">
+                      <h4 className="text-xs font-bold text-[var(--text-primary)]">{table.title}</h4>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-[var(--surface-elevated)]/30 text-[10px] uppercase tracking-wider text-[var(--text-muted)] border-b border-[var(--border-subtle)]">
+                          <tr>
+                            {table.columns.map((col, cIdx) => (
+                              <th
+                                key={cIdx}
+                                className={`py-2 px-3.5 font-semibold ${
+                                  col.align === 'right'
+                                    ? 'text-right'
+                                    : col.align === 'center'
+                                      ? 'text-center'
+                                      : 'text-left'
+                                }`}
+                              >
+                                {col.label}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[var(--border-subtle)]">
+                          {table.rows.map((row, rIdx) => {
+                            const toneClass =
+                              row.tone === 'danger'
+                                ? 'text-[var(--status-err-text)]'
+                                : row.tone === 'warning'
+                                  ? 'text-[var(--status-warn-text)]'
+                                  : row.tone === 'positive'
+                                    ? 'text-[var(--status-ok-text)]'
+                                    : 'text-[var(--text-primary)]';
+                            return (
+                              <tr
+                                key={rIdx}
+                                className={
+                                  row.isTotal
+                                    ? 'bg-[var(--surface-elevated)]/40 font-bold'
+                                    : 'hover:bg-[var(--surface-elevated)]/20'
+                                }
+                              >
+                                {row.cells.map((cell, cIdx) => {
+                                  const col = table.columns[cIdx];
+                                  return (
+                                    <td
+                                      key={cIdx}
+                                      className={`py-2 px-3.5 ${
+                                        col?.align === 'right'
+                                          ? 'text-right'
+                                          : col?.align === 'center'
+                                            ? 'text-center'
+                                            : 'text-left'
+                                      } ${col?.isNumeric ? 'tabular-nums font-medium' : ''} ${
+                                        cIdx === 0 && !row.isTotal
+                                          ? 'text-[var(--text-secondary)] font-medium'
+                                          : toneClass
+                                      }`}
+                                    >
+                                      {cell}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    {table.note && (
+                      <div className="px-3.5 py-2 border-t border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]">
+                        {table.note}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </section>
+            )}
+
+            {/* 4. Key Risks & Anomalies (Omitted cleanly when zero issues exist) */}
+            {inspectBrief.risksAndAnomalies.length > 0 && (
+              <section className="space-y-3 border-t border-[var(--border-subtle)] pt-5">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--accent-primary)]">
+                    Key Risks & Anomalies
+                  </h3>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[var(--status-warn-bg)] px-2 py-0.5 text-[10px] font-semibold text-[var(--status-warn-text)]">
+                    <ShieldAlert className="h-3 w-3" />
+                    {inspectBrief.risksAndAnomalies.length} Detected Signal(s)
+                  </span>
+                </div>
+                <ul className="space-y-2">
+                  {inspectBrief.risksAndAnomalies.map((risk, idx) => {
+                    const isCritOrHigh = risk.severity === 'CRITICAL' || risk.severity === 'HIGH';
+                    return (
+                      <li
+                        key={idx}
+                        className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-bg)] p-3 flex items-start gap-2.5"
+                      >
+                        <span
+                          className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                            isCritOrHigh
+                              ? 'bg-[var(--status-err-bg)] text-[var(--status-err-text)]'
+                              : 'bg-[var(--status-warn-bg)] text-[var(--status-warn-text)]'
+                          }`}
+                        >
+                          {risk.severity}
+                        </span>
+                        <div className="min-w-0 space-y-0.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-[var(--text-primary)]">
+                              {risk.title}
+                            </span>
+                            <span className="text-[10px] text-[var(--text-muted)]">
+                              · {risk.sourceTag}
+                            </span>
+                          </div>
+                          <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
+                            {risk.detail}
+                          </p>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
+
+            {/* 5. Prioritized Action Plan */}
+            {inspectBrief.prioritizedActionPlan.length > 0 && (
+              <section className="space-y-3 border-t border-[var(--border-subtle)] pt-5">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--accent-primary)]">
+                    Prioritized Action Plan
+                  </h3>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)]">
+                    <Sparkles className="h-3 w-3 text-[var(--accent-amber)]" />
+                    AI Advisory (Grounded)
+                  </span>
+                </div>
+                <ol className="space-y-2">
+                  {inspectBrief.prioritizedActionPlan.map((action) => (
+                    <li
+                      key={action.priority}
+                      className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-bg)] p-3 flex items-start gap-3"
+                    >
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent-primary)] text-[10px] font-bold text-white tabular-nums">
+                        {action.priority}
+                      </span>
+                      <div className="min-w-0 flex-1 space-y-0.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-semibold text-[var(--text-primary)]">
+                            {action.title}
+                          </span>
+                          <span className="text-[10px] font-medium text-[var(--text-muted)]">
+                            {action.targetArea} · {action.impact} Impact
+                          </span>
+                        </div>
+                        <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
+                          {action.rationale}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
+
+            {/* 6. Data Grounding & Limitations Footer */}
+            <section className="border-t border-[var(--border-subtle)] pt-5">
+              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-bg)] p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                    Data Grounding & Limitations
+                  </h3>
+                  <span className="text-[10px] font-medium text-[var(--text-muted)] tabular-nums">
+                    {inspectBrief.dataGrounding.currency} ·{' '}
+                    {formatDate(inspectBrief.dataGrounding.reportingPeriodStart)} –{' '}
+                    {formatDate(inspectBrief.dataGrounding.reportingPeriodEnd)}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
+                  {(
+                    [
+                      ['Accounts', inspectBrief.dataGrounding.recordCounts.accounts],
+                      ['Transactions', inspectBrief.dataGrounding.recordCounts.transactions],
+                      ['Invoices', inspectBrief.dataGrounding.recordCounts.invoices],
+                      ['Bills', inspectBrief.dataGrounding.recordCounts.bills],
+                      ['Budgets', inspectBrief.dataGrounding.recordCounts.budgets],
+                      ['Alerts', inspectBrief.dataGrounding.recordCounts.riskAlerts],
+                    ] as const
+                  ).map(([label, count]) => (
+                    <div
+                      key={label}
+                      className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-card)] px-2 py-1.5"
+                    >
+                      <div className="text-xs font-bold text-[var(--text-primary)] tabular-nums">
+                        {count}
+                      </div>
+                      <div className="text-[10px] text-[var(--text-muted)]">{label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {inspectBrief.dataGrounding.dataSources.length > 0 && (
+                  <p className="text-[11px] text-[var(--text-secondary)]">
+                    <strong className="text-[var(--text-primary)]">Sources:</strong>{' '}
+                    {inspectBrief.dataGrounding.dataSources.join(' · ')}
+                  </p>
+                )}
+
+                {inspectBrief.dataGrounding.missingInputs.length > 0 && (
+                  <div className="rounded-lg border border-amber-500/30 bg-[var(--status-warn-bg)]/60 p-2.5 space-y-1">
+                    {inspectBrief.dataGrounding.missingInputs.map((lim, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-start gap-1.5 text-[11px] text-[var(--status-warn-text)]"
+                      >
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                        <span>{lim}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[var(--border-subtle)]">
+                  <p className="text-[10px] text-[var(--text-muted)] leading-snug max-w-lg">
+                    {inspectBrief.dataGrounding.methodologyNote}
+                  </p>
+                  {Object.values(inspectReport.sourceRecordIds ?? {}).some(
+                    (ids) => Array.isArray(ids) && ids.length > 0,
+                  ) && (
+                    <button
+                      type="button"
+                      onClick={() => setShowSourceIds((prev) => !prev)}
+                      aria-expanded={showSourceIds}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--accent-primary)] hover:underline cursor-pointer"
+                    >
+                      {showSourceIds ? (
+                        <>
+                          Hide Source IDs
+                          <ChevronUp className="h-3.5 w-3.5" />
+                        </>
+                      ) : (
+                        <>
+                          View Source IDs
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+
+                {showSourceIds && (
+                  <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-card)] p-2.5 space-y-1 text-[10px] text-[var(--text-muted)] font-mono">
+                    {Object.entries(inspectReport.sourceRecordIds ?? {})
+                      .filter(([, ids]) => Array.isArray(ids) && ids.length > 0)
+                      .map(([key, ids]) => (
+                        <div key={key} className="break-all">
+                          <span className="font-semibold text-[var(--text-secondary)]">{key}:</span>{' '}
+                          {ids.join(', ')}
+                        </div>
+                      ))}
+                  </div>
+                )}
               </div>
-            ))}
+            </section>
           </div>
         )}
       </Drawer>
@@ -426,7 +881,7 @@ export function ReportsPage() {
               <select
                 value={reportType}
                 onChange={(e) => setReportType(e.target.value as ReportType)}
-                className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-2 text-xs font-semibold"
+                className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-bg)] p-2 text-xs font-semibold"
               >
                 <option value={ReportType.BUSINESS_HEALTH}>
                   BUSINESS_HEALTH (Comprehensive SME Scorecard)

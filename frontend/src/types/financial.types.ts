@@ -191,11 +191,29 @@ export interface AgingSection {
   sourceRecordIds?: string[];
 }
 
+export interface DocumentStatusBreakdown {
+  draft: { count: number; totalAmount: string; recordIds?: string[] };
+  unpaid: { count: number; totalAmount: string; outstandingAmount: string; recordIds?: string[] };
+  partiallyPaid: {
+    count: number;
+    totalAmount: string;
+    paidAmount: string;
+    outstandingAmount: string;
+    recordIds?: string[];
+  };
+  paid: { count: number; totalAmount: string; paidAmount: string; recordIds?: string[] };
+  activeOutstandingTotal: string;
+  isComplete: boolean;
+  missingCurrencies: string[];
+}
+
 export interface AgingReportResponse {
   asOfDate: string;
   currency: string;
   receivablesAging: AgingSection;
   payablesAging: AgingSection;
+  receivablesSummary?: DocumentStatusBreakdown;
+  payablesSummary?: DocumentStatusBreakdown;
 }
 
 export interface BudgetLine {
@@ -269,4 +287,134 @@ export interface ImportBatch {
   duplicates?: Array<{ rowNumber: number; duplicateKey?: string; duplicateHash?: string; matchedExistingId?: string }>;
   sanitizationNotes?: unknown[];
   createdAt: string;
+}
+
+export type DocumentImportTargetType = 'INVOICE' | 'BILL';
+
+export interface ExtractedDocumentLineItem {
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  taxRate: string;
+  lineSubtotal: string;
+  lineTaxAmount: string;
+  lineTotal: string;
+  confidence: number;
+}
+
+export interface ExtractedFieldConfidence {
+  documentNumber: number;
+  counterpartyName: number;
+  counterpartyEmail: number;
+  issueDate: number;
+  dueDate: number;
+  currency: number;
+  subtotalAmount: number;
+  taxRate: number;
+  taxAmount: number;
+  totalAmount: number;
+  lineItems: number;
+}
+
+export interface DocumentArithmeticVerification {
+  isValid: boolean;
+  lineItemsMatchSubtotal: boolean | null;
+  subtotalPlusTaxMatchesTotal: boolean | null;
+  taxRateMatchesTaxAmount: boolean | null;
+  dateOrderValid: boolean | null;
+  calculatedLineItemsSubtotal: string | null;
+  calculatedTotalAmount: string | null;
+  discrepancies: string[];
+  missingRequiredFields: string[];
+  summary: string;
+}
+
+export interface DuplicateMatchWarning {
+  matchType: 'FILE_CHECKSUM' | 'DOCUMENT_NUMBER' | 'SIMILAR_RECORD';
+  recordId: string;
+  documentNumber: string | null;
+  counterpartyName: string | null;
+  issueDate: string | null;
+  totalAmount: string | null;
+  currency?: string | null;
+  status: string | null;
+  reason: string;
+}
+
+export interface PreviousExtractionInfo {
+  previouslyExtracted: boolean;
+  extractionCount: number;
+  lastExtractedAt: string | null;
+  message: string;
+}
+
+export interface DuplicateWarningsReport {
+  hasPotentialDuplicate: boolean;
+  checksumMatched: boolean;
+  documentNumberConflict: boolean;
+  similarRecordMatch: boolean;
+  previouslyExtractedNotSaved: boolean;
+  previousExtractionInfo: PreviousExtractionInfo | null;
+  matches: DuplicateMatchWarning[];
+}
+
+export interface DocumentImportExtractionResponse {
+  success: boolean;
+  savedToDatabase: false;
+  ledgerMutationPerformed: false;
+  documentType: DocumentImportTargetType;
+  fileMetadata: {
+    fileName: string;
+    mimeType: string;
+    detectedFormat: 'pdf' | 'jpeg' | 'png';
+    sizeBytes: number;
+    checksumSha256: string;
+  };
+  extractionMetadata: {
+    extractionMethod:
+      | 'PDF_EMBEDDED_TEXT'
+      | 'PDF_SCANNED_OCR'
+      | 'IMAGE_OCR'
+      | 'MULTIMODAL_VISION_AI'
+      | 'OCR_AND_VISION_AI';
+    extractedCharCount: number;
+    pageCount: number | null;
+    ocrConfidence: number | null;
+    provider: string;
+    externalVisionConfigured: boolean;
+    warnings: string[];
+    limitations: string[];
+  };
+  extractedTextPreview: string;
+  extractedDocument: {
+    documentType: DocumentImportTargetType;
+    documentNumber: string | null;
+    counterpartyName: string | null;
+    counterpartyEmail: string | null;
+    category: string;
+    department: string | null;
+    issueDate: string | null;
+    dueDate: string | null;
+    currency: string;
+    currencySource: 'DOCUMENT' | 'ORGANIZATION_DEFAULT';
+    subtotalAmount: string | null;
+    taxRate: string | null;
+    taxAmount: string | null;
+    totalAmount: string | null;
+    notes: string | null;
+  };
+  lineItems: ExtractedDocumentLineItem[];
+  fieldConfidence: ExtractedFieldConfidence;
+  arithmeticVerification: DocumentArithmeticVerification;
+  duplicateWarnings: DuplicateWarningsReport;
+  sanitizationFlags: string[];
+  aiOrchestration: {
+    workflowRunId: string;
+    taskClassification: string;
+    durationMs: number;
+    isApproved: boolean;
+    requiresHumanReview: boolean;
+    validationErrors: string[];
+    confidenceScore: number;
+  };
 }

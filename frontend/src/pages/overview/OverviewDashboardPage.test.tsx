@@ -453,4 +453,131 @@ describe('OverviewDashboardPage Component', () => {
       ).toBeGreaterThanOrEqual(2);
     });
   });
+
+  it('renders live backend buckets[] AR/AP aging amounts and excluded draft disclosure without placeholder dashes', async () => {
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'usr-star',
+        email: 'shagasif83@gmail.com',
+        fullName: 'Shagufta Asif',
+        isPlatformAdmin: false,
+      },
+      activeOrg: {
+        id: 'org-star',
+        name: 'star',
+        slug: 'star',
+        baseCurrency: 'PKR',
+        role: RoleType.BUSINESS_OWNER,
+      },
+      memberships: [],
+      activeRole: RoleType.BUSINESS_OWNER,
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      switchOrganization: vi.fn(),
+      hasRole: () => true,
+      canMutateLedger: true,
+      canManageBudgets: true,
+      canRunAiWorkflows: true,
+      canExportReports: true,
+      isAuditor: false,
+    });
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((req: RequestInfo | URL) => {
+      const url = req.toString();
+      const jsonHeader = { 'Content-Type': 'application/json' };
+      if (url.includes('/analytics/metrics')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              organizationId: 'org-star',
+              currency: 'PKR',
+              metrics: {
+                operatingCashFlow: {
+                  metricKey: 'operatingCashFlow',
+                  status: 'COMPUTED',
+                  value: '100000.0000',
+                  unit: 'CURRENCY',
+                  currency: 'PKR',
+                  dataLimitations: [],
+                },
+                cashRunway: {
+                  metricKey: 'cashRunway',
+                  status: 'COMPUTED',
+                  value: '999.0000',
+                  unit: 'MONTHS',
+                  currency: 'PKR',
+                  components: { liquidCashBalance: '2615100.0000' },
+                  dataLimitations: [],
+                },
+                currentRatio: { metricKey: 'currentRatio', status: 'COMPUTED', value: '5.0000', unit: 'RATIO', dataLimitations: [] },
+                quickRatio: { metricKey: 'quickRatio', status: 'COMPUTED', value: '5.0000', unit: 'RATIO', dataLimitations: [] },
+                workingCapital: { metricKey: 'workingCapital', status: 'COMPUTED', value: '2670100.0000', unit: 'CURRENCY', dataLimitations: [] },
+                receivableAging: {
+                  metricKey: 'receivableAging',
+                  status: 'COMPUTED',
+                  value: {
+                    totalOutstanding: '55000.0000',
+                    totalOverdue: '15000.0000',
+                    isComplete: true,
+                    missingCurrencies: [],
+                    buckets: [
+                      { bucket: 'CURRENT', count: 1, amount: '40000.0000', recordIds: ['inv-1'] },
+                      { bucket: '1_TO_30_DAYS', count: 1, amount: '15000.0000', recordIds: ['inv-2'] },
+                      { bucket: '31_TO_60_DAYS', count: 0, amount: '0.0000', recordIds: [] },
+                      { bucket: '61_TO_90_DAYS', count: 0, amount: '0.0000', recordIds: [] },
+                      { bucket: 'OVER_90_DAYS', count: 0, amount: '0.0000', recordIds: [] },
+                    ],
+                    sourceRecordIds: ['inv-1', 'inv-2'],
+                  },
+                  components: { draftCount: '1', draftTotal: '25000.0000' },
+                  unit: 'SCHEDULE',
+                  dataLimitations: [],
+                },
+                payableAging: {
+                  metricKey: 'payableAging',
+                  status: 'COMPUTED',
+                  value: {
+                    totalOutstanding: '12000.0000',
+                    totalOverdue: '0.0000',
+                    isComplete: true,
+                    missingCurrencies: [],
+                    buckets: [
+                      { bucket: 'CURRENT', count: 1, amount: '12000.0000', recordIds: ['bill-1'] },
+                      { bucket: '1_TO_30_DAYS', count: 0, amount: '0.0000', recordIds: [] },
+                      { bucket: '31_TO_60_DAYS', count: 0, amount: '0.0000', recordIds: [] },
+                      { bucket: '61_TO_90_DAYS', count: 0, amount: '0.0000', recordIds: [] },
+                      { bucket: 'OVER_90_DAYS', count: 0, amount: '0.0000', recordIds: [] },
+                    ],
+                    sourceRecordIds: ['bill-1'],
+                  },
+                  unit: 'SCHEDULE',
+                  dataLimitations: [],
+                },
+              },
+            }),
+            { status: 200, headers: jsonHeader },
+          ),
+        );
+      }
+      if (url.includes('/transactions')) {
+        return Promise.resolve(new Response(JSON.stringify({ items: [] }), { status: 200, headers: jsonHeader }));
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200, headers: jsonHeader }));
+    });
+
+    render(
+      <BrowserRouter>
+        <OverviewDashboardPage />
+      </BrowserRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/40,000/)).toBeInTheDocument();
+      expect(screen.getByText(/15,000/)).toBeInTheDocument();
+      expect(screen.getAllByText(/12,000/).length).toBeGreaterThanOrEqual(2);
+    });
+    expect(screen.getByText(/Drafts excluded from AR \(1\):/i)).toBeInTheDocument();
+  });
 });

@@ -4,7 +4,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Flame,
-  HelpCircle,
   Info,
   RefreshCw,
   Search,
@@ -297,8 +296,7 @@ export function RiskCenterPage() {
             Financial Risk & Anomaly Center
           </h1>
           <p className="text-xs text-[var(--text-muted)] mt-1">
-            Real-time multi-vector statistical anomaly detection, cash drain tracking, and auditable
-            triage controls.
+            Review unusual transactions, cash alerts, and overdue warnings.
           </p>
         </div>
 
@@ -340,22 +338,6 @@ export function RiskCenterPage() {
           </div>
         </div>
       )}
-
-      {/* Non-Fraud Disclaimers Banner */}
-      <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-xs text-amber-800 dark:text-amber-300">
-        <HelpCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-        <div className="space-y-1">
-          <p className="font-semibold text-amber-950 dark:text-amber-200">
-            Compliance & Statistical Anomaly Disclosure
-          </p>
-          <p className="text-[11px] leading-relaxed opacity-90">
-            Alerts produced by the Risk Center highlight statistical deviations, volume bursts,
-            off-hours timings, and cash drawdowns from normal baseline behavior. They do not
-            constitute formal accusations of fraud, wrongdoing, or regulatory violations. Each alert
-            requires human-in-the-loop verification before remediation.
-          </p>
-        </div>
-      </div>
 
       {scanResultNotice && (
         <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-300">

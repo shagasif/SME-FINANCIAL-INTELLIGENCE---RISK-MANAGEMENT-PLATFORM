@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   AlertCircle,
   AlertTriangle,
   Ban,
   CheckCircle2,
+  ChevronDown,
   Eye,
   FilePlus,
   Pencil,
@@ -12,6 +13,7 @@ import {
   Search,
   ShieldAlert,
   Trash2,
+  Upload,
 } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
 import { apiGet, apiPatch, apiPost, ApiClientError } from '../../services/apiClient';
@@ -20,7 +22,13 @@ import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { Modal } from '../../components/ui/Modal';
 import { Skeleton } from '../../components/ui/LoadingSpinner';
-import { formatCurrency, formatDate, resolveReportingCurrency } from '../../utils/formatters';
+import {
+  formatCurrency,
+  formatDate,
+  resolveReportingCurrency,
+  toTitleCasePartyName,
+} from '../../utils/formatters';
+import { DocumentImportModal } from './DocumentImportModal';
 import {
   BillStatus,
   InvoiceStatus,
@@ -29,6 +37,7 @@ import {
   type AgingReportResponse,
   type AgingSection,
   type Bill,
+  type DocumentImportTargetType,
   type DocumentLineItem,
   type FinancialAccount,
   type Invoice,
@@ -112,6 +121,7 @@ export function InvoicesPayablesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [importDocTarget, setImportDocTarget] = useState<DocumentImportTargetType | null>(null);
 
   const orgCurrency = resolveReportingCurrency(activeOrg?.baseCurrency);
 
@@ -187,6 +197,37 @@ export function InvoicesPayablesPage() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
+  const [selectedBillIds, setSelectedBillIds] = useState<string[]>([]);
+  const [isBulkIssuing, setIsBulkIssuing] = useState(false);
+
+  // Header "+ Create New" dropdown
+  const [isCreateMenuOpen, setIsCreateMenuOpen] = useState(false);
+  const createMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isCreateMenuOpen) return;
+
+    const handleOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (createMenuRef.current && !createMenuRef.current.contains(target)) {
+        setIsCreateMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsCreateMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isCreateMenuOpen]);
 
   const activeOrgId = activeOrg?.id;
 
@@ -368,9 +409,10 @@ export function InvoicesPayablesPage() {
     const chosenCurrency = invoiceCurrency || orgCurrency;
 
     try {
+      const normalizedCustomerName = toTitleCasePartyName(customerName);
       const commonMetadata = {
         invoiceNumber: invoiceNumber.trim(),
-        customerName: customerName.trim(),
+        customerName: normalizedCustomerName,
         ...(customerEmail.trim() ? { customerEmail: customerEmail.trim() } : { customerEmail: '' }),
         category: invoiceCategory.trim() || 'Sales Revenue',
         department: invoiceDepartment.trim(),
@@ -398,7 +440,7 @@ export function InvoicesPayablesPage() {
       } else {
         const createPayload: Record<string, unknown> = {
           invoiceNumber: invoiceNumber.trim(),
-          customerName: customerName.trim(),
+          customerName: normalizedCustomerName,
           ...(customerEmail.trim() ? { customerEmail: customerEmail.trim() } : {}),
           category: invoiceCategory.trim() || 'Sales Revenue',
           ...(invoiceDepartment.trim() ? { department: invoiceDepartment.trim() } : {}),
@@ -456,10 +498,11 @@ export function InvoicesPayablesPage() {
     const chosenCurrency = billCurrency || orgCurrency;
 
     try {
+      const normalizedSupplierName = toTitleCasePartyName(supplierName);
       if (editingBillId) {
         const patchPayload: Record<string, unknown> = {
           billNumber: billNumber.trim(),
-          supplierName: supplierName.trim(),
+          supplierName: normalizedSupplierName,
           ...(supplierEmail.trim() ? { supplierEmail: supplierEmail.trim() } : {}),
           category: billCategory.trim() || 'Operating Expense',
           department: billDepartment.trim(),
@@ -481,7 +524,7 @@ export function InvoicesPayablesPage() {
       } else {
         const createPayload: Record<string, unknown> = {
           billNumber: billNumber.trim(),
-          supplierName: supplierName.trim(),
+          supplierName: normalizedSupplierName,
           ...(supplierEmail.trim() ? { supplierEmail: supplierEmail.trim() } : {}),
           category: billCategory.trim() || 'Operating Expense',
           ...(billDepartment.trim() ? { department: billDepartment.trim() } : {}),
@@ -520,13 +563,27 @@ export function InvoicesPayablesPage() {
     setError(null);
     try {
       if (type === 'invoice') {
-        await apiPatch(`/v1/organizations/${activeOrgId}/invoices/${id}`, {
+        const updated = await apiPatch<Invoice>(`/v1/organizations/${activeOrgId}/invoices/${id}`, {
           status: InvoiceStatus.ISSUED,
         });
+        setSelectedInvoiceIds((prev) => prev.filter((itemId) => itemId !== id));
+        if (detailTarget?.type === 'invoice' && detailTarget.data.id === id) {
+          setDetailTarget({
+            type: 'invoice',
+            data: updated?.id ? updated : { ...detailTarget.data, status: InvoiceStatus.ISSUED },
+          });
+        }
       } else {
-        await apiPatch(`/v1/organizations/${activeOrgId}/bills/${id}`, {
+        const updated = await apiPatch<Bill>(`/v1/organizations/${activeOrgId}/bills/${id}`, {
           status: BillStatus.OPEN,
         });
+        setSelectedBillIds((prev) => prev.filter((itemId) => itemId !== id));
+        if (detailTarget?.type === 'bill' && detailTarget.data.id === id) {
+          setDetailTarget({
+            type: 'bill',
+            data: updated?.id ? updated : { ...detailTarget.data, status: BillStatus.OPEN },
+          });
+        }
       }
       handleRefresh();
     } catch (err: unknown) {
@@ -535,6 +592,49 @@ export function InvoicesPayablesPage() {
       } else {
         setError('Failed to transition draft document status.');
       }
+    }
+  };
+
+  const handleActivateSelectedDrafts = async () => {
+    if (!activeOrgId) return;
+    const isInvTab = activeTab === 'invoices';
+    const draftIds = isInvTab
+      ? invoices
+          .filter((inv) => selectedInvoiceIds.includes(inv.id) && inv.status === InvoiceStatus.DRAFT)
+          .map((inv) => inv.id)
+      : bills
+          .filter((bill) => selectedBillIds.includes(bill.id) && bill.status === BillStatus.DRAFT)
+          .map((bill) => bill.id);
+    if (draftIds.length === 0) return;
+
+    setIsBulkIssuing(true);
+    setError(null);
+    try {
+      await Promise.all(
+        draftIds.map((id) =>
+          isInvTab
+            ? apiPatch(`/v1/organizations/${activeOrgId}/invoices/${id}`, {
+                status: InvoiceStatus.ISSUED,
+              })
+            : apiPatch(`/v1/organizations/${activeOrgId}/bills/${id}`, {
+                status: BillStatus.OPEN,
+              }),
+        ),
+      );
+      if (isInvTab) {
+        setSelectedInvoiceIds([]);
+      } else {
+        setSelectedBillIds([]);
+      }
+      handleRefresh();
+    } catch (err: unknown) {
+      if (err instanceof ApiClientError) {
+        setError(err.message);
+      } else {
+        setError('Failed to update selected draft documents.');
+      }
+    } finally {
+      setIsBulkIssuing(false);
     }
   };
 
@@ -656,6 +756,8 @@ export function InvoicesPayablesPage() {
 
   const currentAging =
     activeTab === 'invoices' ? agingData?.receivablesAging : agingData?.payablesAging;
+  const currentSummary =
+    activeTab === 'invoices' ? agingData?.receivablesSummary : agingData?.payablesSummary;
 
   const statusFilterOptions =
     activeTab === 'invoices'
@@ -681,6 +783,89 @@ export function InvoicesPayablesPage() {
   const invoicePreview = computeLineItemsPreview(invoiceLineItems, invoiceTaxRate);
   const billPreview = computeLineItemsPreview(billLineItems, billTaxRate);
 
+  const renderRowActions = (params: {
+    type: 'invoice' | 'bill';
+    record: Invoice | Bill;
+    docNumber: string;
+    docCurr: string;
+    isEditable: boolean;
+    isNonPayable: boolean;
+    isVoidable: boolean;
+  }) => {
+    const { type, record, docNumber, docCurr, isEditable, isNonPayable, isVoidable } = params;
+
+    const showEdit = canMutateLedger && isEditable;
+    const showVoid = canMutateLedger && isVoidable;
+
+    return (
+      <div className="inline-flex items-center justify-end gap-1.5">
+        {!isNonPayable && canMutateLedger ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              openPaymentModal(record.id, type, docNumber, record.outstandingBalance, docCurr)
+            }
+            title={type === 'invoice' ? 'Record customer payment' : 'Settle supplier bill'}
+            className="rounded-full px-3 py-1"
+          >
+            {type === 'invoice' ? 'Record Payment' : 'Settle Bill'}
+          </Button>
+        ) : null}
+
+        <button
+          type="button"
+          onClick={() => openDetailModal(type, record)}
+          aria-label="View"
+          title="View"
+          className="inline-flex items-center justify-center w-7 h-7 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-elevated)] transition-colors cursor-pointer shrink-0"
+        >
+          <Eye className="w-4 h-4" />
+        </button>
+
+        {showEdit ? (
+          <button
+            type="button"
+            onClick={() =>
+              type === 'invoice'
+                ? openEditInvoiceModal(record as Invoice)
+                : openEditBillModal(record as Bill)
+            }
+            aria-label="Edit"
+            title="Edit"
+            className="inline-flex items-center justify-center w-7 h-7 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-elevated)] transition-colors cursor-pointer shrink-0"
+          >
+            <Pencil className="w-4 h-4" />
+          </button>
+        ) : (
+          <span className="inline-block w-7 h-7 shrink-0" aria-hidden="true" />
+        )}
+
+        {showVoid ? (
+          <button
+            type="button"
+            onClick={() => {
+              setModalError(null);
+              setVoidReason('');
+              setVoidTarget({
+                id: record.id,
+                type,
+                number: docNumber,
+              });
+            }}
+            aria-label="Void"
+            title="Void"
+            className="inline-flex items-center justify-center w-7 h-7 rounded-md text-red-500 hover:bg-red-500/10 hover:text-red-600 transition-colors cursor-pointer shrink-0"
+          >
+            <Ban className="w-4 h-4" />
+          </button>
+        ) : (
+          <span className="inline-block w-7 h-7 shrink-0" aria-hidden="true" />
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -690,49 +875,99 @@ export function InvoicesPayablesPage() {
             Invoices & Payables Management
           </h1>
           <p className="text-xs text-[var(--text-muted)] mt-1">
-            Deterministic Accounts Receivable (AR) & Accounts Payable (AP) tracking with overdue
-            aging
+            Manage customer invoices, supplier bills, and overdue balances.
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <Button
             variant="outline"
             size="sm"
             onClick={handleRefresh}
-            isLoading={effectiveLoading}
+            disabled={effectiveLoading}
+            aria-label="Refresh"
             title="Refresh records"
+            className="h-8 w-8 px-0 bg-white dark:bg-[var(--surface-card)]"
           >
-            <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
-            Refresh
+            <RefreshCw className={`w-3.5 h-3.5 ${effectiveLoading ? 'animate-spin' : ''}`} />
           </Button>
 
-          {canCreateBills && (
+          {(activeTab === 'invoices' ? canMutateLedger : canCreateBills) && (
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                resetBillForm();
-                setIsBillModalOpen(true);
-              }}
+              onClick={() =>
+                setImportDocTarget(activeTab === 'invoices' ? 'INVOICE' : 'BILL')
+              }
+              title={
+                activeTab === 'invoices'
+                  ? 'Import customer invoice from PDF, JPG, JPEG, or PNG'
+                  : 'Import supplier bill from PDF, JPG, JPEG, or PNG'
+              }
+              className="h-8 px-3 bg-white dark:bg-[var(--surface-card)]"
             >
-              <FilePlus className="w-3.5 h-3.5 mr-1.5" />
-              New Bill (AP)
+              <Upload className="w-3.5 h-3.5" />
+              Import
             </Button>
           )}
 
-          {canMutateLedger && (
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => {
-                resetInvoiceForm();
-                setIsInvoiceModalOpen(true);
-              }}
-            >
-              <Plus className="w-3.5 h-3.5 mr-1.5" />
-              New Invoice (AR)
-            </Button>
+          {(canMutateLedger || canCreateBills) && (
+            <div ref={createMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setIsCreateMenuOpen((prev) => !prev)}
+                aria-expanded={isCreateMenuOpen}
+                aria-haspopup="menu"
+                className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium bg-emerald-800 hover:bg-emerald-700 text-white shadow-xs transition-colors whitespace-nowrap cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--accent-teal)]"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Create New</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 opacity-90 transition-transform ${
+                    isCreateMenuOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              {isCreateMenuOpen && (
+                <div
+                  role="menu"
+                  aria-label="Create new document"
+                  className="absolute right-0 mt-1.5 w-44 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-lg py-1 z-30"
+                >
+                  {canMutateLedger && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setIsCreateMenuOpen(false);
+                        resetInvoiceForm();
+                        setIsInvoiceModalOpen(true);
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--surface-elevated)] transition-colors whitespace-nowrap cursor-pointer text-left"
+                    >
+                      <Plus className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                      <span>New Invoice</span>
+                    </button>
+                  )}
+                  {canCreateBills && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setIsCreateMenuOpen(false);
+                        resetBillForm();
+                        setIsBillModalOpen(true);
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--surface-elevated)] transition-colors whitespace-nowrap cursor-pointer text-left"
+                    >
+                      <FilePlus className="w-3.5 h-3.5 text-[var(--accent-teal)] shrink-0" />
+                      <span>New Bill</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -770,14 +1005,13 @@ export function InvoicesPayablesPage() {
         </div>
       )}
 
-      {/* Aging Schedule Bar */}
+      {/* Aging Summary Card */}
       {currentAging && (
         <div className="p-4 sm:p-5 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
             <div className="flex items-center gap-2">
               <span className="font-bold text-[var(--text-primary)]">
-                {activeTab === 'invoices' ? 'Accounts Receivable' : 'Accounts Payable'} Aging
-                Schedule ({agingCurrency})
+                {activeTab === 'invoices' ? 'Receivables Aging Summary' : 'Payables Aging Summary'}
               </span>
               {currentAging.isComplete === false && (
                 <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30">
@@ -786,11 +1020,27 @@ export function InvoicesPayablesPage() {
                 </span>
               )}
             </div>
-            <span className="font-mono font-bold text-sm text-[var(--accent-teal)]">
-              {currentAging.isComplete === false
-                ? `Partial Total: ${formatCurrency(currentAging.totalOutstanding, agingCurrency)}`
-                : `Total Outstanding: ${formatCurrency(currentAging.totalOutstanding, agingCurrency)}`}
-            </span>
+            <div className="flex flex-wrap items-baseline justify-end gap-x-2 gap-y-0.5">
+              <span className="tabular-nums font-bold text-sm text-[var(--accent-teal)]">
+                {currentAging.isComplete === false
+                  ? `Partial Total: ${formatCurrency(currentAging.totalOutstanding, agingCurrency)}`
+                  : `Total Outstanding: ${formatCurrency(currentAging.totalOutstanding, agingCurrency)}`}
+              </span>
+              {(currentSummary?.draft?.count ?? 0) > 0 && currentSummary && (
+                <span className="tabular-nums text-[11px] font-normal text-[var(--text-muted)]">
+                  (Excludes{' '}
+                  {formatCurrency(
+                    currentSummary.draft.totalAmount,
+                    agingCurrency,
+                    Math.abs((Number.parseFloat(currentSummary.draft.totalAmount) || 0) % 1) >
+                      0.0001
+                      ? 2
+                      : 0,
+                  )}{' '}
+                  in drafts)
+                </span>
+              )}
+            </div>
           </div>
 
           {currentAging.isComplete === false && currentAging.missingCurrencies.length > 0 && (
@@ -804,7 +1054,7 @@ export function InvoicesPayablesPage() {
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center text-xs">
             <div className="p-2.5 rounded-xl bg-[var(--surface-canvas)] border border-[var(--border-subtle)]">
               <span className="text-[10px] text-[var(--text-muted)] uppercase block">Current</span>
-              <span className="font-mono font-bold text-sm mt-0.5 block truncate">
+              <span className="tabular-nums font-bold text-sm mt-0.5 block truncate">
                 {formatCurrency(getAgingBucketAmount(currentAging, 'CURRENT'), agingCurrency, 0)}
               </span>
             </div>
@@ -812,7 +1062,7 @@ export function InvoicesPayablesPage() {
               <span className="text-[10px] text-[var(--text-muted)] uppercase block">
                 1-30 Days
               </span>
-              <span className="font-mono font-bold text-sm mt-0.5 block truncate">
+              <span className="tabular-nums font-bold text-sm mt-0.5 block truncate">
                 {formatCurrency(
                   getAgingBucketAmount(currentAging, '1_TO_30_DAYS'),
                   agingCurrency,
@@ -824,7 +1074,7 @@ export function InvoicesPayablesPage() {
               <span className="text-[10px] text-[var(--text-muted)] uppercase block">
                 31-60 Days
               </span>
-              <span className="font-mono font-bold text-sm mt-0.5 block truncate">
+              <span className="tabular-nums font-bold text-sm mt-0.5 block truncate">
                 {formatCurrency(
                   getAgingBucketAmount(currentAging, '31_TO_60_DAYS'),
                   agingCurrency,
@@ -834,7 +1084,7 @@ export function InvoicesPayablesPage() {
             </div>
             <div className="p-2.5 rounded-xl bg-[var(--surface-canvas)] border border-amber-500/20 text-amber-700 dark:text-amber-400">
               <span className="text-[10px] uppercase block opacity-80">61-90 Days</span>
-              <span className="font-mono font-bold text-sm mt-0.5 block truncate">
+              <span className="tabular-nums font-bold text-sm mt-0.5 block truncate">
                 {formatCurrency(
                   getAgingBucketAmount(currentAging, '61_TO_90_DAYS'),
                   agingCurrency,
@@ -844,7 +1094,7 @@ export function InvoicesPayablesPage() {
             </div>
             <div className="p-2.5 rounded-xl bg-[var(--surface-canvas)] border border-red-500/20 text-red-600 dark:text-red-400">
               <span className="text-[10px] uppercase block opacity-80">90+ Days</span>
-              <span className="font-mono font-bold text-sm mt-0.5 block truncate">
+              <span className="tabular-nums font-bold text-sm mt-0.5 block truncate">
                 {formatCurrency(
                   getAgingBucketAmount(currentAging, 'OVER_90_DAYS'),
                   agingCurrency,
@@ -917,6 +1167,57 @@ export function InvoicesPayablesPage() {
         </div>
       </div>
 
+      {/* Top Selection Action Bar */}
+      {canMutateLedger &&
+        ((activeTab === 'invoices' && selectedInvoiceIds.length > 0) ||
+          (activeTab === 'bills' && selectedBillIds.length > 0)) && (() => {
+          const isInvTab = activeTab === 'invoices';
+          const selectedCount = isInvTab ? selectedInvoiceIds.length : selectedBillIds.length;
+          const draftSelectedCount = isInvTab
+            ? invoices.filter(
+                (inv) =>
+                  selectedInvoiceIds.includes(inv.id) && inv.status === InvoiceStatus.DRAFT,
+              ).length
+            : bills.filter(
+                (bill) => selectedBillIds.includes(bill.id) && bill.status === BillStatus.DRAFT,
+              ).length;
+
+          return (
+            <div
+              role="region"
+              aria-label="Selection actions"
+              className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)]/70 text-xs"
+            >
+              <span className="font-semibold text-[var(--text-primary)]">
+                {selectedCount} {selectedCount === 1 ? 'record' : 'records'} selected
+              </span>
+              <div className="flex items-center gap-2">
+                {draftSelectedCount > 0 && (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleActivateSelectedDrafts}
+                    isLoading={isBulkIssuing}
+                    className="bg-emerald-800 hover:bg-emerald-700 text-white"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    {isInvTab ? 'Issue Invoice' : 'Open Bill'}
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    isInvTab ? setSelectedInvoiceIds([]) : setSelectedBillIds([])
+                  }
+                >
+                  Clear
+                </Button>
+              </div>
+            </div>
+          );
+        })()}
+
       {/* Invoices Table View */}
       {activeTab === 'invoices' && (
         <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs overflow-hidden">
@@ -924,6 +1225,22 @@ export function InvoicesPayablesPage() {
             <table className="w-full text-xs text-left">
               <thead className="bg-[var(--surface-elevated)]/60 text-[var(--text-muted)] uppercase text-[10px] tracking-wider border-b border-[var(--border-subtle)]">
                 <tr>
+                  <th className="py-3 pl-4 pr-2 w-8">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all customer invoices"
+                      checked={
+                        invoices.length > 0 &&
+                        invoices.every((inv) => selectedInvoiceIds.includes(inv.id))
+                      }
+                      onChange={(e) =>
+                        setSelectedInvoiceIds(
+                          e.target.checked ? invoices.map((inv) => inv.id) : [],
+                        )
+                      }
+                      className="h-3.5 w-3.5 rounded border-[var(--border-strong)] accent-emerald-700 cursor-pointer"
+                    />
+                  </th>
                   <th className="py-3 px-4 font-semibold">Invoice #</th>
                   <th className="py-3 px-4 font-semibold">Customer</th>
                   <th className="py-3 px-4 font-semibold">Issue Date</th>
@@ -938,7 +1255,7 @@ export function InvoicesPayablesPage() {
                 {effectiveLoading && invoices.length === 0 ? (
                   Array.from({ length: 4 }).map((_, i) => (
                     <tr key={i}>
-                      <td colSpan={8} className="py-3 px-4">
+                      <td colSpan={9} className="py-3 px-4">
                         <Skeleton className="h-4 w-full" />
                       </td>
                     </tr>
@@ -960,6 +1277,21 @@ export function InvoicesPayablesPage() {
                         key={inv.id}
                         className="hover:bg-[var(--surface-elevated)]/40 transition-colors"
                       >
+                        <td className="py-3 pl-4 pr-2 w-8">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${inv.invoiceNumber}`}
+                            checked={selectedInvoiceIds.includes(inv.id)}
+                            onChange={(e) =>
+                              setSelectedInvoiceIds((prev) =>
+                                e.target.checked
+                                  ? [...prev, inv.id]
+                                  : prev.filter((id) => id !== inv.id),
+                              )
+                            }
+                            className="h-3.5 w-3.5 rounded border-[var(--border-strong)] accent-emerald-700 cursor-pointer"
+                          />
+                        </td>
                         <td className="py-3 px-4 font-mono font-semibold text-[var(--text-primary)] whitespace-nowrap">
                           <button
                             type="button"
@@ -1006,86 +1338,22 @@ export function InvoicesPayablesPage() {
                           {formatCurrency(inv.outstandingBalance, docCurr)}
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <div className="inline-flex items-center gap-1.5">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openDetailModal('invoice', inv)}
-                              title="View details & payment history"
-                            >
-                              <Eye className="w-3.5 h-3.5 mr-1" />
-                              View
-                            </Button>
-
-                            {canMutateLedger && isDraft && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleActivateDraft('invoice', inv.id)}
-                                title="Issue draft invoice"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600" />
-                                Issue
-                              </Button>
-                            )}
-
-                            {canMutateLedger && isEditable && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => openEditInvoiceModal(inv)}
-                                title="Edit invoice"
-                              >
-                                <Pencil className="w-3.5 h-3.5 mr-1" />
-                                Edit
-                              </Button>
-                            )}
-
-                            {!isNonPayable && canMutateLedger && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() =>
-                                  openPaymentModal(
-                                    inv.id,
-                                    'invoice',
-                                    inv.invoiceNumber,
-                                    inv.outstandingBalance,
-                                    docCurr,
-                                  )
-                                }
-                              >
-                                Record Payment
-                              </Button>
-                            )}
-
-                            {canMutateLedger && isVoidable && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setModalError(null);
-                                  setVoidReason('');
-                                  setVoidTarget({
-                                    id: inv.id,
-                                    type: 'invoice',
-                                    number: inv.invoiceNumber,
-                                  });
-                                }}
-                                title="Void unpaid invoice"
-                              >
-                                <Ban className="w-3.5 h-3.5 text-red-500 mr-1" />
-                                Void
-                              </Button>
-                            )}
-                          </div>
+                          {renderRowActions({
+                            type: 'invoice',
+                            record: inv,
+                            docNumber: inv.invoiceNumber,
+                            docCurr,
+                            isEditable,
+                            isNonPayable,
+                            isVoidable,
+                          })}
                         </td>
                       </tr>
                     );
                   })
                 ) : (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-xs text-[var(--text-muted)]">
+                    <td colSpan={9} className="py-12 text-center text-xs text-[var(--text-muted)]">
                       No customer invoices recorded yet.
                     </td>
                   </tr>
@@ -1103,6 +1371,19 @@ export function InvoicesPayablesPage() {
             <table className="w-full text-xs text-left">
               <thead className="bg-[var(--surface-elevated)]/60 text-[var(--text-muted)] uppercase text-[10px] tracking-wider border-b border-[var(--border-subtle)]">
                 <tr>
+                  <th className="py-3 pl-4 pr-2 w-8">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all supplier bills"
+                      checked={
+                        bills.length > 0 && bills.every((b) => selectedBillIds.includes(b.id))
+                      }
+                      onChange={(e) =>
+                        setSelectedBillIds(e.target.checked ? bills.map((b) => b.id) : [])
+                      }
+                      className="h-3.5 w-3.5 rounded border-[var(--border-strong)] accent-emerald-700 cursor-pointer"
+                    />
+                  </th>
                   <th className="py-3 px-4 font-semibold">Bill #</th>
                   <th className="py-3 px-4 font-semibold">Supplier</th>
                   <th className="py-3 px-4 font-semibold">Issue Date</th>
@@ -1117,7 +1398,7 @@ export function InvoicesPayablesPage() {
                 {effectiveLoading && bills.length === 0 ? (
                   Array.from({ length: 4 }).map((_, i) => (
                     <tr key={i}>
-                      <td colSpan={8} className="py-3 px-4">
+                      <td colSpan={9} className="py-3 px-4">
                         <Skeleton className="h-4 w-full" />
                       </td>
                     </tr>
@@ -1139,6 +1420,21 @@ export function InvoicesPayablesPage() {
                         key={bill.id}
                         className="hover:bg-[var(--surface-elevated)]/40 transition-colors"
                       >
+                        <td className="py-3 pl-4 pr-2 w-8">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${bill.billNumber}`}
+                            checked={selectedBillIds.includes(bill.id)}
+                            onChange={(e) =>
+                              setSelectedBillIds((prev) =>
+                                e.target.checked
+                                  ? [...prev, bill.id]
+                                  : prev.filter((id) => id !== bill.id),
+                              )
+                            }
+                            className="h-3.5 w-3.5 rounded border-[var(--border-strong)] accent-emerald-700 cursor-pointer"
+                          />
+                        </td>
                         <td className="py-3 px-4 font-mono font-semibold text-[var(--text-primary)] whitespace-nowrap">
                           <button
                             type="button"
@@ -1185,86 +1481,22 @@ export function InvoicesPayablesPage() {
                           {formatCurrency(bill.outstandingBalance, docCurr)}
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <div className="inline-flex items-center gap-1.5">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openDetailModal('bill', bill)}
-                              title="View details & payment history"
-                            >
-                              <Eye className="w-3.5 h-3.5 mr-1" />
-                              View
-                            </Button>
-
-                            {canMutateLedger && isDraft && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleActivateDraft('bill', bill.id)}
-                                title="Open draft bill"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600" />
-                                Open
-                              </Button>
-                            )}
-
-                            {canMutateLedger && isEditable && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => openEditBillModal(bill)}
-                                title="Edit bill"
-                              >
-                                <Pencil className="w-3.5 h-3.5 mr-1" />
-                                Edit
-                              </Button>
-                            )}
-
-                            {!isNonPayable && canMutateLedger && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() =>
-                                  openPaymentModal(
-                                    bill.id,
-                                    'bill',
-                                    bill.billNumber,
-                                    bill.outstandingBalance,
-                                    docCurr,
-                                  )
-                                }
-                              >
-                                Settle Bill
-                              </Button>
-                            )}
-
-                            {canMutateLedger && isVoidable && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setModalError(null);
-                                  setVoidReason('');
-                                  setVoidTarget({
-                                    id: bill.id,
-                                    type: 'bill',
-                                    number: bill.billNumber,
-                                  });
-                                }}
-                                title="Void unpaid bill"
-                              >
-                                <Ban className="w-3.5 h-3.5 text-red-500 mr-1" />
-                                Void
-                              </Button>
-                            )}
-                          </div>
+                          {renderRowActions({
+                            type: 'bill',
+                            record: bill,
+                            docNumber: bill.billNumber,
+                            docCurr,
+                            isEditable,
+                            isNonPayable,
+                            isVoidable,
+                          })}
                         </td>
                       </tr>
                     );
                   })
                 ) : (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-xs text-[var(--text-muted)]">
+                    <td colSpan={9} className="py-12 text-center text-xs text-[var(--text-muted)]">
                       No supplier bills recorded yet.
                     </td>
                   </tr>
@@ -2018,6 +2250,19 @@ export function InvoicesPayablesPage() {
               ? `Invoice Details — ${detailTarget.data.invoiceNumber}`
               : `Bill Details — ${detailTarget.data.billNumber}`
           }
+          headerAction={
+            canMutateLedger && detailTarget.data.status === 'DRAFT' ? (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => handleActivateDraft(detailTarget.type, detailTarget.data.id)}
+                className="bg-emerald-800 hover:bg-emerald-700 text-white"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                {detailTarget.type === 'invoice' ? 'Issue Invoice' : 'Open Bill'}
+              </Button>
+            ) : undefined
+          }
           size="lg"
         >
           {(() => {
@@ -2234,6 +2479,18 @@ export function InvoicesPayablesPage() {
             </div>
           </form>
         </Modal>
+      )}
+
+      {/* Document Import Modal (PDF, JPG, JPEG, PNG) */}
+      {importDocTarget && activeOrg?.id && (
+        <DocumentImportModal
+          isOpen={true}
+          onClose={() => setImportDocTarget(null)}
+          documentType={importDocTarget}
+          orgId={activeOrg.id}
+          orgCurrency={orgCurrency}
+          onSuccess={handleRefresh}
+        />
       )}
     </div>
   );

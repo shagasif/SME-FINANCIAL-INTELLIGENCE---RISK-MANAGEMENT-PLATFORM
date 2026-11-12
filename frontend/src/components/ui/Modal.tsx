@@ -5,6 +5,7 @@ export interface ModalProps {
   onClose: () => void;
   title: string;
   description?: string;
+  headerAction?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl';
@@ -22,6 +23,7 @@ export function Modal({
   onClose,
   title,
   description,
+  headerAction,
   children,
   footer,
   size = 'md',
@@ -54,11 +56,11 @@ export function Modal({
       <div
         className={`relative w-full ${SIZE_CLASSES[size]} rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] text-[var(--text-primary)] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden z-10 transition-all`}
       >
-        <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-6 py-4.5 bg-[var(--surface-elevated)]/40">
-          <div>
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-6 py-4.5 bg-[var(--surface-elevated)]/40">
+          <div className="min-w-0">
             <h2
               id="modal-title"
-              className="text-lg font-bold tracking-tight text-[var(--text-primary)]"
+              className="text-lg font-bold tracking-tight text-[var(--text-primary)] truncate"
             >
               {title}
             </h2>
@@ -66,8 +68,10 @@ export function Modal({
               <p className="mt-0.5 text-xs text-[var(--text-muted)]">{description}</p>
             )}
           </div>
-          <button
-            onClick={onClose}
+          <div className="flex items-center gap-2 shrink-0">
+            {headerAction}
+            <button
+              onClick={onClose}
             className="rounded-lg p-1.5 text-[var(--text-muted)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
             aria-label="Close dialog"
           >
@@ -80,6 +84,7 @@ export function Modal({
               />
             </svg>
           </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 text-sm">{children}</div>
