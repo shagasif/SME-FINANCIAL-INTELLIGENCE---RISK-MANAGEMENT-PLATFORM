@@ -102,7 +102,7 @@ export class SecurityUtil {
     }
   }
 
-  static sha256(content: string): string {
+  static sha256(content: string | Buffer): string {
     return createHash('sha256').update(content).digest('hex');
   }
 
@@ -178,5 +178,33 @@ export class SecurityUtil {
     }
 
     return { sanitized: cleaned, flaggedPatterns };
+  }
+
+  /**
+   * Sanitizes and converts counterparty (customer/supplier) names to clean Title Case
+   * (e.g., "sara" -> "Sara", "al-madina traders" -> "Al-Madina Traders") while preserving
+   * neutralized formula prefixes and mixed-case acronyms/brands.
+   */
+  static toTitleCasePartyName(input: string): string {
+    const { sanitized } = SecurityUtil.sanitizeImportedText(input);
+    const collapsed = sanitized.trim().replace(/\s+/g, ' ');
+    if (!collapsed || /^['=+\-@]/.test(collapsed)) {
+      return collapsed;
+    }
+    return collapsed
+      .split(' ')
+      .map((word) =>
+        word
+          .split('-')
+          .map((part) => {
+            if (!part) return part;
+            if (part === part.toLowerCase() || part === part.toUpperCase()) {
+              return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+            }
+            return part.charAt(0).toUpperCase() + part.slice(1);
+          })
+          .join('-'),
+      )
+      .join(' ');
   }
 }

@@ -34,6 +34,22 @@ export interface AgingBucketSummary {
   recordIds: string[];
 }
 
+export interface DocumentStatusBreakdown {
+  draft: { count: number; totalAmount: string; recordIds: string[] };
+  unpaid: { count: number; totalAmount: string; outstandingAmount: string; recordIds: string[] };
+  partiallyPaid: {
+    count: number;
+    totalAmount: string;
+    paidAmount: string;
+    outstandingAmount: string;
+    recordIds: string[];
+  };
+  paid: { count: number; totalAmount: string; paidAmount: string; recordIds: string[] };
+  activeOutstandingTotal: string;
+  isComplete: boolean;
+  missingCurrencies: string[];
+}
+
 interface ComputedLineItem {
   lineOrder: number;
   description: string;
@@ -258,6 +274,111 @@ export class InvoicesPayablesService {
     };
   }
 
+  private async verifyDocumentImportSaveDuplicates(params: {
+    organizationId: string;
+    kind: 'INVOICE' | 'BILL';
+    counterpartyName: string;
+    issueDate: Date;
+    totalAmount: Prisma.Decimal;
+    sourceDocumentChecksum?: string;
+  }): Promise<void> {
+    const cleanChecksum = params.sourceDocumentChecksum?.trim();
+    if (!cleanChecksum) {
+      return;
+    }
+
+    const createdAction =
+      params.kind === 'INVOICE' ? 'INVOICE_CREATED' : 'SUPPLIER_BILL_CREATED';
+
+    if (this.prisma.auditEvent?.findMany) {
+      const createdEvents = await this.prisma.auditEvent.findMany({
+        where: {
+          organizationId: params.organizationId,
+          action: createdAction,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 250,
+      });
+
+      const matchingResourceIds = createdEvents
+        .filter((evt) => {
+          const details = (evt.details ?? {}) as Record<string, unknown>;
+          return details.sourceDocumentChecksum === cleanChecksum && Boolean(evt.resourceId);
+        })
+        .map((evt) => evt.resourceId as string);
+
+      if (matchingResourceIds.length > 0) {
+        if (params.kind === 'INVOICE') {
+          const existingSaved = await this.prisma.invoice.findFirst({
+            where: {
+              organizationId: params.organizationId,
+              id: { in: matchingResourceIds },
+              isArchived: false,
+              status: { not: InvoiceStatus.VOID },
+            },
+          });
+          if (existingSaved) {
+            throw new ConflictException(
+              `Duplicate document: this file was already saved as customer invoice "${existingSaved.invoiceNumber}".`,
+            );
+          }
+        } else {
+          const existingSaved = await this.prisma.bill.findFirst({
+            where: {
+              organizationId: params.organizationId,
+              id: { in: matchingResourceIds },
+              isArchived: false,
+              status: { not: BillStatus.VOID },
+            },
+          });
+          if (existingSaved) {
+            throw new ConflictException(
+              `Duplicate document: this file was already saved as supplier bill "${existingSaved.billNumber}".`,
+            );
+          }
+        }
+      }
+    }
+
+    const dayStart = this.startOfUtcDay(params.issueDate);
+    const dayEnd = this.endOfUtcDay(params.issueDate);
+    const cleanParty = SecurityUtil.sanitizeImportedText(params.counterpartyName).sanitized;
+
+    if (params.kind === 'INVOICE') {
+      const similar = await this.prisma.invoice.findFirst({
+        where: {
+          organizationId: params.organizationId,
+          isArchived: false,
+          status: { not: InvoiceStatus.VOID },
+          customerName: { equals: cleanParty, mode: 'insensitive' },
+          totalAmount: params.totalAmount,
+          issueDate: { gte: dayStart, lte: dayEnd },
+        },
+      });
+      if (similar) {
+        throw new ConflictException(
+          `Duplicate customer invoice detected: active invoice "${similar.invoiceNumber}" already exists for ${similar.customerName} on ${similar.issueDate.toISOString().slice(0, 10)} totaling ${DecimalMath.toFixed4(similar.totalAmount)}.`,
+        );
+      }
+    } else {
+      const similar = await this.prisma.bill.findFirst({
+        where: {
+          organizationId: params.organizationId,
+          isArchived: false,
+          status: { not: BillStatus.VOID },
+          supplierName: { equals: cleanParty, mode: 'insensitive' },
+          totalAmount: params.totalAmount,
+          issueDate: { gte: dayStart, lte: dayEnd },
+        },
+      });
+      if (similar) {
+        throw new ConflictException(
+          `Duplicate supplier bill detected: active bill "${similar.billNumber}" already exists for ${similar.supplierName} on ${similar.issueDate.toISOString().slice(0, 10)} totaling ${DecimalMath.toFixed4(similar.totalAmount)}.`,
+        );
+      }
+    }
+  }
+
   async createInvoice(organizationId: string, dto: CreateInvoiceDto, actorUserId: string) {
     const issueDate = new Date(dto.issueDate);
     const dueDate = new Date(dto.dueDate);
@@ -281,6 +402,15 @@ export class InvoicesPayablesService {
       throw new ConflictException(`Invoice number ${dto.invoiceNumber} already exists`);
     }
 
+    await this.verifyDocumentImportSaveDuplicates({
+      organizationId,
+      kind: 'INVOICE',
+      counterpartyName: dto.customerName,
+      issueDate,
+      totalAmount: totals.totalAmount,
+      sourceDocumentChecksum: dto.sourceDocumentChecksum,
+    });
+
     const currency = await this.resolveDocumentCurrency(organizationId, dto.currency);
     const requestedStatus = dto.status ?? InvoiceStatus.ISSUED;
     const status =
@@ -294,7 +424,7 @@ export class InvoicesPayablesService {
       data: {
         organizationId,
         invoiceNumber: dto.invoiceNumber.trim(),
-        customerName: SecurityUtil.sanitizeImportedText(dto.customerName).sanitized,
+        customerName: SecurityUtil.toTitleCasePartyName(dto.customerName),
         customerEmail: dto.customerEmail?.trim() ?? null,
         category: dto.category?.trim() || 'Sales Revenue',
         department: dto.department?.trim() || null,
@@ -336,6 +466,9 @@ export class InvoicesPayablesService {
         totalAmount: DecimalMath.toFixed4(invoice.totalAmount),
         lineItemCount: totals.lineItems.length,
         dueDate: invoice.dueDate.toISOString(),
+        ...(dto.sourceDocumentChecksum?.trim()
+          ? { sourceDocumentChecksum: dto.sourceDocumentChecksum.trim() }
+          : {}),
       },
     });
 
@@ -487,7 +620,7 @@ export class InvoicesPayablesService {
         data: {
           ...(dto.invoiceNumber ? { invoiceNumber: dto.invoiceNumber.trim() } : {}),
           ...(dto.customerName
-            ? { customerName: SecurityUtil.sanitizeImportedText(dto.customerName).sanitized }
+            ? { customerName: SecurityUtil.toTitleCasePartyName(dto.customerName) }
             : {}),
           ...(dto.customerEmail !== undefined
             ? { customerEmail: dto.customerEmail.trim() || null }
@@ -774,6 +907,15 @@ export class InvoicesPayablesService {
       throw new ConflictException(`Bill number ${dto.billNumber} already exists`);
     }
 
+    await this.verifyDocumentImportSaveDuplicates({
+      organizationId,
+      kind: 'BILL',
+      counterpartyName: dto.supplierName,
+      issueDate,
+      totalAmount: totals.totalAmount,
+      sourceDocumentChecksum: dto.sourceDocumentChecksum,
+    });
+
     const currency = await this.resolveDocumentCurrency(organizationId, dto.currency);
     const requestedStatus = dto.status ?? BillStatus.OPEN;
     const status =
@@ -787,7 +929,7 @@ export class InvoicesPayablesService {
       data: {
         organizationId,
         billNumber: dto.billNumber.trim(),
-        supplierName: SecurityUtil.sanitizeImportedText(dto.supplierName).sanitized,
+        supplierName: SecurityUtil.toTitleCasePartyName(dto.supplierName),
         supplierEmail: dto.supplierEmail?.trim() ?? null,
         category: dto.category?.trim() || 'Operating Expense',
         department: dto.department?.trim() || null,
@@ -829,6 +971,9 @@ export class InvoicesPayablesService {
         totalAmount: DecimalMath.toFixed4(bill.totalAmount),
         lineItemCount: totals.lineItems.length,
         dueDate: bill.dueDate.toISOString(),
+        ...(dto.sourceDocumentChecksum?.trim()
+          ? { sourceDocumentChecksum: dto.sourceDocumentChecksum.trim() }
+          : {}),
       },
     });
 
@@ -980,7 +1125,7 @@ export class InvoicesPayablesService {
         data: {
           ...(dto.billNumber ? { billNumber: dto.billNumber.trim() } : {}),
           ...(dto.supplierName
-            ? { supplierName: SecurityUtil.sanitizeImportedText(dto.supplierName).sanitized }
+            ? { supplierName: SecurityUtil.toTitleCasePartyName(dto.supplierName) }
             : {}),
           ...(dto.supplierEmail !== undefined
             ? { supplierEmail: dto.supplierEmail.trim() || null }
@@ -1275,21 +1420,19 @@ export class InvoicesPayablesService {
   async computeAgingReport(organizationId: string, asOfDate = new Date()) {
     await this.refreshOverdueStatuses(organizationId, asOfDate);
 
-    const [openInvoices, openBills, org] = await Promise.all([
+    const [allActiveInvoices, allActiveBills, org] = await Promise.all([
       this.prisma.invoice.findMany({
         where: {
           organizationId,
           isArchived: false,
-          outstandingBalance: { gt: 0 },
-          status: { notIn: [InvoiceStatus.VOID, InvoiceStatus.DRAFT] },
+          status: { not: InvoiceStatus.VOID },
         },
       }),
       this.prisma.bill.findMany({
         where: {
           organizationId,
           isArchived: false,
-          outstandingBalance: { gt: 0 },
-          status: { notIn: [BillStatus.VOID, BillStatus.DRAFT] },
+          status: { not: BillStatus.VOID },
         },
       }),
       this.prisma.organization.findUnique({ where: { id: organizationId } }),
@@ -1300,14 +1443,46 @@ export class InvoicesPayablesService {
       ? await this.currencyService.loadRatesForOrganization(organizationId)
       : [];
 
-    const buildBuckets = (
-      records: Array<{
-        id: string;
-        dueDate: Date;
-        currency: string;
-        outstandingBalance: Prisma.Decimal;
-      }>,
-    ) => {
+    const convertToBaseCurrency = (
+      amount: Prisma.Decimal,
+      rawCurrency: string,
+      missingCurrencies: Set<string>,
+    ): Prisma.Decimal | null => {
+      const fromCurr = (rawCurrency || targetCurrency).trim().toUpperCase();
+      if (fromCurr === targetCurrency) {
+        return amount;
+      }
+      if (this.currencyService) {
+        const conv = this.currencyService.convertAmountSync({
+          rates: preloadedRates,
+          organizationId,
+          amount,
+          fromCurrency: fromCurr,
+          toCurrency: targetCurrency,
+          asOfDate,
+        });
+        if (conv.isConverted && conv.convertedAmount !== null) {
+          return conv.convertedAmount;
+        }
+      }
+      missingCurrencies.add(fromCurr);
+      return null;
+    };
+
+    type SummaryDocInput = {
+      id: string;
+      status?: string;
+      dueDate: Date;
+      currency: string;
+      totalAmount?: Prisma.Decimal;
+      paidAmount?: Prisma.Decimal;
+      outstandingBalance: Prisma.Decimal;
+    };
+
+    const isOpenReceivableOrPayable = (r: SummaryDocInput) =>
+      r.status !== 'DRAFT' && r.status !== 'VOID' && r.outstandingBalance.gt(DecimalMath.ZERO);
+
+    const buildBuckets = (records: SummaryDocInput[]) => {
       const map: Record<
         AgingBucketSummary['bucket'],
         { count: number; amount: Prisma.Decimal; recordIds: string[] }
@@ -1337,27 +1512,11 @@ export class InvoicesPayablesService {
                   ? '61_TO_90_DAYS'
                   : 'OVER_90_DAYS';
 
-        let convertedAmount: Prisma.Decimal | null = null;
-        const rCurrency = (r.currency || targetCurrency).trim().toUpperCase();
-        if (rCurrency === targetCurrency) {
-          convertedAmount = r.outstandingBalance;
-        } else if (this.currencyService) {
-          const conv = this.currencyService.convertAmountSync({
-            rates: preloadedRates,
-            organizationId,
-            amount: r.outstandingBalance,
-            fromCurrency: rCurrency,
-            toCurrency: targetCurrency,
-            asOfDate,
-          });
-          if (conv.isConverted && conv.convertedAmount !== null) {
-            convertedAmount = conv.convertedAmount;
-          } else {
-            missingCurrencies.add(rCurrency);
-          }
-        } else {
-          missingCurrencies.add(rCurrency);
-        }
+        const convertedAmount = convertToBaseCurrency(
+          r.outstandingBalance,
+          r.currency,
+          missingCurrencies,
+        );
 
         map[key].count += 1;
         map[key].recordIds.push(r.id);
@@ -1387,11 +1546,122 @@ export class InvoicesPayablesService {
       };
     };
 
+    const buildStatusSummary = (records: SummaryDocInput[]): DocumentStatusBreakdown => {
+      const missingCurrencies = new Set<string>();
+      const draft = { count: 0, total: DecimalMath.ZERO, recordIds: [] as string[] };
+      const unpaid = {
+        count: 0,
+        total: DecimalMath.ZERO,
+        outstanding: DecimalMath.ZERO,
+        recordIds: [] as string[],
+      };
+      const partiallyPaid = {
+        count: 0,
+        total: DecimalMath.ZERO,
+        paid: DecimalMath.ZERO,
+        outstanding: DecimalMath.ZERO,
+        recordIds: [] as string[],
+      };
+      const paid = {
+        count: 0,
+        total: DecimalMath.ZERO,
+        paid: DecimalMath.ZERO,
+        recordIds: [] as string[],
+      };
+
+      for (const r of records) {
+        if (r.status === 'VOID') continue;
+        const totalNative = r.totalAmount ?? r.outstandingBalance;
+        const paidNative = r.paidAmount ?? DecimalMath.ZERO;
+        const outNative = r.outstandingBalance;
+
+        if (r.status === 'DRAFT') {
+          draft.count += 1;
+          draft.recordIds.push(r.id);
+          const convTotal = convertToBaseCurrency(totalNative, r.currency, missingCurrencies);
+          if (convTotal !== null) {
+            draft.total = DecimalMath.add(draft.total, convTotal);
+          }
+          continue;
+        }
+
+        const convTotal = convertToBaseCurrency(totalNative, r.currency, missingCurrencies);
+        const convPaid = convertToBaseCurrency(paidNative, r.currency, missingCurrencies);
+        const convOut = convertToBaseCurrency(outNative, r.currency, missingCurrencies);
+
+        if (r.status === 'PAID' || outNative.lte(DecimalMath.ZERO)) {
+          paid.count += 1;
+          paid.recordIds.push(r.id);
+          if (convTotal !== null) paid.total = DecimalMath.add(paid.total, convTotal);
+          if (convPaid !== null) paid.paid = DecimalMath.add(paid.paid, convPaid);
+          continue;
+        }
+
+        if (r.status === 'PARTIALLY_PAID' || paidNative.gt(DecimalMath.ZERO)) {
+          partiallyPaid.count += 1;
+          partiallyPaid.recordIds.push(r.id);
+          if (convTotal !== null) {
+            partiallyPaid.total = DecimalMath.add(partiallyPaid.total, convTotal);
+          }
+          if (convPaid !== null) {
+            partiallyPaid.paid = DecimalMath.add(partiallyPaid.paid, convPaid);
+          }
+          if (convOut !== null) {
+            partiallyPaid.outstanding = DecimalMath.add(partiallyPaid.outstanding, convOut);
+          }
+          continue;
+        }
+
+        unpaid.count += 1;
+        unpaid.recordIds.push(r.id);
+        if (convTotal !== null) unpaid.total = DecimalMath.add(unpaid.total, convTotal);
+        if (convOut !== null) unpaid.outstanding = DecimalMath.add(unpaid.outstanding, convOut);
+      }
+
+      const activeOutstandingTotal = DecimalMath.add(unpaid.outstanding, partiallyPaid.outstanding);
+      const missingList = Array.from(missingCurrencies).sort();
+
+      return {
+        draft: {
+          count: draft.count,
+          totalAmount: DecimalMath.toFixed4(draft.total),
+          recordIds: draft.recordIds,
+        },
+        unpaid: {
+          count: unpaid.count,
+          totalAmount: DecimalMath.toFixed4(unpaid.total),
+          outstandingAmount: DecimalMath.toFixed4(unpaid.outstanding),
+          recordIds: unpaid.recordIds,
+        },
+        partiallyPaid: {
+          count: partiallyPaid.count,
+          totalAmount: DecimalMath.toFixed4(partiallyPaid.total),
+          paidAmount: DecimalMath.toFixed4(partiallyPaid.paid),
+          outstandingAmount: DecimalMath.toFixed4(partiallyPaid.outstanding),
+          recordIds: partiallyPaid.recordIds,
+        },
+        paid: {
+          count: paid.count,
+          totalAmount: DecimalMath.toFixed4(paid.total),
+          paidAmount: DecimalMath.toFixed4(paid.paid),
+          recordIds: paid.recordIds,
+        },
+        activeOutstandingTotal: DecimalMath.toFixed4(activeOutstandingTotal),
+        isComplete: missingList.length === 0,
+        missingCurrencies: missingList,
+      };
+    };
+
+    const openInvoices = allActiveInvoices.filter(isOpenReceivableOrPayable);
+    const openBills = allActiveBills.filter(isOpenReceivableOrPayable);
+
     return {
       asOfDate: asOfDate.toISOString(),
       currency: targetCurrency,
       receivablesAging: buildBuckets(openInvoices),
       payablesAging: buildBuckets(openBills),
+      receivablesSummary: buildStatusSummary(allActiveInvoices),
+      payablesSummary: buildStatusSummary(allActiveBills),
     };
   }
 

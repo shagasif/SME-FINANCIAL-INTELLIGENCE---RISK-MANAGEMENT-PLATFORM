@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import {
@@ -33,6 +33,7 @@ describe('InvoicesPayablesService & DTO (Phase 1 & Phase 2)', () => {
     accountRecord?: Record<string, unknown> | null;
     openInvoices?: Array<Record<string, unknown>>;
     openBills?: Array<Record<string, unknown>>;
+    auditEvents?: Array<Record<string, unknown>>;
   }) => {
     const baseCurrency = overrides?.baseCurrency ?? 'USD';
     const createdInvoices: unknown[] = [];
@@ -160,6 +161,12 @@ describe('InvoicesPayablesService & DTO (Phase 1 & Phase 2)', () => {
           createdPayments.push(data);
           return data;
         },
+      },
+      auditEvent: {
+        findMany: async (args?: { where?: { action?: string } }) =>
+          (overrides?.auditEvents ?? []).filter(
+            (evt) => !args?.where?.action || evt.action === args.where.action,
+          ),
       },
       $transaction: async <T>(cb: (tx: unknown) => Promise<T>) => cb(prisma),
     };
@@ -291,7 +298,7 @@ describe('InvoicesPayablesService & DTO (Phase 1 & Phase 2)', () => {
       'org-pkr',
       {
         invoiceNumber: 'INV-ITEMS-1',
-        customerName: 'Faisalabad Textiles',
+        customerName: 'faisalabad textiles',
         category: 'Consulting Revenue',
         department: 'Advisory',
         issueDate: '2026-11-01T00:00:00.000Z',
@@ -305,6 +312,7 @@ describe('InvoicesPayablesService & DTO (Phase 1 & Phase 2)', () => {
       'user-1',
     );
 
+    expect(created.customerName).toBe('Faisalabad Textiles');
     expect(created.status).toBe(InvoiceStatus.DRAFT);
     expect(created.category).toBe('Consulting Revenue');
     expect(created.department).toBe('Advisory');
@@ -590,5 +598,219 @@ describe('InvoicesPayablesService & DTO (Phase 1 & Phase 2)', () => {
     expect(aging.receivablesAging.missingCurrencies).toEqual(['EUR']);
     expect(aging.receivablesAging.buckets.find((b) => b.bucket === 'CURRENT')?.amount).toBe('100.0000');
     expect(aging.receivablesAging.buckets.find((b) => b.bucket === '1_TO_30_DAYS')?.count).toBe(1);
+  });
+
+  it('allows first save after extraction-only audit events but blocks duplicate document save by checksum or matching record on create', async () => {
+    const checksum = 'a'.repeat(64);
+
+    // 1. Extraction-only audit event must NOT block a legitimate first save
+    const extractOnlyCtx = makeService({
+      auditEvents: [
+        {
+          id: 'evt-extract',
+          action: 'DOCUMENT_IMPORT_EXTRACTED',
+          resourceId: 'wf-1',
+          details: { fileChecksum: checksum },
+        },
+      ],
+    });
+
+    const firstSaved = await extractOnlyCtx.service.createInvoice(
+      'org-star',
+      {
+        invoiceNumber: 'INV-DOC-001',
+        customerName: 'Al-Madina Traders',
+        issueDate: '2026-11-01T00:00:00.000Z',
+        dueDate: '2026-11-30T00:00:00.000Z',
+        currency: 'PKR',
+        totalAmount: '25000.0000',
+        sourceDocumentChecksum: checksum,
+      },
+      'user-1',
+    );
+    expect(firstSaved.invoiceNumber).toBe('INV-DOC-001');
+    expect((extractOnlyCtx.auditLogs[0] as { details: Record<string, unknown> }).details.sourceDocumentChecksum).toBe(
+      checksum,
+    );
+
+    // 2. Re-saving the same document checksum after an active invoice was created must throw ConflictException
+    const savedDuplicateCtx = makeService({
+      invoiceRecord: {
+        id: 'inv-saved-1',
+        invoiceNumber: 'INV-DOC-001',
+        customerName: 'Al-Madina Traders',
+        issueDate: new Date('2026-11-01T00:00:00.000Z'),
+        totalAmount: new Prisma.Decimal('25000.0000'),
+        status: InvoiceStatus.DRAFT,
+        isArchived: false,
+      },
+      auditEvents: [
+        {
+          id: 'evt-saved-1',
+          action: 'INVOICE_CREATED',
+          resourceId: 'inv-saved-1',
+          details: { sourceDocumentChecksum: checksum },
+        },
+      ],
+    });
+
+    await expect(
+      savedDuplicateCtx.service.createInvoice(
+        'org-star',
+        {
+          invoiceNumber: 'INV-DOC-001-ALT',
+          customerName: 'Al-Madina Traders',
+          issueDate: '2026-11-01T00:00:00.000Z',
+          dueDate: '2026-11-30T00:00:00.000Z',
+          currency: 'PKR',
+          totalAmount: '25000.0000',
+          sourceDocumentChecksum: checksum,
+        },
+        'user-1',
+      ),
+    ).rejects.toThrow(ConflictException);
+
+    // 3. Re-saving a bill matching an active saved bill by checksum must also throw ConflictException
+    const billDuplicateCtx = makeService({
+      billRecord: {
+        id: 'bill-saved-1',
+        billNumber: 'BILL-DOC-99',
+        supplierName: 'Zenith Cloud Corp',
+        issueDate: new Date('2026-11-02T00:00:00.000Z'),
+        totalAmount: new Prisma.Decimal('1150.0000'),
+        status: BillStatus.OPEN,
+        isArchived: false,
+      },
+      auditEvents: [
+        {
+          id: 'evt-bill-saved',
+          action: 'SUPPLIER_BILL_CREATED',
+          resourceId: 'bill-saved-1',
+          details: { sourceDocumentChecksum: checksum },
+        },
+      ],
+    });
+
+    await expect(
+      billDuplicateCtx.service.createBill(
+        'org-star',
+        {
+          billNumber: 'BILL-DOC-99-ALT',
+          supplierName: 'Zenith Cloud Corp',
+          issueDate: '2026-11-02T00:00:00.000Z',
+          dueDate: '2026-12-02T00:00:00.000Z',
+          currency: 'USD',
+          totalAmount: '1150.0000',
+          sourceDocumentChecksum: checksum,
+        },
+        'user-1',
+      ),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('reconciles DRAFT, UNPAID, PARTIALLY_PAID, and PAID summaries in Organization.baseCurrency while excluding DRAFT and PAID from active AR/AP aging', async () => {
+    const refDate = new Date('2026-11-11T00:00:00.000Z');
+    const { service } = makeService({
+      baseCurrency: 'PKR',
+      openInvoices: [
+        {
+          id: 'inv-draft',
+          status: InvoiceStatus.DRAFT,
+          dueDate: new Date('2026-11-18T00:00:00.000Z'),
+          currency: 'PKR',
+          totalAmount: new Prisma.Decimal('55000.0000'),
+          paidAmount: new Prisma.Decimal('0.0000'),
+          outstandingBalance: new Prisma.Decimal('55000.0000'),
+        },
+        {
+          id: 'inv-issued',
+          status: InvoiceStatus.ISSUED,
+          dueDate: new Date('2026-11-20T00:00:00.000Z'),
+          currency: 'PKR',
+          totalAmount: new Prisma.Decimal('10000.0000'),
+          paidAmount: new Prisma.Decimal('0.0000'),
+          outstandingBalance: new Prisma.Decimal('10000.0000'),
+        },
+        {
+          id: 'inv-partial',
+          status: InvoiceStatus.PARTIALLY_PAID,
+          dueDate: new Date('2026-11-05T00:00:00.000Z'),
+          currency: 'PKR',
+          totalAmount: new Prisma.Decimal('20000.0000'),
+          paidAmount: new Prisma.Decimal('5000.0000'),
+          outstandingBalance: new Prisma.Decimal('15000.0000'),
+        },
+        {
+          id: 'inv-paid',
+          status: InvoiceStatus.PAID,
+          dueDate: new Date('2026-11-11T00:00:00.000Z'),
+          currency: 'PKR',
+          totalAmount: new Prisma.Decimal('399.9600'),
+          paidAmount: new Prisma.Decimal('399.9600'),
+          outstandingBalance: new Prisma.Decimal('0.0000'),
+        },
+      ],
+      openBills: [
+        {
+          id: 'bill-draft',
+          status: BillStatus.DRAFT,
+          dueDate: new Date('2026-11-25T00:00:00.000Z'),
+          currency: 'PKR',
+          totalAmount: new Prisma.Decimal('12000.0000'),
+          paidAmount: new Prisma.Decimal('0.0000'),
+          outstandingBalance: new Prisma.Decimal('12000.0000'),
+        },
+        {
+          id: 'bill-open',
+          status: BillStatus.OPEN,
+          dueDate: new Date('2026-11-25T00:00:00.000Z'),
+          currency: 'PKR',
+          totalAmount: new Prisma.Decimal('8000.0000'),
+          paidAmount: new Prisma.Decimal('0.0000'),
+          outstandingBalance: new Prisma.Decimal('8000.0000'),
+        },
+      ],
+    });
+
+    const aging = await service.computeAgingReport('org-star', refDate);
+
+    // Aging excludes DRAFT and PAID: only inv-issued (10,000) + inv-partial (15,000) = 25,000 PKR
+    expect(aging.currency).toBe('PKR');
+    expect(aging.receivablesAging.totalOutstanding).toBe('25000.0000');
+    expect(aging.receivablesAging.totalOverdue).toBe('15000.0000');
+    expect(aging.receivablesAging.sourceRecordIds).toEqual(['inv-issued', 'inv-partial']);
+
+    // Draft summary tracks inv-draft (55,000) separately from active AR
+    expect(aging.receivablesSummary.draft).toEqual({
+      count: 1,
+      totalAmount: '55000.0000',
+      recordIds: ['inv-draft'],
+    });
+    expect(aging.receivablesSummary.unpaid).toEqual({
+      count: 1,
+      totalAmount: '10000.0000',
+      outstandingAmount: '10000.0000',
+      recordIds: ['inv-issued'],
+    });
+    expect(aging.receivablesSummary.partiallyPaid).toEqual({
+      count: 1,
+      totalAmount: '20000.0000',
+      paidAmount: '5000.0000',
+      outstandingAmount: '15000.0000',
+      recordIds: ['inv-partial'],
+    });
+    expect(aging.receivablesSummary.paid).toEqual({
+      count: 1,
+      totalAmount: '399.9600',
+      paidAmount: '399.9600',
+      recordIds: ['inv-paid'],
+    });
+    expect(aging.receivablesSummary.activeOutstandingTotal).toBe('25000.0000');
+
+    // Bills: draft excluded from AP aging (only 8,000 active)
+    expect(aging.payablesAging.totalOutstanding).toBe('8000.0000');
+    expect(aging.payablesSummary.draft.count).toBe(1);
+    expect(aging.payablesSummary.draft.totalAmount).toBe('12000.0000');
+    expect(aging.payablesSummary.activeOutstandingTotal).toBe('8000.0000');
   });
 });

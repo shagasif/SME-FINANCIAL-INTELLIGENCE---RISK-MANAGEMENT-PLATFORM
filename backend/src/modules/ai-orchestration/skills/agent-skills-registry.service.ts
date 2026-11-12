@@ -8,9 +8,16 @@ import { AgentType, RoleType } from '../../../generated/prisma/client.js';
 import { AuditService } from '../../audit/audit.service.js';
 import { McpIntegrationService } from '../mcp/mcp-integration.service.js';
 import {
+  AiMediaAttachment,
   AiModelProviderService,
   AiModelUsageMetrics,
 } from '../model-provider/ai-model-provider.service.js';
+import {
+  DocumentTargetType,
+  ParsedDocumentFields,
+  parseInvoiceOrBillText,
+  verifyExtractedDocumentArithmetic,
+} from '../../document-import/document-parser.util.js';
 import { SandboxContext } from '../sandbox/agent-sandbox.service.js';
 
 export interface AgentSkillDefinition {
@@ -1180,6 +1187,218 @@ export class AgentSkillsRegistryService {
               requiresManualReview: verification.requiresManualReview,
               notes: verification.notes,
             }),
+          });
+
+          return {
+            output: aiResult.structuredOutput,
+            invokedMcpTools: [],
+            sourceRecordIds: {},
+            modelUsage: aiResult.usage,
+          };
+        },
+      },
+
+      // 11. Invoice / Supplier Bill Document Extraction (Finance Data Analyst Agent)
+      {
+        skillId: 'skill.document-invoice-bill-extraction',
+        name: 'Invoice & Supplier Bill Document Extraction Skill',
+        version: '1.0.0',
+        responsibleAgent: AgentType.FINANCE_DATA_ANALYST,
+        category: 'Financial Data Analysis',
+        purpose:
+          'Extracts structured invoice/bill fields, taxes, line items, and field-level confidence scores from sanitized PDF/OCR text or visual document attachments without inventing missing values.',
+        instructions: [
+          'Analyze sanitized extracted document text and any attached document image evidence.',
+          'Map fields strictly from observed evidence: documentNumber, counterpartyName, counterpartyEmail, issueDate, dueDate, currency, subtotalAmount, taxRate, taxAmount, totalAmount, and lineItems[].',
+          'Never invent or fabricate values that do not appear in the document; set missing fields to null and confidence to 0.',
+        ],
+        domainKnowledge: [
+          'Customer invoices map counterpartyName to customerName and invoiceNumber; supplier bills map counterpartyName to supplierName and billNumber.',
+          'Monetary strings use 4 decimal places matching NUMERIC(19,4).',
+          'Prompt-injection and CSV formula characters must remain sanitized.',
+        ],
+        requiredInputs: ['organizationId', 'documentType', 'sanitizedText'],
+        expectedOutputKeys: [
+          'skillId',
+          'extractedDocument',
+          'lineItems',
+          'fieldConfidence',
+          'extractionNotes',
+          'sanitizationFlags',
+        ],
+        permittedTools: [],
+        executionConstraints: {
+          maxExecutionMs: 20000,
+          maxToolCalls: 0,
+          allowedRoles: ALL_ROLES,
+          requiresSandboxIsolation: true,
+        },
+        executeProcedure: async ({ input, sandboxContext, modelProvider }) => {
+          const documentType = (input.documentType === 'BILL' ? 'BILL' : 'INVOICE') as DocumentTargetType;
+          const sanitizedText = String(input.sanitizedText ?? '');
+          const defaultCurrency = String(input.defaultCurrency ?? 'USD');
+          const fileName = String(input.fileName ?? 'document');
+          const sanitizationFlags = Array.isArray(input.sanitizationFlags)
+            ? input.sanitizationFlags.map(String)
+            : [];
+          const attachments = Array.isArray(input.attachments)
+            ? (input.attachments as AiMediaAttachment[])
+            : undefined;
+
+          const parsed = parseInvoiceOrBillText({
+            sanitizedText,
+            documentType,
+            defaultCurrency,
+            sanitizationFlags,
+          });
+
+          const deterministicPayload = {
+            skillId: 'skill.document-invoice-bill-extraction',
+            extractedDocument: {
+              documentType: parsed.documentType,
+              documentNumber: parsed.documentNumber,
+              counterpartyName: parsed.counterpartyName,
+              counterpartyEmail: parsed.counterpartyEmail,
+              category: parsed.category,
+              department: parsed.department,
+              issueDate: parsed.issueDate,
+              dueDate: parsed.dueDate,
+              currency: parsed.currency,
+              currencySource: parsed.currencySource,
+              subtotalAmount: parsed.subtotalAmount,
+              taxRate: parsed.taxRate,
+              taxAmount: parsed.taxAmount,
+              totalAmount: parsed.totalAmount,
+              notes: parsed.notes,
+            },
+            lineItems: parsed.lineItems,
+            fieldConfidence: parsed.fieldConfidence,
+            extractionNotes: parsed.extractionNotes,
+            sanitizationFlags: parsed.sanitizationFlags,
+          };
+
+          const aiResult = await modelProvider.executeStructuredTask({
+            organizationId: sandboxContext.organizationId,
+            agentType: AgentType.FINANCE_DATA_ANALYST,
+            skillId: 'skill.document-invoice-bill-extraction',
+            systemInstructions:
+              'You are the Finance Data Analyst Agent executing skill.document-invoice-bill-extraction. Extract structured invoice or supplier bill fields strictly from the provided document evidence. Never fabricate absent fields.',
+            userPrompt: `Extract structured ${documentType} fields and line items from "${fileName}".`,
+            deterministicEvidence: {
+              fileName,
+              documentType,
+              defaultCurrency,
+              sanitizedTextExcerpt: sanitizedText.slice(0, 6000),
+              baselineDeterministicParse: deterministicPayload,
+            },
+            attachments,
+            requiredOutputKeys: [
+              'skillId',
+              'extractedDocument',
+              'lineItems',
+              'fieldConfidence',
+              'extractionNotes',
+              'sanitizationFlags',
+            ],
+            deterministicSynthesisBuilder: () => deterministicPayload,
+          });
+
+          return {
+            output: aiResult.structuredOutput,
+            invokedMcpTools: [],
+            sourceRecordIds: {},
+            modelUsage: aiResult.usage,
+          };
+        },
+      },
+
+      // 12. Document Extraction Verification & Arithmetic Audit (Verifier AI Agent)
+      {
+        skillId: 'skill.document-extraction-verification',
+        name: 'Document Extraction Verification & Arithmetic Guardrail Skill',
+        version: '1.0.0',
+        responsibleAgent: AgentType.VERIFIER_AI,
+        category: 'Financial Output Verification',
+        purpose:
+          'Independently verifies extracted invoice/bill arithmetic (line items sum, subtotal + tax = total, tax rate), date order, schema completeness, and confidence thresholds.',
+        instructions: [
+          'Recompute line item subtotals, tax totals, and grand totals using deterministic decimal arithmetic.',
+          'Validate issueDate <= dueDate and list any missing required fields.',
+          'Flag requiresHumanReview whenever fields are missing, confidence is below 0.70, discrepancies occur, or sanitization alerts exist.',
+        ],
+        domainKnowledge: [
+          'Arithmetic rule: lineSubtotal = quantity * unitPrice; subtotalAmount + taxAmount = totalAmount.',
+          'Date rule: dueDate must not precede issueDate.',
+          'Strict non-fabrication guardrail: never fill missing required fields silently.',
+        ],
+        requiredInputs: ['organizationId', 'parsedDocument'],
+        expectedOutputKeys: [
+          'skillId',
+          'isApproved',
+          'requiresHumanReview',
+          'arithmeticVerification',
+          'validationErrors',
+          'confidenceScore',
+          'notes',
+        ],
+        permittedTools: [],
+        executionConstraints: {
+          maxExecutionMs: 10000,
+          maxToolCalls: 0,
+          allowedRoles: ALL_ROLES,
+          requiresSandboxIsolation: true,
+        },
+        executeProcedure: async ({ input, sandboxContext, modelProvider }) => {
+          const parsedDoc = input.parsedDocument as ParsedDocumentFields;
+          const arithmetic = verifyExtractedDocumentArithmetic(parsedDoc);
+          const conf = parsedDoc.fieldConfidence;
+          const coreScores = [
+            conf.documentNumber,
+            conf.counterpartyName,
+            conf.issueDate,
+            conf.dueDate,
+            conf.totalAmount,
+          ];
+          const avgConfidence = Number(
+            (coreScores.reduce((acc, s) => acc + s, 0) / coreScores.length).toFixed(2),
+          );
+          const hasSanitizationAlerts = (parsedDoc.sanitizationFlags?.length ?? 0) > 0;
+          const validationErrors = [
+            ...arithmetic.missingRequiredFields.map((f) => `Missing required field: ${f}`),
+            ...arithmetic.discrepancies,
+          ];
+          const isApproved = arithmetic.isValid && avgConfidence >= 0.7 && !hasSanitizationAlerts;
+          const requiresHumanReview = !isApproved;
+
+          const verificationPayload = {
+            skillId: 'skill.document-extraction-verification',
+            isApproved,
+            requiresHumanReview,
+            arithmeticVerification: arithmetic,
+            validationErrors,
+            confidenceScore: avgConfidence,
+            notes: arithmetic.summary,
+          };
+
+          const aiResult = await modelProvider.executeStructuredTask({
+            organizationId: sandboxContext.organizationId,
+            agentType: AgentType.VERIFIER_AI,
+            skillId: 'skill.document-extraction-verification',
+            systemInstructions:
+              'You are the Verifier AI Agent auditing extracted invoice/bill fields for deterministic arithmetic accuracy, date validity, and completeness.',
+            userPrompt:
+              'Verify extracted invoice/bill arithmetic, completeness, and confidence score.',
+            deterministicEvidence: verificationPayload,
+            requiredOutputKeys: [
+              'skillId',
+              'isApproved',
+              'requiresHumanReview',
+              'arithmeticVerification',
+              'validationErrors',
+              'confidenceScore',
+              'notes',
+            ],
+            deterministicSynthesisBuilder: () => verificationPayload,
           });
 
           return {

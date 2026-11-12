@@ -11,7 +11,8 @@ import { PrismaService } from '../../database/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { ExecuteAiWorkflowDto } from './dto/ai-orchestration.dto.js';
 import { DuringHookEvent, WorkflowHookService } from './hooks/workflow-hooks.service.js';
-import { AiModelUsageMetrics } from './model-provider/ai-model-provider.service.js';
+import { AiMediaAttachment, AiModelUsageMetrics } from './model-provider/ai-model-provider.service.js';
+import type { DocumentTargetType } from '../document-import/document-parser.util.js';
 import { AgentSandboxService } from './sandbox/agent-sandbox.service.js';
 import { AgentSkillsRegistryService } from './skills/agent-skills-registry.service.js';
 
@@ -701,29 +702,231 @@ export class SupervisorOrchestratorService {
         durationMs: Date.now() - workflowStartMs,
       };
     } catch (err: unknown) {
-      try {
-        await this.prisma.workflowRun.update({
-          where: { id: workflowRun.id },
-          data: {
-            status: ExecutionStatus.FAILED,
-            verificationStatus: VerificationStatus.REJECTED,
-            durationMs: Date.now() - workflowStartMs,
-            errorHookLog: {
-              errorMessage: err instanceof Error ? err.message : String(err),
-              errorStack: err instanceof Error ? err.stack : undefined,
-              failedAt: new Date().toISOString(),
-            } as unknown as Prisma.InputJsonValue,
-            completedAt: new Date(),
-          },
-        });
-      } catch (dbError: unknown) {
-        // Prevent secondary Prisma error from hiding the original exception
-        console.error(
-          'Failed to record workflow failure status in database:',
-          dbError instanceof Error ? dbError.message : String(dbError),
-        );
-      }
+      await this.recordWorkflowFailure(workflowRun.id, workflowStartMs, err);
       throw err;
+    }
+  }
+
+  /**
+   * Orchestrates Finance Data Analyst & Verifier AI agents in isolated sandboxes
+   * to extract and verify structured Invoice or Supplier Bill fields from PDF/image documents.
+   */
+  async orchestrateDocumentExtraction(params: {
+    organizationId: string;
+    userId: string;
+    userRole: RoleType;
+    documentType: DocumentTargetType;
+    fileName: string;
+    defaultCurrency: string;
+    sanitizedText: string;
+    sanitizationFlags: string[];
+    attachments?: AiMediaAttachment[];
+  }) {
+    const workflowStartMs = Date.now();
+    const taskClassification =
+      params.documentType === 'INVOICE'
+        ? 'CUSTOMER_INVOICE_DOCUMENT_EXTRACTION'
+        : 'SUPPLIER_BILL_DOCUMENT_EXTRACTION';
+
+    const workflowRun = await this.prisma.workflowRun.create({
+      data: {
+        organizationId: params.organizationId,
+        requestedByUserId: params.userId,
+        prompt: `Extract and verify ${params.documentType} fields from uploaded document "${params.fileName}"`,
+        taskClassification,
+        selectedAgents: [
+          AgentType.SUPERVISOR_ORCHESTRATOR,
+          AgentType.FINANCE_DATA_ANALYST,
+          AgentType.VERIFIER_AI,
+        ] as unknown as Prisma.InputJsonValue,
+        executionMode: 'SPECIALIST_ANALYST_THEN_SEQUENTIAL_VERIFIER',
+        status: ExecutionStatus.RUNNING,
+        verificationStatus: VerificationStatus.PENDING,
+      },
+    });
+
+    try {
+      // 1. Finance Data Analyst extraction
+      const analystSkillResult = await this.executeSandboxedSkill({
+        workflowRunId: workflowRun.id,
+        organizationId: params.organizationId,
+        userId: params.userId,
+        userRole: params.userRole,
+        agentType: AgentType.FINANCE_DATA_ANALYST,
+        skillId: 'skill.document-invoice-bill-extraction',
+        inputContext: {
+          fileName: params.fileName,
+          documentType: params.documentType,
+          textLength: params.sanitizedText.length,
+          attachmentCount: params.attachments?.length ?? 0,
+        },
+        skillInput: {
+          organizationId: params.organizationId,
+          fileName: params.fileName,
+          documentType: params.documentType,
+          defaultCurrency: params.defaultCurrency,
+          sanitizedText: params.sanitizedText,
+          sanitizationFlags: params.sanitizationFlags,
+          attachments: params.attachments,
+        },
+      });
+
+      const extractedDoc = (analystSkillResult.output.extractedDocument ?? {}) as Record<
+        string,
+        unknown
+      >;
+      const combinedParsedDoc = {
+        ...extractedDoc,
+        documentType: params.documentType,
+        lineItems: analystSkillResult.output.lineItems ?? [],
+        fieldConfidence: analystSkillResult.output.fieldConfidence ?? {},
+        extractionNotes: analystSkillResult.output.extractionNotes ?? [],
+        sanitizationFlags: analystSkillResult.output.sanitizationFlags ?? params.sanitizationFlags,
+      };
+
+      // 2. Verifier AI arithmetic, date & completeness audit
+      const verifierSkillResult = await this.executeSandboxedSkill({
+        workflowRunId: workflowRun.id,
+        organizationId: params.organizationId,
+        userId: params.userId,
+        userRole: params.userRole,
+        agentType: AgentType.VERIFIER_AI,
+        skillId: 'skill.document-extraction-verification',
+        inputContext: {
+          documentType: params.documentType,
+          documentNumber: extractedDoc.documentNumber ?? null,
+          totalAmount: extractedDoc.totalAmount ?? null,
+        },
+        skillInput: {
+          organizationId: params.organizationId,
+          parsedDocument: combinedParsedDoc,
+        },
+      });
+
+      const isApproved = Boolean(verifierSkillResult.output.isApproved);
+      await this.prisma.workflowRun.update({
+        where: { id: workflowRun.id },
+        data: {
+          status: ExecutionStatus.COMPLETED,
+          verificationStatus: isApproved
+            ? VerificationStatus.APPROVED
+            : VerificationStatus.REQUIRES_HUMAN_REVIEW,
+          durationMs: Date.now() - workflowStartMs,
+          completedAt: new Date(),
+        },
+      });
+
+      await this.audit.record({
+        organizationId: params.organizationId,
+        actorUserId: params.userId,
+        actorRole: params.userRole,
+        action: 'AI_ORCHESTRATION:DOCUMENT_EXTRACTED_AND_VERIFIED',
+        resourceType: 'WORKFLOW_RUN',
+        resourceId: workflowRun.id,
+        status: 'SUCCESS',
+        details: {
+          fileName: params.fileName,
+          documentType: params.documentType,
+          isApproved,
+          confidenceScore: verifierSkillResult.output.confidenceScore,
+        },
+      });
+
+      return {
+        workflowRunId: workflowRun.id,
+        taskClassification,
+        analystResult: analystSkillResult.output,
+        verifierResult: verifierSkillResult.output,
+        durationMs: Date.now() - workflowStartMs,
+      };
+    } catch (err: unknown) {
+      await this.recordWorkflowFailure(workflowRun.id, workflowStartMs, err);
+      throw err;
+    }
+  }
+
+  private async executeSandboxedSkill(params: {
+    workflowRunId: string;
+    organizationId: string;
+    userId: string;
+    userRole: RoleType;
+    agentType: AgentType;
+    skillId: string;
+    inputContext: Record<string, unknown>;
+    skillInput: Record<string, unknown>;
+  }) {
+    const startMs = Date.now();
+    const sandboxCtx = this.sandbox.createSandboxContext({
+      workflowRunId: params.workflowRunId,
+      organizationId: params.organizationId,
+      actorUserId: params.userId,
+      actorRole: params.userRole,
+      agentType: params.agentType,
+    });
+
+    const runRecord = await this.prisma.agentRun.create({
+      data: {
+        workflowRunId: params.workflowRunId,
+        organizationId: params.organizationId,
+        agentType: params.agentType,
+        sandboxId: sandboxCtx.sandboxId,
+        loadedSkills: [params.skillId] as unknown as Prisma.InputJsonValue,
+        allowedTools: sandboxCtx.allowedTools as unknown as Prisma.InputJsonValue,
+        invokedTools: [] as unknown as Prisma.InputJsonValue,
+        status: ExecutionStatus.RUNNING,
+        inputContext: params.inputContext as unknown as Prisma.InputJsonValue,
+      },
+    });
+
+    try {
+      const skillResult = await this.skillsRegistry.executeSkill(
+        params.skillId,
+        params.skillInput,
+        sandboxCtx,
+      );
+
+      await this.prisma.agentRun.update({
+        where: { id: runRecord.id },
+        data: {
+          status: ExecutionStatus.COMPLETED,
+          invokedTools: sandboxCtx.invokedTools as unknown as Prisma.InputJsonValue,
+          mcpToolCalls: skillResult.invokedMcpTools as unknown as Prisma.InputJsonValue,
+          blockedOperations: sandboxCtx.blockedOperations as unknown as Prisma.InputJsonValue,
+          modelUsage: skillResult.modelUsage as unknown as Prisma.InputJsonValue,
+          outputPayload: skillResult.output as unknown as Prisma.InputJsonValue,
+          durationMs: Date.now() - startMs,
+          completedAt: new Date(),
+        },
+      });
+
+      return skillResult;
+    } finally {
+      this.sandbox.releaseSandbox(sandboxCtx.sandboxId);
+    }
+  }
+
+  private async recordWorkflowFailure(workflowRunId: string, startMs: number, err: unknown) {
+    try {
+      await this.prisma.workflowRun.update({
+        where: { id: workflowRunId },
+        data: {
+          status: ExecutionStatus.FAILED,
+          verificationStatus: VerificationStatus.REJECTED,
+          durationMs: Date.now() - startMs,
+          errorHookLog: {
+            errorMessage: err instanceof Error ? err.message : String(err),
+            errorStack: err instanceof Error ? err.stack : undefined,
+            failedAt: new Date().toISOString(),
+          } as unknown as Prisma.InputJsonValue,
+          completedAt: new Date(),
+        },
+      });
+    } catch (dbError: unknown) {
+      // Prevent secondary Prisma error from hiding the original exception
+      console.error(
+        'Failed to record workflow failure status in database:',
+        dbError instanceof Error ? dbError.message : String(dbError),
+      );
     }
   }
 }

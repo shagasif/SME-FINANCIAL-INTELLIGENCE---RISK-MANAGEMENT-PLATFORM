@@ -1,4 +1,9 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { AccountType, MembershipStatus, Prisma, RoleType } from '../../generated/prisma/client.js';
 import { SecurityUtil } from '../../common/utils/security.util.js';
 import { PrismaService } from '../../database/prisma.service.js';
@@ -7,6 +12,7 @@ import {
   AddMemberDto,
   CreateOrganizationDto,
   UpdateMemberRoleDto,
+  UpdateOrganizationDto,
 } from './dto/organization.dto.js';
 
 @Injectable()
@@ -217,6 +223,78 @@ export class OrganizationsService {
         previousRole: existing.role,
         newRole: dto.role,
         status: updated.status,
+      },
+    });
+
+    return updated;
+  }
+
+  async updateOrganization(
+    organizationId: string,
+    dto: UpdateOrganizationDto,
+    actorUserId: string,
+    actorRole?: RoleType,
+  ) {
+    const existing = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+    });
+    if (!existing) {
+      throw new NotFoundException('Organization not found');
+    }
+
+    const updateData: Prisma.OrganizationUpdateInput = {};
+
+    if (dto.name !== undefined) {
+      const cleanName = dto.name.trim();
+      if (cleanName.length < 2) {
+        throw new BadRequestException('Organization name must be at least 2 characters');
+      }
+      updateData.name = cleanName;
+    }
+
+    if (dto.baseCurrency !== undefined) {
+      const cleanCurrency = dto.baseCurrency.trim().toUpperCase();
+      if (!/^[A-Z]{3}$/.test(cleanCurrency)) {
+        throw new BadRequestException('baseCurrency must be a valid 3-letter ISO-4217 currency code');
+      }
+      updateData.baseCurrency = cleanCurrency;
+    }
+
+    if (dto.fiscalYearStartMonth !== undefined) {
+      updateData.fiscalYearStartMonth = dto.fiscalYearStartMonth;
+    }
+
+    if (dto.registrationNumber !== undefined) {
+      updateData.registrationNumber = dto.registrationNumber.trim() || null;
+    }
+
+    if (dto.industry !== undefined) {
+      updateData.industry = dto.industry.trim() || null;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      throw new BadRequestException('At least one organization setting field must be provided');
+    }
+
+    const updated = await this.prisma.organization.update({
+      where: { id: organizationId },
+      data: updateData,
+    });
+
+    await this.audit.record({
+      organizationId,
+      actorUserId,
+      actorRole,
+      action: 'ORGANIZATION_SETTINGS_UPDATED',
+      resourceType: 'ORGANIZATION',
+      resourceId: organizationId,
+      details: {
+        previousName: existing.name,
+        newName: updated.name,
+        previousBaseCurrency: existing.baseCurrency,
+        newBaseCurrency: updated.baseCurrency,
+        previousFiscalYearStartMonth: existing.fiscalYearStartMonth,
+        newFiscalYearStartMonth: updated.fiscalYearStartMonth,
       },
     });
 

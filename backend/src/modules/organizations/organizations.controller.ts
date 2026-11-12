@@ -12,6 +12,7 @@ import {
   AddMemberDto,
   CreateOrganizationDto,
   UpdateMemberRoleDto,
+  UpdateOrganizationDto,
 } from './dto/organization.dto.js';
 import { OrganizationsService } from './organizations.service.js';
 
@@ -47,6 +48,22 @@ export class OrganizationsController {
   @ApiOperation({ summary: 'Get organization profile and memberships' })
   async getById(@Param('orgId') orgId: string) {
     return this.organizationsService.getOrganizationById(orgId);
+  }
+
+  @Patch(':orgId')
+  @Roles(RoleType.PLATFORM_ADMIN, RoleType.BUSINESS_OWNER)
+  @ApiOperation({ summary: 'Update organization profile and base reporting currency settings' })
+  async updateOrganization(
+    @Param('orgId') orgId: string,
+    @Body() dto: UpdateOrganizationDto,
+    @CurrentUser() user: AuthenticatedPrincipal,
+  ) {
+    return this.organizationsService.updateOrganization(
+      orgId,
+      dto,
+      user.userId,
+      user.organizationRole,
+    );
   }
 
   @Post(':orgId/members')

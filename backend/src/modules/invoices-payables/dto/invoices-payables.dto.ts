@@ -112,6 +112,14 @@ export class CreateInvoiceDto {
   @IsString()
   @MaxLength(500)
   notes?: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional SHA-256 checksum of an imported source document for backend duplicate re-verification',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  sourceDocumentChecksum?: string;
 }
 
 export class UpdateInvoiceDto {
@@ -267,6 +275,14 @@ export class CreateBillDto {
   @IsString()
   @MaxLength(500)
   notes?: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional SHA-256 checksum of an imported source document for backend duplicate re-verification',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  sourceDocumentChecksum?: string;
 }
 
 export class UpdateBillDto {

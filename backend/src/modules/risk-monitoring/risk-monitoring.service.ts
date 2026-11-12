@@ -49,7 +49,7 @@ export class RiskMonitoringService {
             organizationId,
             isArchived: false,
             outstandingBalance: { gt: 0 },
-            status: { not: InvoiceStatus.VOID },
+            status: { notIn: [InvoiceStatus.VOID, InvoiceStatus.DRAFT] },
             dueDate: { lt: new Date() },
           },
         }),

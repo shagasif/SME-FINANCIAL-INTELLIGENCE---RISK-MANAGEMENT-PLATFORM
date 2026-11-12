@@ -6,6 +6,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -83,4 +84,40 @@ export class UpdateMemberRoleDto {
   @IsOptional()
   @IsEnum(MembershipStatus)
   status?: MembershipStatus;
+}
+
+export class UpdateOrganizationDto {
+  @ApiPropertyOptional({ example: 'Star Enterprises' })
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(150)
+  name?: string;
+
+  @ApiPropertyOptional({ example: 'PKR' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Za-z]{3}$/, {
+    message: 'baseCurrency must be a valid 3-letter ISO-4217 currency code',
+  })
+  baseCurrency?: string;
+
+  @ApiPropertyOptional({ example: 7 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  fiscalYearStartMonth?: number;
+
+  @ApiPropertyOptional({ example: 'REG-2026-99812' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  registrationNumber?: string;
+
+  @ApiPropertyOptional({ example: 'Retail & Wholesale' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  industry?: string;
 }

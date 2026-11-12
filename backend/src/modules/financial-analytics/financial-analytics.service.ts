@@ -131,7 +131,7 @@ export class FinancialAnalyticsService {
           organizationId,
           isArchived: false,
           outstandingBalance: { gt: 0 },
-          status: { not: InvoiceStatus.VOID },
+          status: { notIn: [InvoiceStatus.VOID, InvoiceStatus.DRAFT] },
         },
       }),
       this.prisma.bill.findMany({
@@ -139,7 +139,7 @@ export class FinancialAnalyticsService {
           organizationId,
           isArchived: false,
           outstandingBalance: { gt: 0 },
-          status: { not: BillStatus.VOID },
+          status: { notIn: [BillStatus.VOID, BillStatus.DRAFT] },
         },
       }),
       this.prisma.budget.findMany({
@@ -830,6 +830,15 @@ export class FinancialAnalyticsService {
       Array.isArray(agingSchedule.receivablesAging.missingCurrencies)
         ? (agingSchedule.receivablesAging.missingCurrencies as string[])
         : [];
+    const arSummary =
+      'receivablesSummary' in agingSchedule ? agingSchedule.receivablesSummary : undefined;
+    const arDraftCount = arSummary?.draft?.count ?? 0;
+    const arDraftLimitation =
+      arDraftCount > 0
+        ? [
+            `${arDraftCount} draft customer invoice(s) totaling ${arSummary?.draft?.totalAmount ?? '0.0000'} ${currency} are excluded from active receivables until issued.`,
+          ]
+        : [];
     const receivableAging: DeterministicMetricResult<typeof agingSchedule.receivablesAging> = {
       metricKey: 'receivableAging',
       name: 'Accounts Receivable Aging',
@@ -846,10 +855,24 @@ export class FinancialAnalyticsService {
       },
       dataLimitations:
         arAgingMissing.length > 0
-          ? [missingRateMsg(arAgingMissing)]
+          ? [missingRateMsg(arAgingMissing), ...arDraftLimitation]
           : openInvoices.length === 0
-            ? ['No open customer invoices on record.']
-            : [],
+            ? ['No open customer invoices on record.', ...arDraftLimitation]
+            : arDraftLimitation,
+      ...(arSummary
+        ? {
+            components: {
+              draftCount: String(arSummary.draft.count),
+              draftTotal: arSummary.draft.totalAmount,
+              unpaidCount: String(arSummary.unpaid.count),
+              unpaidOutstanding: arSummary.unpaid.outstandingAmount,
+              partiallyPaidCount: String(arSummary.partiallyPaid.count),
+              partiallyPaidOutstanding: arSummary.partiallyPaid.outstandingAmount,
+              paidCount: String(arSummary.paid.count),
+              paidTotal: arSummary.paid.paidAmount,
+            },
+          }
+        : {}),
     };
 
     // 10. Payable Aging
@@ -857,6 +880,15 @@ export class FinancialAnalyticsService {
       'missingCurrencies' in agingSchedule.payablesAging &&
       Array.isArray(agingSchedule.payablesAging.missingCurrencies)
         ? (agingSchedule.payablesAging.missingCurrencies as string[])
+        : [];
+    const apSummary =
+      'payablesSummary' in agingSchedule ? agingSchedule.payablesSummary : undefined;
+    const apDraftCount = apSummary?.draft?.count ?? 0;
+    const apDraftLimitation =
+      apDraftCount > 0
+        ? [
+            `${apDraftCount} draft supplier bill(s) totaling ${apSummary?.draft?.totalAmount ?? '0.0000'} ${currency} are excluded from active payables until opened.`,
+          ]
         : [];
     const payableAging: DeterministicMetricResult<typeof agingSchedule.payablesAging> = {
       metricKey: 'payableAging',
@@ -874,10 +906,24 @@ export class FinancialAnalyticsService {
       },
       dataLimitations:
         apAgingMissing.length > 0
-          ? [missingRateMsg(apAgingMissing)]
+          ? [missingRateMsg(apAgingMissing), ...apDraftLimitation]
           : openBills.length === 0
-            ? ['No open supplier bills on record.']
-            : [],
+            ? ['No open supplier bills on record.', ...apDraftLimitation]
+            : apDraftLimitation,
+      ...(apSummary
+        ? {
+            components: {
+              draftCount: String(apSummary.draft.count),
+              draftTotal: apSummary.draft.totalAmount,
+              unpaidCount: String(apSummary.unpaid.count),
+              unpaidOutstanding: apSummary.unpaid.outstandingAmount,
+              partiallyPaidCount: String(apSummary.partiallyPaid.count),
+              partiallyPaidOutstanding: apSummary.partiallyPaid.outstandingAmount,
+              paidCount: String(apSummary.paid.count),
+              paidTotal: apSummary.paid.paidAmount,
+            },
+          }
+        : {}),
     };
 
     const allMissingCurrencies = Array.from(

@@ -241,4 +241,84 @@ describe('FinancialAnalyticsService (Organization.baseCurrency & Multi-Currency 
     expect(capturedStart?.toISOString().endsWith('T00:00:00.000Z')).toBe(true);
     expect(capturedEnd?.toISOString().endsWith('T23:59:59.999Z')).toBe(true);
   });
+
+  it('excludes DRAFT and VOID records from open receivables/payables analytics queries and discloses drafts cleanly', async () => {
+    const deps = createStubDeps({ baseCurrency: 'PKR', accounts: [], currentTxs: [] });
+    let capturedInvoiceWhere: Record<string, unknown> | undefined;
+    let capturedBillWhere: Record<string, unknown> | undefined;
+
+    deps.prisma.invoice.findMany = async ({ where }: { where: Record<string, unknown> }) => {
+      capturedInvoiceWhere = where;
+      return [];
+    };
+    deps.prisma.bill.findMany = async ({ where }: { where: Record<string, unknown> }) => {
+      capturedBillWhere = where;
+      return [];
+    };
+    deps.invoicesPayables.computeAgingReport = async () => ({
+      receivablesAging: {
+        totalOutstanding: '0.0000',
+        totalOverdue: '0.0000',
+        isComplete: true,
+        missingCurrencies: [],
+        buckets: [],
+        sourceRecordIds: [],
+      },
+      payablesAging: {
+        totalOutstanding: '0.0000',
+        totalOverdue: '0.0000',
+        isComplete: true,
+        missingCurrencies: [],
+        buckets: [],
+        sourceRecordIds: [],
+      },
+      receivablesSummary: {
+        draft: { count: 1, totalAmount: '55000.0000', recordIds: ['inv-draft'] },
+        unpaid: { count: 0, totalAmount: '0.0000', outstandingAmount: '0.0000', recordIds: [] },
+        partiallyPaid: {
+          count: 0,
+          totalAmount: '0.0000',
+          paidAmount: '0.0000',
+          outstandingAmount: '0.0000',
+          recordIds: [],
+        },
+        paid: { count: 1, totalAmount: '399.9600', paidAmount: '399.9600', recordIds: ['inv-paid'] },
+        activeOutstandingTotal: '0.0000',
+        isComplete: true,
+        missingCurrencies: [],
+      },
+      payablesSummary: {
+        draft: { count: 0, totalAmount: '0.0000', recordIds: [] },
+        unpaid: { count: 0, totalAmount: '0.0000', outstandingAmount: '0.0000', recordIds: [] },
+        partiallyPaid: {
+          count: 0,
+          totalAmount: '0.0000',
+          paidAmount: '0.0000',
+          outstandingAmount: '0.0000',
+          recordIds: [],
+        },
+        paid: { count: 0, totalAmount: '0.0000', paidAmount: '0.0000', recordIds: [] },
+        activeOutstandingTotal: '0.0000',
+        isComplete: true,
+        missingCurrencies: [],
+      },
+    });
+
+    const service = new FinancialAnalyticsService(
+      deps.prisma as never,
+      deps.invoicesPayables as never,
+      deps.budgetsService as never,
+      deps.currencyService,
+    );
+
+    const res = await service.computeAllMetrics('org-star');
+
+    expect(capturedInvoiceWhere?.status).toEqual({ notIn: ['VOID', 'DRAFT'] });
+    expect(capturedBillWhere?.status).toEqual({ notIn: ['VOID', 'DRAFT'] });
+    expect(res.metrics.receivableAging.components?.draftCount).toBe('1');
+    expect(res.metrics.receivableAging.components?.draftTotal).toBe('55000.0000');
+    expect(res.metrics.receivableAging.dataLimitations).toContain(
+      '1 draft customer invoice(s) totaling 55000.0000 PKR are excluded from active receivables until issued.',
+    );
+  });
 });

@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import {
+  AccountType,
   ForecastScenarioType,
   Prisma,
   ReportType,
@@ -19,6 +20,11 @@ import {
   GenerateReportDto,
   UpdateFollowUpTaskStatusDto,
 } from './dto/reports.dto.js';
+import {
+  buildExecutiveBrief,
+  type BriefBudgetVarianceInput,
+  type BriefForecastInput,
+} from './report-brief.builder.js';
 
 @Injectable()
 export class ReportsService {
@@ -54,19 +60,81 @@ export class ReportsService {
       budgetIds: m.budgetVariance.sourceRecordIds.budgetIds ?? [],
     };
 
+    // Resolve liquid cash balance & actual alerts/record counts in parallel for strict grounding
+    const [liquidAccounts, alerts] = await Promise.all([
+      this.prisma.financialAccount.findMany({
+        where: {
+          organizationId,
+          isArchived: false,
+          isLiquid: true,
+          type: { in: [AccountType.BANK, AccountType.CASH, AccountType.ASSET] },
+        },
+      }),
+      this.riskMonitoring.listAlerts(organizationId, {}),
+    ]);
+
+    let liquidCashBalance: string | null =
+      m.cashRunway.components?.liquidCashBalance ?? null;
+    if (liquidCashBalance === null && liquidAccounts.length > 0) {
+      const preloadedRates = this.currencyService
+        ? await this.currencyService.loadRatesForOrganization(organizationId)
+        : [];
+      let sum = DecimalMath.ZERO;
+      let complete = true;
+      for (const acc of liquidAccounts) {
+        const fromCurr = (acc.currency || metricsBundle.currency).trim().toUpperCase();
+        if (fromCurr === metricsBundle.currency) {
+          sum = DecimalMath.add(sum, acc.currentBalance);
+        } else if (this.currencyService) {
+          const conv = this.currencyService.convertAmountSync({
+            rates: preloadedRates,
+            organizationId,
+            amount: acc.currentBalance,
+            fromCurrency: fromCurr,
+            toCurrency: metricsBundle.currency,
+            asOfDate: periodEnd,
+          });
+          if (conv.isConverted && conv.convertedAmount !== null) {
+            sum = DecimalMath.add(sum, conv.convertedAmount);
+          } else {
+            complete = false;
+            break;
+          }
+        } else {
+          complete = false;
+          break;
+        }
+      }
+      if (complete) {
+        liquidCashBalance = DecimalMath.toFixed4(sum);
+      }
+    } else if (liquidCashBalance === null && liquidAccounts.length === 0) {
+      liquidCashBalance = null;
+    }
+
+    let forecastForBrief: BriefForecastInput | null = null;
+    let expensesByCategoryForBrief: Record<string, string> | undefined;
+    let expenseCountForBrief: number | undefined;
+    let totalExpensesForBrief: string | null | undefined;
+    let expenseMissingCurrenciesForBrief: string[] | undefined;
+    let budgetVariancesForBrief: BriefBudgetVarianceInput[] | undefined;
+
     if (dto.type === ReportType.BUSINESS_HEALTH) {
       summaryMetrics = {
+        cashBalance: liquidCashBalance,
         operatingCashFlow: m.operatingCashFlow.value,
         cashRunwayMonths: m.cashRunway.value,
         currentRatio: m.currentRatio.value,
         quickRatio: m.quickRatio.value,
         grossMarginPct: m.grossMargin.value,
         workingCapital: m.workingCapital.value,
+        openReceivablesTotal: m.receivableAging.value?.totalOutstanding ?? '0.0000',
+        overdueReceivablesTotal: m.receivableAging.value?.totalOverdue ?? '0.0000',
+        openPayablesTotal: m.payableAging.value?.totalOutstanding ?? '0.0000',
+        overduePayablesTotal: m.payableAging.value?.totalOverdue ?? '0.0000',
       };
       narrativeBody = {
-        headline: `Business Health Diagnostic (${periodStart.toISOString().slice(0, 10)} to ${periodEnd.toISOString().slice(0, 10)})`,
-        liquidityAssessment: `Operating Cash Flow: ${String(m.operatingCashFlow.value ?? 'N/A')} ${metricsBundle.currency}; Working Capital: ${String(m.workingCapital.value ?? 'N/A')} ${metricsBundle.currency}.`,
-        solvencyRatios: `Current Ratio: ${String(m.currentRatio.value ?? 'N/A')}; Quick Ratio: ${String(m.quickRatio.value ?? 'N/A')}.`,
+        headline: `Business Health Brief (${periodStart.toISOString().slice(0, 10)} to ${periodEnd.toISOString().slice(0, 10)})`,
       };
     } else if (dto.type === ReportType.CASH_FLOW) {
       const forecasts = await this.forecasting.listForecasts(organizationId, 30);
@@ -78,6 +146,28 @@ export class ReportsService {
               { horizonDays: 30, scenarioType: ForecastScenarioType.BASE },
               actorUserId,
             );
+      const detailedForecast =
+        'items' in latestForecast && Array.isArray(latestForecast.items)
+          ? latestForecast
+          : await this.forecasting.getForecastById(organizationId, latestForecast.id);
+      const ptsRaw = (detailedForecast.items ?? []).map((item) => ({
+        date: item.projectionDate,
+        projectedInflows: DecimalMath.toFixed4(
+          DecimalMath.add(item.expectedInflow, item.recurringInflow),
+        ),
+        projectedOutflows: DecimalMath.toFixed4(
+          DecimalMath.add(item.expectedOutflow, item.recurringOutflow),
+        ),
+        projectedBalance: item.cumulativeBalance,
+      }));
+      forecastForBrief = {
+        id: latestForecast.id,
+        openingCashBalance: latestForecast.openingCashBalance,
+        projectedClosingCash: latestForecast.projectedClosingCash,
+        minimumProjectedCash: latestForecast.minimumProjectedCash,
+        hasLiquidityWarning: latestForecast.hasLiquidityWarning,
+        forecastPoints: ptsRaw,
+      };
       summaryMetrics = {
         operatingCashFlow: m.operatingCashFlow.value,
         openingCashBalance: latestForecast.openingCashBalance,
@@ -86,9 +176,8 @@ export class ReportsService {
         hasLiquidityWarning: latestForecast.hasLiquidityWarning,
       };
       narrativeBody = {
-        headline: 'Cash-Flow & Liquidity Horizon Report',
+        headline: 'Cash-Flow & Liquidity Horizon Brief',
         forecastId: latestForecast.id,
-        assumptions: latestForecast.assumptions,
       };
       sourceRecordIds.forecastIds = [latestForecast.id];
     } else if (dto.type === ReportType.EXPENSE) {
@@ -105,6 +194,7 @@ export class ReportsService {
         : [];
       const missingCurrencies = new Set<string>();
       const byCategory: Record<string, string> = {};
+      let computedExpTotal = DecimalMath.ZERO;
       for (const tx of expenses) {
         const txCurr = (tx.currency || metricsBundle.currency).trim().toUpperCase();
         let convertedAmt: Prisma.Decimal | null = null;
@@ -129,44 +219,64 @@ export class ReportsService {
         }
 
         if (convertedAmt !== null) {
+          computedExpTotal = DecimalMath.add(computedExpTotal, convertedAmt);
           byCategory[tx.category] = DecimalMath.toFixed4(
             DecimalMath.add(byCategory[tx.category] ?? '0.0000', convertedAmt),
           );
         }
       }
       const missingList = Array.from(missingCurrencies).sort();
+      const totalExpStr =
+        missingList.length === 0 ? DecimalMath.toFixed4(computedExpTotal) : null;
+      expensesByCategoryForBrief = byCategory;
+      expenseCountForBrief = expenses.length;
+      totalExpensesForBrief = totalExpStr;
+      expenseMissingCurrenciesForBrief = missingList;
+
       summaryMetrics = {
         currency: metricsBundle.currency,
         isComplete: missingList.length === 0,
         missingCurrencies: missingList,
-        totalExpenses:
-          missingList.length === 0 ? (m.operatingCashFlow.components?.cashOutflows ?? '0.0000') : null,
+        totalExpenses: totalExpStr,
         expenseGrowthPct: m.expenseGrowth.value,
         expenseCount: expenses.length,
         expensesByCategory: byCategory,
       };
       narrativeBody = {
-        headline: 'Operating Expense & Category Breakdown Report',
+        headline: 'Operating Expense & Category Audit Brief',
         categoriesCount: Object.keys(byCategory).length,
-        conversionContext: metricsBundle.conversionContext,
       };
       sourceRecordIds.transactionIds = expenses.map((e) => e.id);
     } else if (dto.type === ReportType.BUDGET) {
       const budgetList = await this.budgets.listBudgets(organizationId);
-      const variances = [];
-      for (const b of budgetList.slice(0, 3)) {
-        variances.push(await this.budgets.calculateBudgetVariance(organizationId, b.id));
+      const variances: BriefBudgetVarianceInput[] = [];
+      for (const b of budgetList.slice(0, 5)) {
+        const v = await this.budgets.calculateBudgetVariance(organizationId, b.id);
+        variances.push({
+          budgetName: b.name,
+          totalAllocated: v.totalAllocated,
+          totalActualSpent: v.totalActualSpent,
+          totalVarianceAmount: v.totalVarianceAmount,
+          totalUtilizationPct: v.totalUtilizationPct,
+          missingCurrencies:
+            'missingCurrencies' in v && Array.isArray(v.missingCurrencies)
+              ? (v.missingCurrencies as string[])
+              : undefined,
+          isComplete: 'isComplete' in v ? Boolean(v.isComplete) : true,
+          lines: Array.isArray(v.lines) ? v.lines : undefined,
+        });
       }
+      budgetVariancesForBrief = variances;
       summaryMetrics = {
         activeBudgetsCount: budgetList.length,
         budgetVariancePct: m.budgetVariance.value,
         varianceSummaries: variances,
       };
       narrativeBody = {
-        headline: 'Budget Allocation vs Actual Performance Report',
+        headline: 'Budget Allocation vs Actual Performance Brief',
       };
+      sourceRecordIds.budgetIds = budgetList.map((b) => b.id);
     } else if (dto.type === ReportType.RISK) {
-      const alerts = await this.riskMonitoring.listAlerts(organizationId, {});
       summaryMetrics = {
         totalAlertsCount: alerts.length,
         overdueReceivables: m.receivableAging.value?.totalOverdue ?? '0.0000',
@@ -179,12 +289,38 @@ export class ReportsService {
         },
       };
       narrativeBody = {
-        headline: 'Financial Risk & Anomaly Surveillance Report',
+        headline: 'Financial Risk & Anomaly Surveillance Brief',
         nonFraudPolicy:
           'All anomaly signals require human review and are never classified as confirmed fraud.',
       };
       sourceRecordIds.riskAlertIds = alerts.map((a) => a.id);
     }
+
+    const executiveBrief = buildExecutiveBrief({
+      reportType: dto.type,
+      periodStart,
+      periodEnd,
+      metricsBundle,
+      liquidCashBalance,
+      liquidAccountsCount: liquidAccounts.length,
+      recordCounts: {
+        accounts: Math.max(liquidAccounts.length, (sourceRecordIds.accountIds ?? []).length),
+        transactions: (sourceRecordIds.transactionIds ?? []).length,
+        invoices: (sourceRecordIds.invoiceIds ?? []).length,
+        bills: (sourceRecordIds.billIds ?? []).length,
+        budgets: (sourceRecordIds.budgetIds ?? []).length,
+        riskAlerts: alerts.length,
+        forecasts: (sourceRecordIds.forecastIds ?? []).length,
+      },
+      alerts,
+      forecast: forecastForBrief,
+      expensesByCategory: expensesByCategoryForBrief,
+      expenseCount: expenseCountForBrief,
+      totalExpenses: totalExpensesForBrief,
+      expenseMissingCurrencies: expenseMissingCurrenciesForBrief,
+      budgetVariances: budgetVariancesForBrief,
+    });
+    narrativeBody.executiveBrief = executiveBrief;
 
     const title =
       dto.title?.trim() ??
@@ -287,6 +423,7 @@ export class ReportsService {
     }
 
     // PDF-ready structured document representation
+    const narrativeObj = (report.narrativeBody as Record<string, unknown>) ?? {};
     return {
       reportId: report.id,
       format: 'PDF',
@@ -302,6 +439,7 @@ export class ReportsService {
         },
         summaryMetrics: report.summaryMetrics,
         narrativeBody: report.narrativeBody,
+        executiveBrief: narrativeObj.executiveBrief ?? null,
         sourceRecordIds: report.sourceRecordIds,
       },
       exportedAt: new Date().toISOString(),

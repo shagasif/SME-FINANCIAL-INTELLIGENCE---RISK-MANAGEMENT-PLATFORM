@@ -6,6 +6,12 @@ import { SecurityUtil } from '../../../common/utils/security.util.js';
 
 export type SupportedAiProvider = 'openai' | 'gemini' | 'anthropic' | 'deterministic-grounded';
 
+export interface AiMediaAttachment {
+  mimeType: string;
+  base64Data: string;
+  fileName?: string;
+}
+
 export interface AiModelTaskRequest {
   organizationId: string;
   agentType: AgentType;
@@ -15,6 +21,7 @@ export interface AiModelTaskRequest {
   deterministicEvidence: Record<string, unknown>;
   requiredOutputKeys: string[];
   deterministicSynthesisBuilder: () => Record<string, unknown>;
+  attachments?: AiMediaAttachment[];
 }
 
 export interface AiModelUsageMetrics {
@@ -133,6 +140,7 @@ export class AiModelProviderService {
             systemInstructions: request.systemInstructions,
             userPrompt: sanitizedPrompt,
             deterministicEvidence: request.deterministicEvidence,
+            attachments: request.attachments,
           });
           this.validateStructuredOutput(structuredOutput, request.requiredOutputKeys);
           break;
@@ -287,6 +295,7 @@ export class AiModelProviderService {
     systemInstructions: string;
     userPrompt: string;
     deterministicEvidence: Record<string, unknown>;
+    attachments?: AiMediaAttachment[];
   }): Promise<Record<string, unknown>> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), params.timeoutMs);
@@ -294,6 +303,28 @@ export class AiModelProviderService {
     try {
       const baseUrl =
         this.config.get<string>('AI_BASE_URL') ?? 'https://api.openai.com/v1/chat/completions';
+
+      const textPayload = JSON.stringify({
+        prompt: params.userPrompt,
+        authoritativeDeterministicEvidence: params.deterministicEvidence,
+      });
+
+      const imageAttachments = (params.attachments ?? []).filter((a) =>
+        a.mimeType.startsWith('image/'),
+      );
+
+      const userContent =
+        imageAttachments.length > 0
+          ? [
+              { type: 'text', text: textPayload },
+              ...imageAttachments.map((att) => ({
+                type: 'image_url',
+                image_url: {
+                  url: `data:${att.mimeType};base64,${att.base64Data}`,
+                },
+              })),
+            ]
+          : textPayload;
 
       const response = await fetch(baseUrl, {
         method: 'POST',
@@ -308,10 +339,7 @@ export class AiModelProviderService {
             { role: 'system', content: params.systemInstructions },
             {
               role: 'user',
-              content: JSON.stringify({
-                prompt: params.userPrompt,
-                authoritativeDeterministicEvidence: params.deterministicEvidence,
-              }),
+              content: userContent,
             },
           ],
         }),

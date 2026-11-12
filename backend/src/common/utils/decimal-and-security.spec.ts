@@ -73,5 +73,12 @@ describe('DecimalMath & SecurityUtil (Unit Tests)', () => {
       expect(promptInjection.flaggedPatterns).toContain('SYSTEM_OVERRIDE_DIRECTIVE');
       expect(promptInjection.flaggedPatterns).toContain('ROLE_HIJACK_DIRECTIVE');
     });
+
+    it('normalizes customer and supplier names to Title Case while preserving mixed-case brands', () => {
+      expect(SecurityUtil.toTitleCasePartyName('sara')).toBe('Sara');
+      expect(SecurityUtil.toTitleCasePartyName('  al-madina   traders ')).toBe('Al-Madina Traders');
+      expect(SecurityUtil.toTitleCasePartyName('ACME HOLDINGS')).toBe('Acme Holdings');
+      expect(SecurityUtil.toTitleCasePartyName('NorthStar')).toBe('NorthStar');
+    });
   });
 });
