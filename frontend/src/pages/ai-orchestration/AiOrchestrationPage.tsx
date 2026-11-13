@@ -15,7 +15,7 @@ import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Drawer } from '../../components/ui/Drawer';
 import { Skeleton } from '../../components/ui/LoadingSpinner';
-import { formatDate } from '../../utils/formatters';
+import { formatCurrency, formatDate, formatEmbeddedAmountsInText } from '../../utils/formatters';
 import {
   AgentType,
   ExecutionStatus,
@@ -26,6 +26,7 @@ import {
   type WorkflowRun,
 } from '../../types/ai.types';
 import { DEFAULT_DEMO_ORG } from '../../config/demo.config';
+import { deriveWorkflowExecutiveSummary, WorkflowRunAuditSections } from './WorkflowRunAuditSections';
 
 const SPECIALIST_AGENTS: Array<{
   type: AgentType;
@@ -713,7 +714,7 @@ export function AiOrchestrationPage() {
                 Estimated Cost
               </span>
               <div className="mt-2 text-2xl font-bold font-mono text-[var(--text-primary)]">
-                ${modelStatus?.usage.totalEstimatedCostUsd || '0.0000'}
+                {formatCurrency(modelStatus?.usage.totalEstimatedCostUsd ?? 0, 'USD')}
               </div>
               <span className="text-[11px] text-[var(--text-muted)] mt-1 block">
                 Calculated at provider rates
@@ -804,12 +805,12 @@ export function AiOrchestrationPage() {
                     </div>
 
                     <p className="text-xs text-[var(--text-secondary)]">
-                      {run.resultPayload?.executiveSummary || 'No summary synthesized.'}
+                      {formatEmbeddedAmountsInText(deriveWorkflowExecutiveSummary(run))}
                     </p>
 
                     <div className="flex items-center justify-between pt-2">
                       <span className="text-[11px] text-[var(--text-muted)]">
-                        Dispatched on {formatDate(run.createdAt)}
+                        Dispatched on {formatDate(run.startedAt || run.createdAt)}
                       </span>
                       {!isAuditor && canRunAiWorkflows && (
                         <Button
@@ -898,63 +899,72 @@ export function AiOrchestrationPage() {
         <Modal
           isOpen={true}
           onClose={() => setReviewRun(null)}
-          title={`Human-in-the-Loop Signoff: ${reviewRun.prompt.substring(0, 40)}...`}
+          title={`Human-in-the-Loop Review: ${reviewRun.taskClassification || 'AI Workflow'}`}
+          size="xl"
         >
-          <form onSubmit={handleReviewSubmit} className="space-y-4 text-xs">
-            {reviewError && (
-              <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-2.5 text-rose-600 dark:text-rose-400">
-                {reviewError}
+          <div className="space-y-4 text-xs">
+            <WorkflowRunAuditSections run={reviewRun} />
+
+            {/* Preserved Reviewer Decision Form */}
+            <form
+              onSubmit={handleReviewSubmit}
+              className="space-y-4 border-t border-[var(--border-subtle)] pt-4"
+            >
+              {reviewError && (
+                <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-2.5 text-rose-600 dark:text-rose-400">
+                  {reviewError}
+                </div>
+              )}
+
+              <div>
+                <label className="text-[11px] font-semibold text-[var(--text-secondary)] block mb-1">
+                  Review Decision *
+                </label>
+                <select
+                  value={reviewDecision}
+                  onChange={(e) =>
+                    setReviewDecision(e.target.value as 'APPROVE' | 'REJECT' | 'OVERRIDE')
+                  }
+                  className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-bg)] p-2 text-xs font-semibold"
+                  required
+                >
+                  <option value="APPROVE">APPROVE (Accept findings and commit to memory)</option>
+                  <option value="OVERRIDE">
+                    OVERRIDE (Apply modified figures with review notes)
+                  </option>
+                  <option value="REJECT">REJECT (Discard run findings)</option>
+                </select>
               </div>
-            )}
 
-            <div>
-              <label className="text-[11px] font-semibold text-[var(--text-secondary)] block mb-1">
-                Review Decision *
-              </label>
-              <select
-                value={reviewDecision}
-                onChange={(e) =>
-                  setReviewDecision(e.target.value as 'APPROVE' | 'REJECT' | 'OVERRIDE')
-                }
-                className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-2 text-xs font-semibold"
-                required
-              >
-                <option value="APPROVE">APPROVE (Accept findings and commit to memory)</option>
-                <option value="OVERRIDE">
-                  OVERRIDE (Apply modified figures with review notes)
-                </option>
-                <option value="REJECT">REJECT (Discard run findings)</option>
-              </select>
-            </div>
+              <div>
+                <label className="text-[11px] font-semibold text-[var(--text-secondary)] block mb-1">
+                  Reviewer Justification / Audit Notes *
+                </label>
+                <textarea
+                  value={reviewNotes}
+                  onChange={(e) => setReviewNotes(e.target.value)}
+                  placeholder="Document your verification rationale..."
+                  rows={3}
+                  required
+                  className="w-full rounded-lg border border-[var(--border-subtle)] bg-transparent p-2 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--accent-primary)]"
+                />
+              </div>
 
-            <div>
-              <label className="text-[11px] font-semibold text-[var(--text-secondary)] block mb-1">
-                Reviewer Justification / Audit Notes *
-              </label>
-              <textarea
-                value={reviewNotes}
-                onChange={(e) => setReviewNotes(e.target.value)}
-                placeholder="Document your verification rationale..."
-                rows={3}
-                required
-                className="w-full rounded-lg border border-[var(--border-subtle)] bg-transparent p-2 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]"
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border-subtle)]">
-              <Button variant="ghost" type="button" onClick={() => setReviewRun(null)}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                type="submit"
-                isLoading={isSubmittingReview}
-                disabled={!reviewNotes.trim()}
-              >
-                Commit Review Decision
-              </Button>
-            </div>
-          </form>
+              <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border-subtle)]">
+                <Button variant="ghost" type="button" onClick={() => setReviewRun(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  type="submit"
+                  isLoading={isSubmittingReview}
+                  disabled={!reviewNotes.trim()}
+                >
+                  Commit Review Decision
+                </Button>
+              </div>
+            </form>
+          </div>
         </Modal>
       )}
 
@@ -962,58 +972,10 @@ export function AiOrchestrationPage() {
       <Drawer
         isOpen={Boolean(inspectRun)}
         onClose={() => setInspectRun(null)}
-        title="Workflow Run Inspection"
+        title={`Workflow Run Inspection: ${inspectRun?.taskClassification || 'AI Workflow'}`}
         width="lg"
       >
-        {inspectRun && (
-          <div className="space-y-4 text-xs">
-            <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-3 space-y-2">
-              <div className="font-bold text-sm text-[var(--text-primary)]">
-                {inspectRun.prompt}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-[10px] text-[var(--brand-primary)]">
-                  {inspectRun.taskClassification}
-                </span>
-                <span className="text-[10px] text-[var(--text-muted)]">
-                  Mode: {inspectRun.executionMode}
-                </span>
-              </div>
-            </div>
-
-            {inspectRun.resultPayload && (
-              <div className="space-y-2">
-                <span className="font-bold text-[var(--text-primary)]">Executive Summary:</span>
-                <p className="text-xs text-[var(--text-secondary)] leading-relaxed bg-[var(--surface-subtle)] p-3 rounded-lg border border-[var(--border-subtle)]">
-                  {inspectRun.resultPayload.executiveSummary}
-                </p>
-              </div>
-            )}
-
-            {/* Verifier Audit */}
-            {inspectRun.resultPayload?.verifierAudit && (
-              <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 space-y-1.5">
-                <span className="font-bold text-amber-950 dark:text-amber-200 block">
-                  Verifier AI Audit Report:
-                </span>
-                <div className="grid grid-cols-2 gap-2 text-[11px]">
-                  <div>
-                    Arithmetic Verified:{' '}
-                    <span className="font-bold">
-                      {inspectRun.resultPayload.verifierAudit.arithmeticVerified ? 'YES' : 'NO'}
-                    </span>
-                  </div>
-                  <div>
-                    Citations Verified:{' '}
-                    <span className="font-bold">
-                      {inspectRun.resultPayload.verifierAudit.citationsVerified ? 'YES' : 'NO'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        {inspectRun && <WorkflowRunAuditSections run={inspectRun} />}
       </Drawer>
     </div>
   );

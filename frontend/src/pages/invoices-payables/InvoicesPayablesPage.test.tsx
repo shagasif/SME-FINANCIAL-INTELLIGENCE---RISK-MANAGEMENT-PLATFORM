@@ -177,7 +177,7 @@ describe('InvoicesPayablesPage Component (Phase 1 Fixes)', () => {
       expect(screen.getByText(/Incomplete FX \(EUR\)/i)).toBeInTheDocument();
       expect(screen.getByText(/Partial Total:\s*\$668\.78/i)).toBeInTheDocument();
       expect(screen.getByText('$669')).toBeInTheDocument();
-      expect(screen.getAllByText(/PKR\s*185,000\.00/i).length).toBeGreaterThanOrEqual(2);
+      expect(screen.getAllByText(/PKR\s*185,000/i).length).toBeGreaterThanOrEqual(2);
     });
 
     // Only 1 payable row (OVERDUE) gets a Record Payment button; DRAFT & VOID do not
@@ -188,7 +188,7 @@ describe('InvoicesPayablesPage Component (Phase 1 Fixes)', () => {
 
     await waitFor(() => {
       expect(screen.getByText('BILL-2026-500')).toBeInTheDocument();
-      expect(screen.getByText(/Total Outstanding:\s*\$9,200\.00/i)).toBeInTheDocument();
+      expect(screen.getByText(/Total Outstanding:\s*\$9,200/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Settle Bill/i })).toBeInTheDocument();
     });
   });
@@ -672,7 +672,7 @@ describe('InvoicesPayablesPage Component (Phase 1 Fixes)', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Receivables Aging Summary')).toBeInTheDocument();
-      expect(screen.getByText(/Total Outstanding:\s*PKR\s*25,000\.00/i)).toBeInTheDocument();
+      expect(screen.getByText(/Total Outstanding:\s*PKR\s*25,000/i)).toBeInTheDocument();
       expect(screen.getByText(/\(Excludes\s*PKR\s*55,000\s*in drafts\)/i)).toBeInTheDocument();
     });
 

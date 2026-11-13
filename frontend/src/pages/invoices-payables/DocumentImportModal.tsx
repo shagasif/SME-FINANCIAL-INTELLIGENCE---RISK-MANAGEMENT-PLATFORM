@@ -249,6 +249,12 @@ export function DocumentImportModal({
     void processSelectedFile(file);
   };
 
+  const extractedDiscountAmount =
+    Number.parseFloat(extractionResult?.extractedDocument.discountAmount || '0') || 0;
+  const extractedDiscountRate = extractionResult?.extractedDocument.discountRate
+    ? Number.parseFloat(extractionResult.extractedDocument.discountRate)
+    : null;
+
   const computeLiveTotals = () => {
     const headerTax = Number.parseFloat(taxRate || '0') || 0;
     if (lineItems.length > 0) {
@@ -263,13 +269,14 @@ export function DocumentImportModal({
         subtotal += lineSub;
         tax += lineTax;
       }
-      return { subtotal, tax, total: subtotal + tax };
+      const total = Math.max(0, subtotal + tax - extractedDiscountAmount);
+      return { subtotal, tax, discount: extractedDiscountAmount, total };
     }
     const rawTotal = Number.parseFloat(totalAmount || '0') || 0;
     const divisor = 1 + headerTax / 100;
     const subtotal = divisor > 0 ? rawTotal / divisor : rawTotal;
     const tax = rawTotal - subtotal;
-    return { subtotal, tax, total: rawTotal };
+    return { subtotal, tax, discount: extractedDiscountAmount, total: rawTotal };
   };
 
   const liveTotals = computeLiveTotals();
@@ -465,6 +472,17 @@ export function DocumentImportModal({
 
     try {
       const normalizedCurrency = (currency || orgCurrency || 'USD').trim().toUpperCase();
+      const hasExtractedDiscount = usingLines && extractedDiscountAmount > 0;
+      const effectiveNotes = hasExtractedDiscount
+        ? [
+            notes.trim(),
+            `Line Items (${dtoLineItems.length}): ${dtoLineItems
+              .map((li) => `${li.description} (${Number.parseFloat(li.quantity)} x ${Number.parseFloat(li.unitPrice)})`)
+              .join('; ')}`,
+          ]
+            .filter(Boolean)
+            .join(' | ')
+        : notes.trim();
       const baseFields = {
         category: category.trim() || (isInvoice ? 'Sales Revenue' : 'Operating Expense'),
         ...(department.trim() ? { department: department.trim() } : {}),
@@ -473,10 +491,15 @@ export function DocumentImportModal({
         currency: normalizedCurrency,
         status: statusInput,
         taxRate: parsedTaxRate.toFixed(4),
-        ...(usingLines
+        ...(usingLines && !hasExtractedDiscount
           ? { lineItems: dtoLineItems }
-          : { totalAmount: Number.parseFloat(totalAmount).toFixed(4) }),
-        ...(notes.trim() ? { notes: notes.trim() } : {}),
+          : {
+              totalAmount: (hasExtractedDiscount
+                ? liveTotals.total
+                : Number.parseFloat(totalAmount)
+              ).toFixed(4),
+            }),
+        ...(effectiveNotes ? { notes: effectiveNotes } : {}),
         sourceDocumentChecksum: extractionResult.fileMetadata.checksumSha256,
       };
 
@@ -1001,13 +1024,28 @@ export function DocumentImportModal({
                     <div className="text-[11px] text-[var(--text-secondary)]">
                       Subtotal: {formatCurrency(liveTotals.subtotal, currency)}
                     </div>
+                    {liveTotals.discount > 0 && (
+                      <div className="text-[11px] text-amber-700 dark:text-amber-300">
+                        Discount
+                        {extractedDiscountRate !== null ? ` (${extractedDiscountRate}%)` : ''}: -
+                        {formatCurrency(liveTotals.discount, currency)}
+                      </div>
+                    )}
                     <div className="text-[11px] text-[var(--text-secondary)]">
                       Tax: {formatCurrency(liveTotals.tax, currency)}
                     </div>
                     <div className="text-sm font-bold text-[var(--text-primary)] pt-1 border-t border-[var(--border-subtle)]">
-                      Total: {formatCurrency(liveTotals.total, currency)}
+                      {liveTotals.discount > 0 ? 'Final Total Payable: ' : 'Total: '}
+                      {formatCurrency(liveTotals.total, currency)}
                     </div>
                   </div>
+                  {liveTotals.discount > 0 && (
+                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] text-amber-800 dark:text-amber-200">
+                      This form does not have a dedicated discount field. Saving preserves the
+                      discounted Final Total Payable ({formatCurrency(liveTotals.total, currency)})
+                      and records the subtotal, discount, and line-item breakdown in Notes.
+                    </div>
+                  )}
                 </div>
               ) : (
                 <p className="text-[11px] text-[var(--text-muted)]">

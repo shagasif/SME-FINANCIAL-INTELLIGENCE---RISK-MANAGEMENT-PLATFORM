@@ -359,7 +359,7 @@ describe('OverviewDashboardPage Component', () => {
     await waitFor(() => {
       expect(screen.getByText('$9,453.72')).toBeInTheDocument();
       expect(screen.getByText('$2,054.04')).toBeInTheDocument();
-      expect(screen.getByText(/\+PKR\s*275,000\.00/i)).toBeInTheDocument();
+      expect(screen.getByText(/\+PKR\s*275,000/i)).toBeInTheDocument();
     });
   });
 

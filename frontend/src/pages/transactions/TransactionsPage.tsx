@@ -228,6 +228,8 @@ export function TransactionsPage() {
 
   const safeAccounts = Array.isArray(accounts) ? accounts : [];
   const accountMap = Object.fromEntries(safeAccounts.map((a) => [a.id, a]));
+  const selectedAccount = safeAccounts.find((a) => a.id === selectedAccountId);
+  const selectedAccountName = selectedAccount?.name || 'Selected Account';
   const summaryCurrency = resolveReportingCurrency(effectiveOrg?.baseCurrency, summary?.currency);
   const isSummaryIncomplete = summary?.isComplete === false;
   const nativeBreakdowns = (summary?.byCurrency ?? []).filter((b) => b.currency !== summaryCurrency);
@@ -416,217 +418,267 @@ export function TransactionsPage() {
         </div>
       )}
 
-      {/* Ledger Summary Cards (4 KPI Cards backed by full-dataset DB aggregates) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Ledger Summary Cards (4 KPI Cards — Minimal Modern Cashly-Inspired Architecture) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Total Transactions */}
-        <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)]">
-          <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-1">
-            <span className="font-semibold">Total Transactions</span>
-            <ListChecks className="w-4 h-4 text-[var(--accent-teal)]" />
+        <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] p-4 sm:p-5 shadow-xs hover:border-[var(--border-strong)] transition-all flex flex-col justify-between min-h-[135px]">
+          <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] truncate">
+              Total Transactions
+            </span>
+            <ListChecks className="w-4 h-4 text-[var(--accent-teal)] shrink-0" />
           </div>
-          {isPageLoading && !summary ? (
-            <Skeleton className="h-7 w-20 my-1" />
-          ) : (
-            <div className="text-xl font-bold font-mono text-[var(--text-primary)]">
-              {summary ? summary.totalTransactions : pagination.total}
+
+          <div className="flex items-baseline justify-between gap-2 my-1">
+            <div>
+              {isPageLoading && !summary ? (
+                <Skeleton className="h-8 w-24 my-1" />
+              ) : (
+                <div className="text-2xl sm:text-[26px] font-bold font-mono tracking-tight text-[var(--text-primary)]">
+                  {summary ? summary.totalTransactions.toLocaleString() : pagination.total.toLocaleString()}
+                </div>
+              )}
             </div>
-          )}
-          <div className="text-[11px] text-[var(--text-muted)] mt-1">
-            {summary
-              ? `${summary.incomeCount} income • ${summary.expenseCount} expenses`
-              : 'Across all matching ledger pages'}
+
+            {/* Micro-visual: 5-bar activity visual */}
+            <div className="flex items-end gap-1 h-7 shrink-0 opacity-80" aria-hidden="true">
+              <div className="w-1.5 h-2.5 rounded-sm bg-[var(--accent-teal)]/30" />
+              <div className="w-1.5 h-4.5 rounded-sm bg-[var(--accent-teal)]/50" />
+              <div className="w-1.5 h-3.5 rounded-sm bg-[var(--accent-teal)]/40" />
+              <div className="w-1.5 h-6 rounded-sm bg-[var(--accent-teal)]" />
+              <div className="w-1.5 h-5 rounded-sm bg-[var(--accent-teal)]/70" />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 pt-2 border-t border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]">
+            <span className="font-mono text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[var(--surface-elevated)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">
+              {summary ? `${summary.incomeCount} In • ${summary.expenseCount} Out` : `${pagination.total} Records`}
+            </span>
+            <span className="truncate">Active ledger records</span>
           </div>
         </div>
 
         {/* Card 2: Total Income */}
-        <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)]">
-          <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-1">
-            <span className="font-semibold">Total Income ({summaryCurrency})</span>
-            <TrendingUp className="w-4 h-4 text-emerald-500" />
+        <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] p-4 sm:p-5 shadow-xs hover:border-[var(--border-strong)] transition-all flex flex-col justify-between min-h-[135px]">
+          <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] truncate">
+              Total Income ({summaryCurrency})
+            </span>
+            <TrendingUp className="w-4 h-4 text-emerald-500 shrink-0" />
           </div>
-          {isPageLoading && !summary ? (
-            <Skeleton className="h-7 w-32 my-1" />
-          ) : isSummaryIncomplete ? (
-            <div className="space-y-0.5">
-              <div className="text-sm font-bold text-amber-600 dark:text-amber-400">
-                Incomplete ({summary?.missingCurrencies?.join(', ')})
-              </div>
-              {nativeBreakdowns.map((b) => (
-                <div
-                  key={b.currency}
-                  className="text-xs font-mono text-[var(--text-secondary)]"
-                >
-                  Native: {formatCurrency(b.totalIncome, b.currency)}
+
+          <div className="flex items-baseline justify-between gap-2 my-1">
+            <div>
+              {isPageLoading && !summary ? (
+                <Skeleton className="h-8 w-32 my-1" />
+              ) : isSummaryIncomplete ? (
+                <div className="space-y-0.5">
+                  <div className="text-sm font-bold text-amber-600 dark:text-amber-400">
+                    Incomplete ({summary?.missingCurrencies?.join(', ')})
+                  </div>
+                  {nativeBreakdowns.map((b) => (
+                    <div key={b.currency} className="text-xs font-mono text-[var(--text-secondary)]">
+                      Native: {formatCurrency(b.totalIncome, b.currency)}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              ) : (
+                <div className="text-2xl sm:text-[26px] font-bold font-mono tracking-tight text-[var(--status-ok-text)]">
+                  {summary && summary.totalIncome !== null
+                    ? formatCurrency(summary.totalIncome, summaryCurrency)
+                    : '—'}
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="text-xl font-bold font-mono text-[var(--status-ok-text)]">
-              {summary && summary.totalIncome !== null
-                ? formatCurrency(summary.totalIncome, summaryCurrency)
-                : '—'}
+
+            {/* Micro-visual: Emerald 5-bar ascending visual */}
+            <div className="flex items-end gap-1 h-7 shrink-0 opacity-80" aria-hidden="true">
+              <div className="w-1.5 h-2 rounded-sm bg-emerald-500/25" />
+              <div className="w-1.5 h-3 rounded-sm bg-emerald-500/40" />
+              <div className="w-1.5 h-4.5 rounded-sm bg-emerald-500/60" />
+              <div className="w-1.5 h-5.5 rounded-sm bg-emerald-500/80" />
+              <div className="w-1.5 h-7 rounded-sm bg-emerald-500" />
             </div>
-          )}
-          <div className="text-[11px] text-[var(--text-muted)] mt-1">
-            {summary ? `${summary.incomeCount} inflow records` : 'Filtered inflows'}
-            {!isSummaryIncomplete && nativeBreakdowns.length > 0 && (
-              <span className="block truncate font-mono text-[10px] opacity-85">
-                Native:{' '}
-                {nativeBreakdowns
-                  .map((b) => formatCurrency(b.totalIncome, b.currency))
-                  .join(' • ')}
+          </div>
+
+          <div className="flex items-center gap-2 pt-2 border-t border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]">
+            <span className="inline-flex items-center gap-0.5 font-mono text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
+              <TrendingUp className="w-2.5 h-2.5" />
+              +{summary?.incomeCount ?? 0} Inflows
+            </span>
+            {!isSummaryIncomplete && nativeBreakdowns.length > 0 ? (
+              <span className="truncate font-mono text-[10px] opacity-85">
+                Native: {nativeBreakdowns.map((b) => formatCurrency(b.totalIncome, b.currency)).join(' • ')}
               </span>
+            ) : (
+              <span className="truncate">Validated credits</span>
             )}
           </div>
         </div>
 
         {/* Card 3: Total Expenses */}
-        <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)]">
-          <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-1">
-            <span className="font-semibold">Total Expenses ({summaryCurrency})</span>
-            <TrendingDown className="w-4 h-4 text-rose-500" />
+        <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] p-4 sm:p-5 shadow-xs hover:border-[var(--border-strong)] transition-all flex flex-col justify-between min-h-[135px]">
+          <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] truncate">
+              Total Expenses ({summaryCurrency})
+            </span>
+            <TrendingDown className="w-4 h-4 text-rose-500 shrink-0" />
           </div>
-          {isPageLoading && !summary ? (
-            <Skeleton className="h-7 w-32 my-1" />
-          ) : isSummaryIncomplete ? (
-            <div className="space-y-0.5">
-              <div className="text-sm font-bold text-amber-600 dark:text-amber-400">
-                Incomplete ({summary?.missingCurrencies?.join(', ')})
-              </div>
-              {nativeBreakdowns.map((b) => (
-                <div
-                  key={b.currency}
-                  className="text-xs font-mono text-[var(--text-secondary)]"
-                >
-                  Native: {formatCurrency(b.totalExpenses, b.currency)}
+
+          <div className="flex items-baseline justify-between gap-2 my-1">
+            <div>
+              {isPageLoading && !summary ? (
+                <Skeleton className="h-8 w-32 my-1" />
+              ) : isSummaryIncomplete ? (
+                <div className="space-y-0.5">
+                  <div className="text-sm font-bold text-amber-600 dark:text-amber-400">
+                    Incomplete ({summary?.missingCurrencies?.join(', ')})
+                  </div>
+                  {nativeBreakdowns.map((b) => (
+                    <div key={b.currency} className="text-xs font-mono text-[var(--text-secondary)]">
+                      Native: {formatCurrency(b.totalExpenses, b.currency)}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              ) : (
+                <div className="text-2xl sm:text-[26px] font-bold font-mono tracking-tight text-[var(--text-primary)]">
+                  {summary && summary.totalExpenses !== null
+                    ? formatCurrency(summary.totalExpenses, summaryCurrency)
+                    : '—'}
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="text-xl font-bold font-mono text-[var(--text-primary)]">
-              {summary && summary.totalExpenses !== null
-                ? formatCurrency(summary.totalExpenses, summaryCurrency)
-                : '—'}
+
+            {/* Micro-visual: Rose 5-bar vertical histogram visual */}
+            <div className="flex items-end gap-1 h-7 shrink-0 opacity-80" aria-hidden="true">
+              <div className="w-1.5 h-5 rounded-sm bg-rose-500/50" />
+              <div className="w-1.5 h-6.5 rounded-sm bg-rose-500/75" />
+              <div className="w-1.5 h-3.5 rounded-sm bg-rose-500/35" />
+              <div className="w-1.5 h-7 rounded-sm bg-rose-500" />
+              <div className="w-1.5 h-4.5 rounded-sm bg-rose-500/45" />
             </div>
-          )}
-          <div className="text-[11px] text-[var(--text-muted)] mt-1">
-            {summary ? `${summary.expenseCount} outflow records` : 'Filtered outflows'}
-            {!isSummaryIncomplete && nativeBreakdowns.length > 0 && (
-              <span className="block truncate font-mono text-[10px] opacity-85">
-                Native:{' '}
-                {nativeBreakdowns
-                  .map((b) => formatCurrency(b.totalExpenses, b.currency))
-                  .join(' • ')}
+          </div>
+
+          <div className="flex items-center gap-2 pt-2 border-t border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]">
+            <span className="inline-flex items-center gap-0.5 font-mono text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20">
+              <TrendingDown className="w-2.5 h-2.5" />
+              -{summary?.expenseCount ?? 0} Outflows
+            </span>
+            {!isSummaryIncomplete && nativeBreakdowns.length > 0 ? (
+              <span className="truncate font-mono text-[10px] opacity-85">
+                Native: {nativeBreakdowns.map((b) => formatCurrency(b.totalExpenses, b.currency)).join(' • ')}
               </span>
+            ) : (
+              <span className="truncate">Operational debits</span>
             )}
           </div>
         </div>
 
         {/* Card 4: Net Cash Movement */}
-        <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)]">
-          <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-1">
-            <span className="font-semibold">Net Cash Movement ({summaryCurrency})</span>
-            <Wallet className="w-4 h-4 text-[var(--accent-teal)]" />
+        <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] p-4 sm:p-5 shadow-xs hover:border-[var(--border-strong)] transition-all flex flex-col justify-between min-h-[135px]">
+          <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] truncate">
+              Net Cash Movement ({summaryCurrency})
+            </span>
+            <Wallet className="w-4 h-4 text-[var(--accent-teal)] shrink-0" />
           </div>
-          {isPageLoading && !summary ? (
-            <Skeleton className="h-7 w-32 my-1" />
-          ) : isSummaryIncomplete ? (
-            <div className="space-y-0.5">
-              <div className="text-sm font-bold text-amber-600 dark:text-amber-400">
-                Missing FX rate: {summary?.missingCurrencies?.join(', ')} → {summaryCurrency}
-              </div>
-              {nativeBreakdowns.map((b) => (
-                <div
-                  key={b.currency}
-                  className="text-xs font-mono text-[var(--text-secondary)]"
-                >
-                  Native: {formatSignedCurrency(b.netCashMovement, b.currency)}
+
+          <div className="flex items-baseline justify-between gap-2 my-1">
+            <div>
+              {isPageLoading && !summary ? (
+                <Skeleton className="h-8 w-32 my-1" />
+              ) : isSummaryIncomplete ? (
+                <div className="space-y-0.5">
+                  <div className="text-sm font-bold text-amber-600 dark:text-amber-400">
+                    Missing FX rate: {summary?.missingCurrencies?.join(', ')} → {summaryCurrency}
+                  </div>
+                  {nativeBreakdowns.map((b) => (
+                    <div key={b.currency} className="text-xs font-mono text-[var(--text-secondary)]">
+                      Native: {formatSignedCurrency(b.netCashMovement, b.currency)}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              ) : (
+                <div
+                  className={`text-2xl sm:text-[26px] font-bold font-mono tracking-tight ${
+                    netCashNumeric !== null && netCashNumeric < 0
+                      ? 'text-red-600 dark:text-red-400'
+                      : 'text-[var(--status-ok-text)]'
+                  }`}
+                >
+                  {summary && summary.netCashMovement !== null
+                    ? formatSignedCurrency(summary.netCashMovement, summaryCurrency)
+                    : '—'}
+                </div>
+              )}
             </div>
-          ) : (
-            <div
-              className={`text-xl font-bold font-mono ${
+
+            {/* Micro-visual: Cashly-style curved sparkline wave SVG */}
+            <div className="w-16 h-7 shrink-0 opacity-80" aria-hidden="true">
+              <svg viewBox="0 0 64 28" className="w-full h-full overflow-visible">
+                <path
+                  d="M 2 20 C 14 10, 26 24, 38 12 C 48 2, 54 8, 62 4"
+                  fill="none"
+                  stroke={netCashNumeric !== null && netCashNumeric < 0 ? '#e11d48' : '#0f766e'}
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                />
+                <circle
+                  cx="62"
+                  cy="4"
+                  r="2.5"
+                  fill={netCashNumeric !== null && netCashNumeric < 0 ? '#e11d48' : '#0f766e'}
+                />
+              </svg>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 pt-2 border-t border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]">
+            <span
+              className={`font-mono text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
                 netCashNumeric !== null && netCashNumeric < 0
-                  ? 'text-red-600 dark:text-red-400'
-                  : 'text-[var(--status-ok-text)]'
+                  ? 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20'
+                  : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
               }`}
             >
-              {summary && summary.netCashMovement !== null
-                ? formatSignedCurrency(summary.netCashMovement, summaryCurrency)
-                : '—'}
-            </div>
-          )}
-          <div className="text-[11px] text-[var(--text-muted)] mt-1">
-            {isSummaryIncomplete
-              ? 'Consolidated total unavailable without FX rate'
-              : 'Income minus expenses'}
-            {!isSummaryIncomplete && nativeBreakdowns.length > 0 && (
-              <span className="block truncate font-mono text-[10px] opacity-85">
+              {netCashNumeric !== null && netCashNumeric < 0 ? 'Deficit' : 'Surplus'}
+            </span>
+            {!isSummaryIncomplete && nativeBreakdowns.length > 0 ? (
+              <span className="truncate font-mono text-[10px] opacity-85">
                 Native:{' '}
                 {nativeBreakdowns
                   .map((b) => formatSignedCurrency(b.netCashMovement, b.currency))
                   .join(' • ')}
+              </span>
+            ) : (
+              <span className="truncate">
+                {isSummaryIncomplete
+                  ? 'Consolidated total unavailable without FX rate'
+                  : 'Income minus expenses'}
               </span>
             )}
           </div>
         </div>
       </div>
 
-      {/* Account Balances Strip */}
-      {safeAccounts.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {safeAccounts.map((acc) => {
-            const isSelected = selectedAccountId === acc.id;
-            return (
-              <div
-                key={acc.id}
-                onClick={() => {
-                  setSelectedAccountId(isSelected ? '' : acc.id);
-                  setPagination((p) => ({ ...p, page: 1 }));
-                }}
-                className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
-                  isSelected
-                    ? 'border-[var(--accent-teal)] bg-[var(--surface-elevated)] ring-1 ring-[var(--accent-teal)]'
-                    : 'border-[var(--border-subtle)] bg-[var(--surface-card)] hover:border-[var(--border-strong)]'
-                }`}
-                title={`Filter ledger by ${acc.name}`}
-              >
-                <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-1">
-                  <span className="font-semibold text-[var(--text-secondary)] truncate max-w-[140px]">
-                    {acc.name}
-                  </span>
-                  <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--surface-elevated)] border border-[var(--border-subtle)] text-[var(--accent-teal)]">
-                    {acc.currency}
-                  </span>
-                </div>
-                <div className="text-lg font-bold font-mono text-[var(--text-primary)]">
-                  {formatCurrency(acc.currentBalance, acc.currency)}
-                </div>
-                <div className="text-[11px] text-[var(--text-muted)] mt-1 flex items-center justify-between">
-                  <span className="uppercase text-[10px] tracking-wider">
-                    {acc.type || acc.accountType || 'BANK'}
-                  </span>
-                  {acc.institution && (
-                    <span className="truncate max-w-[110px]">{acc.institution}</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+      {/* Active Account Filter Pill */}
+      {selectedAccountId && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedAccountId('');
+              setPagination((p) => ({ ...p, page: 1 }));
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-[var(--accent-teal)]/10 text-[var(--accent-teal)] border border-[var(--accent-teal)]/30 hover:bg-[var(--accent-teal)]/20 hover:border-[var(--accent-teal)]/50 transition-all cursor-pointer shadow-xs group"
+            title="Clear account filter and show all accounts"
+            aria-label={`Clear filter for ${selectedAccountName}`}
+          >
+            <span>Viewing: {selectedAccountName}</span>
+            <X className="w-3.5 h-3.5 ml-0.5 group-hover:text-red-500 transition-colors" />
+          </button>
         </div>
-      ) : activeOrgId && !isPageLoading ? (
-        <div className="p-4 rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--surface-card)] text-center space-y-2">
-          <p className="text-xs text-[var(--text-muted)]">
-            No financial accounts found. Create your Operating, Payroll, Savings, or Cash account to
-            organize transactions.
-          </p>
-          <Button variant="primary" size="sm" onClick={() => setIsAccountsModalOpen(true)}>
-            <Plus className="w-3.5 h-3.5 mr-1.5" />
-            Create Financial Account
-          </Button>
-        </div>
-      ) : null}
+      )}
 
       {/* Filters Bar */}
       <div className="p-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs flex flex-col md:flex-row items-center gap-3">
@@ -816,6 +868,10 @@ export function TransactionsPage() {
         accounts={safeAccounts}
         orgId={activeOrgId || ''}
         defaultCurrency={currency}
+        onSelectAccount={(account) => {
+          setSelectedAccountId(account.id);
+          setPagination((p) => ({ ...p, page: 1 }));
+        }}
         onSuccess={() => {
           handleRefresh();
           if (activeOrgId) {

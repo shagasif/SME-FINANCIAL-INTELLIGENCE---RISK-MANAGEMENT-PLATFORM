@@ -17,7 +17,7 @@ import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Drawer } from '../../components/ui/Drawer';
 import { Skeleton } from '../../components/ui/LoadingSpinner';
-import { formatDate } from '../../utils/formatters';
+import { formatDate, formatEmbeddedAmountsInText } from '../../utils/formatters';
 import {
   RiskAlertSeverity,
   RiskAlertStatus,
@@ -436,9 +436,11 @@ export function RiskCenterPage() {
                       {alert.ruleCode}
                     </td>
                     <td className="py-3 px-4 max-w-md">
-                      <div className="font-semibold text-[var(--text-primary)]">{alert.title}</div>
+                      <div className="font-semibold text-[var(--text-primary)]">
+                        {formatEmbeddedAmountsInText(alert.title)}
+                      </div>
                       <div className="text-[11px] text-[var(--text-muted)] line-clamp-1 mt-0.5">
-                        {alert.description}
+                        {formatEmbeddedAmountsInText(alert.description)}
                       </div>
                     </td>
                     <td className="py-3 px-4 text-center">{getStatusBadge(alert.status)}</td>
@@ -511,10 +513,10 @@ export function RiskCenterPage() {
 
             <div className="space-y-1">
               <span className="font-bold text-sm text-[var(--text-primary)]">
-                {inspectAlert.title}
+                {formatEmbeddedAmountsInText(inspectAlert.title)}
               </span>
               <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                {inspectAlert.description}
+                {formatEmbeddedAmountsInText(inspectAlert.description)}
               </p>
             </div>
 

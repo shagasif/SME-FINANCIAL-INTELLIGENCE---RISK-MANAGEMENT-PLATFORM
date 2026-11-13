@@ -26,11 +26,51 @@ export type MetricReportingPeriod =
 
 export type MetricSourceRecordIds = string[] | Record<string, string[]>;
 
+export interface MetricAuditTraceRecord {
+  id: string;
+  type: 'ACCOUNT' | 'INVOICE' | 'BILL' | 'TRANSACTION';
+  label: string;
+  classification: string;
+  currency: string;
+  nativeAmount: string;
+  convertedAmount: string;
+  role: 'CALCULATION_INPUT' | 'SUPPORTING_EVIDENCE';
+}
+
+export interface MetricAuditTrace {
+  metricKey: string;
+  calculationReason: string;
+  status:
+    | 'COMPUTED'
+    | 'NOT_CALCULABLE'
+    | 'UNSUPPORTED_MISSING_DATA'
+    | 'ERROR'
+    | 'CALCULATED'
+    | 'UNSUPPORTED'
+    | 'INSUFFICIENT_DATA';
+  reportingPeriod: {
+    startDate: string;
+    endDate: string;
+  };
+  currency: string;
+  inputs: Record<string, string>;
+  assetRecords?: MetricAuditTraceRecord[];
+  liabilityRecords?: MetricAuditTraceRecord[];
+  supportingRecords?: MetricAuditTraceRecord[];
+}
+
 export interface DeterministicMetricResult {
   metricKey?: string;
   metricName?: string;
   name?: string;
-  status: 'COMPUTED' | 'UNSUPPORTED_MISSING_DATA' | 'CALCULATED' | 'UNSUPPORTED' | 'INSUFFICIENT_DATA';
+  status:
+    | 'COMPUTED'
+    | 'NOT_CALCULABLE'
+    | 'UNSUPPORTED_MISSING_DATA'
+    | 'ERROR'
+    | 'CALCULATED'
+    | 'UNSUPPORTED'
+    | 'INSUFFICIENT_DATA';
   value: string | number | AgingScheduleMetricValue | null;
   unit: string;
   formula: string;
@@ -40,6 +80,38 @@ export interface DeterministicMetricResult {
   sourceRecordIds?: MetricSourceRecordIds;
   dataLimitations: string[];
   components?: Record<string, string>;
+  auditTrace?: MetricAuditTrace;
+}
+
+export interface AnalyticsChartMonthlyPoint {
+  month: string;
+  label: string;
+  income: string;
+  expenses: string;
+  netCashFlow: string;
+  cogs: string;
+  grossMarginPct: string | null;
+}
+
+export interface AnalyticsExpenseBreakdownItem {
+  category: string;
+  amount: string;
+  percentage: string;
+  count: number;
+}
+
+export interface AnalyticsBudgetComparisonChart {
+  budgetId: string;
+  budgetName: string;
+  currency: string;
+  isComplete: boolean;
+  lines: Array<{
+    category: string;
+    department: string;
+    allocatedAmount: string;
+    actualSpent: string;
+    status: string;
+  }>;
 }
 
 export interface AllMetricsResponse {
@@ -63,6 +135,15 @@ export interface AllMetricsResponse {
       source: string;
       isInverse: boolean;
     }>;
+  };
+  charts?: {
+    monthlySeries: AnalyticsChartMonthlyPoint[];
+    expenseBreakdown: AnalyticsExpenseBreakdownItem[];
+    profitabilityTrend: {
+      isAvailable: boolean;
+      reason: string | null;
+    };
+    budgetComparison: AnalyticsBudgetComparisonChart | null;
   };
   metrics: {
     operatingCashFlow: DeterministicMetricResult;

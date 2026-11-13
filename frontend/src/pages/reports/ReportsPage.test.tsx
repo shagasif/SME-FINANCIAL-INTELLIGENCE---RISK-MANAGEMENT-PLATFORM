@@ -295,7 +295,7 @@ describe('ReportsPage Component', () => {
       expect(screen.getByRole('heading', { name: 'Executive Summary' })).toBeInTheDocument();
       expect(screen.getByRole('heading', { name: 'Key Financial KPIs' })).toBeInTheDocument();
       expect(screen.getByText('Verified Ledger')).toBeInTheDocument();
-      expect(screen.getByText('PKR 250,000.00')).toBeInTheDocument();
+      expect(screen.getByText('PKR 250,000')).toBeInTheDocument();
       expect(screen.getByText('Receivables & Payables Aging')).toBeInTheDocument();
       expect(screen.getByText('Prioritized Action Plan')).toBeInTheDocument();
       expect(screen.getByText(/AI Advisory/i)).toBeInTheDocument();
@@ -317,7 +317,7 @@ describe('ReportsPage Component', () => {
       const pdfText = new TextDecoder().decode(await capturedBlob!.arrayBuffer());
       expect(pdfText.startsWith('%PDF-1.4')).toBe(true);
       expect(pdfText).toContain('Star November Executive Brief');
-      expect(pdfText).toContain('PKR 250,000.00');
+      expect(pdfText).toContain('PKR 250,000');
       expect(pdfText).toContain('Receivables & Payables Aging');
       expect(pdfText).toContain('PRIORITIZED ACTION PLAN');
       expect(pdfText).toContain('DATA GROUNDING & LIMITATIONS');

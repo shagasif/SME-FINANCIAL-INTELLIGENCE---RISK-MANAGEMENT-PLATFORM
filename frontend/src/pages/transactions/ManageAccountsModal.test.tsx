@@ -202,4 +202,26 @@ describe('ManageAccountsModal Component', () => {
       expect(mockOnSuccess).toHaveBeenCalledTimes(1);
     });
   });
+
+  it('calls onSelectAccount and closes modal when an account row is clicked', () => {
+    const mockOnSelectAccount = vi.fn();
+
+    render(
+      <ManageAccountsModal
+        isOpen={true}
+        onClose={mockOnClose}
+        accounts={mockAccounts}
+        orgId={orgId}
+        defaultCurrency="PKR"
+        onSuccess={mockOnSuccess}
+        onSelectAccount={mockOnSelectAccount}
+      />,
+    );
+
+    const row = screen.getByRole('button', { name: /Primary Operating Checking/i });
+    fireEvent.click(row);
+
+    expect(mockOnSelectAccount).toHaveBeenCalledWith(mockAccounts[0]);
+    expect(mockOnClose).toHaveBeenCalledTimes(1);
+  });
 });

@@ -22,6 +22,7 @@ interface ManageAccountsModalProps {
   orgId: string;
   defaultCurrency?: string;
   onSuccess: () => void;
+  onSelectAccount?: (account: FinancialAccount) => void;
 }
 
 const ACCOUNT_TYPES = [
@@ -60,6 +61,7 @@ export function ManageAccountsModal({
   orgId,
   defaultCurrency = 'PKR',
   onSuccess,
+  onSelectAccount,
 }: ManageAccountsModalProps) {
   const [activeTab, setActiveTab] = useState<'LIST' | 'CREATE'>('LIST');
 
@@ -278,65 +280,98 @@ export function ManageAccountsModal({
                 </Button>
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-[var(--border-subtle)]">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-[var(--surface-elevated)] text-[var(--text-muted)]">
-                    <tr>
-                      <th className="px-3 py-2.5">Code</th>
-                      <th className="px-3 py-2.5">Account Name & Institution</th>
-                      <th className="px-3 py-2.5">Type</th>
-                      <th className="px-3 py-2.5">Currency</th>
-                      <th className="px-3 py-2.5 text-right">Opening Balance</th>
-                      <th className="px-3 py-2.5 text-right">Current Balance</th>
-                      <th className="px-3 py-2.5 text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--border-subtle)] bg-[var(--surface-card)]">
-                    {accounts.map((acc) => (
-                      <tr key={acc.id} className="hover:bg-[var(--surface-elevated)]/30">
-                        <td className="px-3 py-3 font-mono font-bold text-[var(--text-secondary)]">
-                          {acc.code || '—'}
-                        </td>
-                        <td className="px-3 py-3">
-                          <div className="font-semibold text-[var(--text-primary)]">{acc.name}</div>
-                          {acc.institution && (
-                            <div className="text-[11px] text-[var(--text-muted)] flex items-center gap-1 mt-0.5">
-                              <Building2 className="w-3 h-3 opacity-70" />
-                              <span>{acc.institution}</span>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-3 py-3">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase bg-[var(--surface-elevated)] border border-[var(--border-subtle)] text-[var(--text-secondary)]">
-                            {acc.type || acc.accountType || 'BANK'}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3 font-mono font-bold">
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-[var(--accent-teal)]/10 text-[var(--accent-teal)] border border-[var(--accent-teal)]/20">
-                            {acc.currency}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3 text-right font-mono text-[var(--text-muted)]">
-                          {formatCurrency(acc.openingBalance, acc.currency)}
-                        </td>
-                        <td className="px-3 py-3 text-right font-mono font-bold text-[var(--text-primary)]">
-                          {formatCurrency(acc.currentBalance, acc.currency)}
-                        </td>
-                        <td className="px-3 py-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleArchiveAccount(acc.id, acc.name)}
-                            disabled={isLoading}
-                            className="p-1 rounded-md text-[var(--text-muted)] hover:text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
-                            title="Archive Account"
-                          >
-                            <Archive className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
+              <div className="space-y-2">
+                {onSelectAccount && (
+                  <p className="text-[11px] text-[var(--text-muted)] italic">
+                    Tip: Click any account row to filter the ledger and KPI summary to that account.
+                  </p>
+                )}
+                <div className="overflow-x-auto rounded-xl border border-[var(--border-subtle)]">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-[var(--surface-elevated)] text-[var(--text-muted)]">
+                      <tr>
+                        <th className="px-3 py-2.5">Code</th>
+                        <th className="px-3 py-2.5">Account Name & Institution</th>
+                        <th className="px-3 py-2.5">Type</th>
+                        <th className="px-3 py-2.5">Currency</th>
+                        <th className="px-3 py-2.5 text-right">Opening Balance</th>
+                        <th className="px-3 py-2.5 text-right">Current Balance</th>
+                        <th className="px-3 py-2.5 text-center">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-[var(--border-subtle)] bg-[var(--surface-card)]">
+                      {accounts.map((acc) => (
+                        <tr
+                          key={acc.id}
+                          onClick={() => {
+                            if (onSelectAccount) {
+                              onSelectAccount(acc);
+                              handleClose();
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (onSelectAccount && (e.key === 'Enter' || e.key === ' ')) {
+                              e.preventDefault();
+                              onSelectAccount(acc);
+                              handleClose();
+                            }
+                          }}
+                          role={onSelectAccount ? 'button' : undefined}
+                          tabIndex={onSelectAccount ? 0 : undefined}
+                          className={`transition-colors ${
+                            onSelectAccount
+                              ? 'cursor-pointer hover:bg-[var(--surface-elevated)]/70 hover:border-l-4 hover:border-l-[var(--accent-teal)] focus:outline-hidden focus:bg-[var(--surface-elevated)]/70'
+                              : 'hover:bg-[var(--surface-elevated)]/30'
+                          }`}
+                          title={onSelectAccount ? `Filter ledger by ${acc.name}` : undefined}
+                        >
+                          <td className="px-3 py-3 font-mono font-bold text-[var(--text-secondary)]">
+                            {acc.code || '—'}
+                          </td>
+                          <td className="px-3 py-3">
+                            <div className="font-semibold text-[var(--text-primary)]">{acc.name}</div>
+                            {acc.institution && (
+                              <div className="text-[11px] text-[var(--text-muted)] flex items-center gap-1 mt-0.5">
+                                <Building2 className="w-3 h-3 opacity-70" />
+                                <span>{acc.institution}</span>
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-3 py-3">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase bg-[var(--surface-elevated)] border border-[var(--border-subtle)] text-[var(--text-secondary)]">
+                              {acc.type || acc.accountType || 'BANK'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 font-mono font-bold">
+                            <span className="px-2 py-0.5 rounded text-[10px] bg-[var(--accent-teal)]/10 text-[var(--accent-teal)] border border-[var(--accent-teal)]/20">
+                              {acc.currency}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 text-right font-mono text-[var(--text-muted)]">
+                            {formatCurrency(acc.openingBalance, acc.currency)}
+                          </td>
+                          <td className="px-3 py-3 text-right font-mono font-bold text-[var(--text-primary)]">
+                            {formatCurrency(acc.currentBalance, acc.currency)}
+                          </td>
+                          <td className="px-3 py-3 text-center">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleArchiveAccount(acc.id, acc.name);
+                              }}
+                              disabled={isLoading}
+                              className="p-1 rounded-md text-[var(--text-muted)] hover:text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer"
+                              title="Archive Account"
+                            >
+                              <Archive className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>

@@ -296,8 +296,8 @@ describe('TransactionsPage Component', () => {
       expect(screen.getByText('Global SaaS License Export')).toBeInTheDocument();
 
       // Check formatted currencies
-      expect(screen.getByText(/\+PKR\s*850,000\.00/i)).toBeInTheDocument();
-      expect(screen.getByText(/\+\$12,500\.00/i)).toBeInTheDocument();
+      expect(screen.getByText(/\+PKR\s*850,000/i)).toBeInTheDocument();
+      expect(screen.getByText(/\+\$12,500/i)).toBeInTheDocument();
     });
   });
 
@@ -674,15 +674,15 @@ describe('TransactionsPage Component', () => {
       expect(screen.getByText('51')).toBeInTheDocument();
       expect(screen.getByText('Total Income (USD)')).toBeInTheDocument();
       expect(screen.getByText(/\$14,149\.26/)).toBeInTheDocument();
-      expect(screen.getByText(/Native:\s*PKR\s*3,922,000\.00/i)).toBeInTheDocument();
+      expect(screen.getByText(/Native:\s*PKR\s*3,922,000/i)).toBeInTheDocument();
       expect(screen.getByText('Total Expenses (USD)')).toBeInTheDocument();
       expect(screen.getByText(/\$4,715\.10/)).toBeInTheDocument();
-      expect(screen.getByText(/Native:\s*PKR\s*1,306,900\.00/i)).toBeInTheDocument();
+      expect(screen.getByText(/Native:\s*PKR\s*1,306,900/i)).toBeInTheDocument();
       expect(screen.getByText('Net Cash Movement (USD)')).toBeInTheDocument();
       expect(screen.getByText(/\+\$9,434\.16/)).toBeInTheDocument();
-      expect(screen.getByText(/Native:\s*\+PKR\s*2,615,100\.00/i)).toBeInTheDocument();
-      // Native account balance card remains in PKR
-      expect(screen.getByText(/^PKR\s*2,615,100\.00$/i)).toBeInTheDocument();
+      expect(screen.getByText(/Native:\s*\+PKR\s*2,615,100/i)).toBeInTheDocument();
+      // Accounts button shows count of configured accounts (account cards moved to modal)
+      expect(screen.getByText(/Accounts \(1\)/i)).toBeInTheDocument();
     });
   });
 
@@ -863,6 +863,127 @@ describe('TransactionsPage Component', () => {
       expect(
         screen.getByText(/Consolidated total unavailable without FX rate/i),
       ).toBeInTheDocument();
+    });
+  });
+
+  it('filters ledger and KPI summary when account is selected in Accounts modal, displays Viewing pill, and clears on ✕ click', async () => {
+    authStorage.setToken('valid-user-token');
+
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'usr-star',
+        email: 'shagasif83@gmail.com',
+        fullName: 'Shagufta Asif',
+        isPlatformAdmin: false,
+      },
+      activeOrg: {
+        id: 'org-star-1',
+        name: 'star',
+        slug: 'star',
+        baseCurrency: 'PKR',
+        role: RoleType.BUSINESS_OWNER,
+      },
+      memberships: [],
+      activeRole: RoleType.BUSINESS_OWNER,
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      switchOrganization: vi.fn(),
+      hasRole: () => true,
+      canMutateLedger: true,
+      canManageBudgets: true,
+      canRunAiWorkflows: true,
+      canExportReports: true,
+      isAuditor: false,
+    });
+
+    const requestedUrls: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation((req: RequestInfo | URL) => {
+      const url = req.toString();
+      requestedUrls.push(url);
+      const jsonHeader = { 'Content-Type': 'application/json' };
+      if (url.includes('/accounts')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify([
+              {
+                id: 'acc-reserve',
+                name: 'Payroll Reserve Account',
+                type: 'BANK',
+                currency: 'PKR',
+                openingBalance: '50000.0000',
+                currentBalance: '50000.0000',
+                isArchived: false,
+              },
+            ]),
+            { status: 200, headers: jsonHeader },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            items: [],
+            pagination: { total: 0, page: 1, limit: 15, totalPages: 1 },
+            summary: {
+              totalTransactions: 0,
+              incomeCount: 0,
+              expenseCount: 0,
+              transferCount: 0,
+              currency: 'PKR',
+              isComplete: true,
+              missingCurrencies: [],
+              hasMixedCurrencies: false,
+              totalIncome: '0.0000',
+              totalExpenses: '0.0000',
+              netCashMovement: '0.0000',
+              byCurrency: [],
+            },
+          }),
+          { status: 200, headers: jsonHeader },
+        ),
+      );
+    });
+
+    render(
+      <BrowserRouter>
+        <TransactionsPage />
+      </BrowserRouter>,
+    );
+
+    // Initial load: no active filter pill
+    await waitFor(() => {
+      expect(screen.getByText('Financial Ledger & Transactions')).toBeInTheDocument();
+      expect(screen.queryByText(/Viewing:/i)).not.toBeInTheDocument();
+    });
+
+    // Open Accounts modal
+    fireEvent.click(screen.getByRole('button', { name: /Accounts \(1\)/i }));
+
+    // In modal, click the account row
+    await waitFor(() => {
+      expect(screen.getByText('Financial Accounts & Chart of Accounts')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Payroll Reserve Account/i }));
+
+    // Modal closes and active filter pill "Viewing: Payroll Reserve Account" appears
+    await waitFor(() => {
+      expect(screen.getByText(/Viewing:\s*Payroll Reserve Account/i)).toBeInTheDocument();
+      expect(
+        requestedUrls.some((u) => u.includes('accountId=acc-reserve')),
+      ).toBe(true);
+    });
+
+    // Click ✕ to clear filter and restore all-account data
+    fireEvent.click(screen.getByLabelText(/Clear filter for Payroll Reserve Account/i));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Viewing:/i)).not.toBeInTheDocument();
+      // Last request should not have accountId query param
+      const lastTxUrl = requestedUrls.filter((u) => u.includes('/transactions')).pop();
+      expect(lastTxUrl).toBeDefined();
+      expect(lastTxUrl?.includes('accountId=')).toBe(false);
     });
   });
 });

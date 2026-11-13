@@ -8,9 +8,13 @@ import { Select } from '../../components/ui/Select';
 import { Modal } from '../../components/ui/Modal';
 import { Drawer } from '../../components/ui/Drawer';
 import { Skeleton } from '../../components/ui/LoadingSpinner';
-import { formatCurrency, formatDate, formatPercentage } from '../../utils/formatters';
+import {
+  formatCurrency,
+  formatDate,
+  formatPercentage,
+  resolveReportingCurrency,
+} from '../../utils/formatters';
 import type { Budget, BudgetVarianceResponse } from '../../types/financial.types';
-import { DEFAULT_DEMO_ORG } from '../../config/demo.config';
 
 interface BudgetLineInput {
   category: string;
@@ -18,80 +22,6 @@ interface BudgetLineInput {
   allocatedAmount: string;
   alertThreshold: string;
 }
-
-const DEFAULT_BUDGETS: Budget[] = [
-  {
-    id: 'budget-001',
-    organizationId: DEFAULT_DEMO_ORG.id,
-    name: 'Q4 2026 Operating Plan',
-    periodType: 'QUARTERLY',
-    startDate: '2026-10-01T00:00:00.000Z',
-    endDate: '2026-12-31T00:00:00.000Z',
-    totalBudgetedAmount: '150000.00',
-    status: 'ACTIVE',
-    lines: [
-      {
-        id: 'bl-01',
-        category: 'Cloud & IT Infrastructure',
-        department: 'Engineering',
-        allocatedAmount: '55000.00',
-      },
-      {
-        id: 'bl-02',
-        category: 'Sales & Marketing',
-        department: 'Growth',
-        allocatedAmount: '45000.00',
-      },
-      {
-        id: 'bl-03',
-        category: 'Payroll & Compensation',
-        department: 'Operations',
-        allocatedAmount: '50000.00',
-      },
-    ],
-    revisions: [],
-    createdAt: '2026-10-01T00:00:00.000Z',
-    updatedAt: '2026-11-10T00:00:00.000Z',
-  },
-];
-
-const DEFAULT_VARIANCE: BudgetVarianceResponse = {
-  budgetId: 'budget-001',
-  budgetName: 'Q4 2026 Operating Plan',
-  reportingPeriod: '2026-Q4',
-  totalBudgeted: '150000.00',
-  totalActual: '65200.00',
-  totalVariance: '84800.00',
-  varianceLines: [
-    {
-      category: 'Cloud & IT Infrastructure',
-      department: 'Engineering',
-      budgetedAmount: '55000.00',
-      actualAmount: '24700.00',
-      varianceAmount: '30300.00',
-      variancePercentage: '44.9',
-      status: 'ON_TRACK',
-    },
-    {
-      category: 'Sales & Marketing',
-      department: 'Growth',
-      budgetedAmount: '45000.00',
-      actualAmount: '21000.00',
-      varianceAmount: '24000.00',
-      variancePercentage: '46.7',
-      status: 'ON_TRACK',
-    },
-    {
-      category: 'Payroll & Compensation',
-      department: 'Operations',
-      budgetedAmount: '50000.00',
-      actualAmount: '19500.00',
-      varianceAmount: '30500.00',
-      variancePercentage: '39.0',
-      status: 'ON_TRACK',
-    },
-  ],
-};
 
 const COMMON_CATEGORIES = [
   'Operating Expense',
@@ -105,7 +35,7 @@ const COMMON_CATEGORIES = [
 ];
 
 export function BudgetsPage() {
-  const { activeOrg, isAuditor, canManageBudgets } = useAuth();
+  const { activeOrg, isAuditor, canManageBudgets, isLoading: isAuthLoading } = useAuth();
 
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [selectedBudgetId, setSelectedBudgetId] = useState<string>('');
@@ -153,8 +83,7 @@ export function BudgetsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
-  const effectiveOrg = activeOrg || DEFAULT_DEMO_ORG;
-  const activeOrgId = effectiveOrg.id;
+  const activeOrgId = activeOrg?.id;
 
   const handleRefresh = useCallback(() => {
     setIsLoading(true);
@@ -163,34 +92,29 @@ export function BudgetsPage() {
 
   // Fetch Budget List
   useEffect(() => {
-    if (!activeOrgId) return;
+    if (isAuthLoading || !activeOrgId) return;
 
     let isMounted = true;
     apiGet<Budget[]>(`/v1/organizations/${activeOrgId}/budgets`)
       .then((res) => {
         if (!isMounted) return;
-        const raw = res as unknown as {
-          items?: Budget[];
-          budgets?: Budget[];
-          data?: Budget[];
-        };
-        const list = Array.isArray(res)
-          ? res
-          : raw?.items || raw?.budgets || (Array.isArray(raw?.data) ? raw.data : []);
-        const finalList = list.length > 0 ? list : DEFAULT_BUDGETS;
-        setBudgets(finalList);
-        if (finalList.length > 0 && !selectedBudgetId) {
-          setSelectedBudgetId(finalList[0].id);
-        }
+        setError(null);
+        const list = Array.isArray(res) ? res : [];
+        setBudgets(list);
+        setSelectedBudgetId((prev) => {
+          if (list.length === 0) return '';
+          return list.some((b) => b.id === prev) ? prev : list[0].id;
+        });
       })
       .catch((err: unknown) => {
         if (!isMounted) return;
-        setBudgets((prev) => (prev.length > 0 ? prev : DEFAULT_BUDGETS));
-        setSelectedBudgetId((prev) => prev || DEFAULT_BUDGETS[0].id);
+        setBudgets([]);
+        setSelectedBudgetId('');
+        setVarianceData(null);
         if (err instanceof ApiClientError) {
           setError(err.message);
         } else {
-          setError('Failed to fetch budgets from live API. Displaying verified demo baseline.');
+          setError('Failed to fetch budgets from live API.');
         }
       })
       .finally(() => {
@@ -201,11 +125,11 @@ export function BudgetsPage() {
     return () => {
       isMounted = false;
     };
-  }, [activeOrgId, reloadKey, selectedBudgetId]);
+  }, [activeOrgId, reloadKey, isAuthLoading]);
 
   // Fetch Variance for Selected Budget
   useEffect(() => {
-    if (!activeOrgId || !selectedBudgetId) {
+    if (isAuthLoading || !activeOrgId || !selectedBudgetId) {
       return;
     }
 
@@ -216,13 +140,14 @@ export function BudgetsPage() {
     )
       .then((res) => {
         if (!isMounted) return;
-        const rawVar = res as unknown as { data?: BudgetVarianceResponse };
-        const varData = rawVar?.data && 'totalAllocated' in rawVar.data ? rawVar.data : res;
-        setVarianceData(varData);
+        setVarianceData(res);
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (!isMounted) return;
-        setVarianceData(DEFAULT_VARIANCE);
+        setVarianceData(null);
+        if (err instanceof ApiClientError) {
+          setError(err.message);
+        }
       })
       .finally(() => {
         if (!isMounted) return;
@@ -232,12 +157,15 @@ export function BudgetsPage() {
     return () => {
       isMounted = false;
     };
-  }, [activeOrgId, selectedBudgetId, reloadKey]);
+  }, [activeOrgId, selectedBudgetId, reloadKey, isAuthLoading]);
 
-  const currency = effectiveOrg.baseCurrency || 'USD';
   const selectedBudget = Array.isArray(budgets)
     ? budgets.find((b) => b.id === selectedBudgetId)
     : undefined;
+  const currency = resolveReportingCurrency(
+    activeOrg?.baseCurrency,
+    varianceData?.currency ?? selectedBudget?.currency,
+  );
 
   // Line helpers for create modal
   const handleAddLine = () => {
@@ -263,9 +191,27 @@ export function BudgetsPage() {
   // Submit Create Budget
   const handleCreateBudget = async (e: FormEvent) => {
     e.preventDefault();
-    if (!budgetName || budgetLines.length === 0) {
+    if (!budgetName.trim() || budgetLines.length === 0) {
       setModalError('Please specify a budget name and at least one allocation line.');
       return;
+    }
+    const startIso = `${startDate}T00:00:00.000Z`;
+    const endIso = `${endDate}T23:59:59.999Z`;
+    if (new Date(endIso).getTime() <= new Date(startIso).getTime()) {
+      setModalError('Effective End Date must be after Effective Start Date.');
+      return;
+    }
+    for (const l of budgetLines) {
+      const amt = Number.parseFloat(l.allocatedAmount);
+      const thr = Number.parseFloat(l.alertThreshold || '90');
+      if (Number.isNaN(amt) || amt <= 0) {
+        setModalError(`Allocated amount for ${l.category} must be greater than zero.`);
+        return;
+      }
+      if (Number.isNaN(thr) || thr < 0 || thr > 100) {
+        setModalError(`Alert threshold for ${l.category} must be between 0% and 100%.`);
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -275,14 +221,14 @@ export function BudgetsPage() {
       await apiPost(`/v1/organizations/${activeOrgId}/budgets`, {
         name: budgetName.trim(),
         periodType,
-        startDate: new Date(startDate).toISOString(),
-        endDate: new Date(endDate).toISOString(),
+        startDate: startIso,
+        endDate: endIso,
         currency,
         lines: budgetLines.map((l) => ({
           category: l.category,
-          department: l.department || 'General',
+          department: l.department.trim() || 'General',
           allocatedAmount: Number.parseFloat(l.allocatedAmount).toFixed(4),
-          alertThreshold: Number.parseFloat(l.alertThreshold).toFixed(4),
+          alertThreshold: Number.parseFloat(l.alertThreshold || '90').toFixed(4),
         })),
       });
 
@@ -309,7 +255,7 @@ export function BudgetsPage() {
         category: l.category,
         department: l.department || 'General',
         allocatedAmount: l.allocatedAmount,
-        alertThreshold: '90',
+        alertThreshold: l.alertThreshold ?? '90',
       })),
     );
     setModalError(null);
@@ -426,216 +372,314 @@ export function BudgetsPage() {
         </div>
       )}
 
-      {/* Budget Selector & Summary Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        {/* Budget Switcher Card */}
-        <div className="p-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs space-y-3">
-          <label className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] block">
-            Select Active Budget Plan
-          </label>
-          <select
-            value={selectedBudgetId}
-            onChange={(e) => setSelectedBudgetId(e.target.value)}
-            className="w-full text-xs rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-2.5 font-semibold text-[var(--text-primary)] cursor-pointer"
-          >
-            {budgets.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name} ({b.periodType})
-              </option>
-            ))}
-          </select>
-
-          {selectedBudget && (
-            <div className="space-y-1 pt-2 border-t border-[var(--border-subtle)] text-xs text-[var(--text-secondary)]">
-              <div className="flex justify-between">
-                <span className="text-[var(--text-muted)]">Period:</span>
-                <span className="font-mono font-medium">
-                  {formatDate(selectedBudget.startDate)} – {formatDate(selectedBudget.endDate)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[var(--text-muted)]">Status:</span>
-                <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                  {selectedBudget.status}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[var(--text-muted)]">Revisions:</span>
-                <span className="font-mono">{selectedBudget.revisions?.length || 0} versions</span>
-              </div>
-            </div>
-          )}
-
-          {selectedBudget && (
-            <div className="flex gap-2 pt-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full justify-center"
-                onClick={() => setIsRevisionsDrawerOpen(true)}
-              >
-                <History className="w-3.5 h-3.5 mr-1" />
-                History
-              </Button>
-
-              {canManageBudgets && (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  className="w-full justify-center"
-                  onClick={handleOpenReviseModal}
-                >
-                  <Edit3 className="w-3.5 h-3.5 mr-1" />
-                  Revise
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* KPI 1: Total Budgeted */}
-        <div className="p-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs flex flex-col justify-between">
-          <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
-            Total Allocated Budget
-          </span>
-          <div className="mt-2 font-mono text-2xl font-bold text-[var(--text-primary)]">
-            {varianceData ? formatCurrency(varianceData.totalBudgeted, currency) : '—'}
-          </div>
-          <span className="text-[11px] text-[var(--text-muted)] mt-1">
-            Across {varianceData?.varianceLines?.length || 0} spending categories
-          </span>
-        </div>
-
-        {/* KPI 2: Actual Spent */}
-        <div className="p-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs flex flex-col justify-between">
-          <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
-            Actual Spent To Date
-          </span>
-          <div className="mt-2 font-mono text-2xl font-bold text-[var(--text-primary)]">
-            {varianceData ? formatCurrency(varianceData.totalActual, currency) : '—'}
-          </div>
-          <span className="text-[11px] text-[var(--text-muted)] mt-1">
-            Grounded in double-entry transactions
-          </span>
-        </div>
-
-        {/* KPI 3: Net Variance */}
-        <div className="p-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs flex flex-col justify-between">
-          <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
-            Net Budget Variance
-          </span>
-          <div
-            className={`mt-2 font-mono text-2xl font-bold ${
-              varianceData && Number.parseFloat(varianceData.totalVariance) < 0
-                ? 'text-red-600 dark:text-red-400'
-                : 'text-emerald-600 dark:text-emerald-400'
-            }`}
-          >
-            {varianceData ? formatCurrency(varianceData.totalVariance, currency) : '—'}
-          </div>
-          <span className="text-[11px] text-[var(--text-muted)] mt-1">
-            {varianceData && Number.parseFloat(varianceData.totalVariance) < 0
-              ? 'Overrun across planned lines'
-              : 'Remaining headroom'}
-          </span>
-        </div>
-      </div>
-
-      {/* Variance Attribution Table */}
-      <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs overflow-hidden">
-        <div className="p-4 border-b border-[var(--border-subtle)] flex items-center justify-between">
-          <div>
+      {/* Empty State when no persisted budgets exist */}
+      {!isLoading && budgets.length === 0 ? (
+        <div
+          role="status"
+          className="rounded-2xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-card)] p-8 text-center space-y-3"
+        >
+          <div className="space-y-1">
             <h2 className="text-sm font-bold text-[var(--text-primary)]">
-              Departmental & Category Variance Attribution
+              No Organization Budgets Configured
             </h2>
-            <p className="text-[11px] text-[var(--text-muted)]">
-              Actual expenditures mapped against approved allocation ceilings
+            <p className="text-xs text-[var(--text-muted)] max-w-md mx-auto leading-relaxed">
+              No persisted budget plans exist for this organization yet.
+              {canManageBudgets
+                ? ` Create a ${currency} monthly, quarterly, or annual budget plan to track category and departmental expense variance.`
+                : ' Authorized Finance Managers or Owners can create budget plans.'}
             </p>
           </div>
+          {canManageBudgets && (
+            <div className="pt-1">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  setModalError(null);
+                  setIsCreateModalOpen(true);
+                }}
+              >
+                <Plus className="w-3.5 h-3.5 mr-1.5" />
+                Create First Budget Plan
+              </Button>
+            </div>
+          )}
         </div>
+      ) : (
+        <>
+          {/* Budget Selector & Summary Cards */}
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            {/* Budget Switcher Card */}
+            <div className="p-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs space-y-3">
+              <label
+                htmlFor="budgetPlanSelect"
+                className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] block"
+              >
+                Select Active Budget Plan
+              </label>
+              <select
+                id="budgetPlanSelect"
+                value={selectedBudgetId}
+                onChange={(e) => {
+                  setIsLoadingVariance(true);
+                  setSelectedBudgetId(e.target.value);
+                }}
+                className="w-full text-xs rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-2.5 font-semibold text-[var(--text-primary)] cursor-pointer"
+              >
+                {budgets.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name} ({b.periodType})
+                  </option>
+                ))}
+              </select>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left">
-            <thead className="bg-[var(--surface-elevated)]/60 text-[var(--text-muted)] uppercase text-[10px] tracking-wider border-b border-[var(--border-subtle)]">
-              <tr>
-                <th className="py-3 px-4 font-semibold">Category</th>
-                <th className="py-3 px-4 font-semibold">Department</th>
-                <th className="py-3 px-4 font-semibold text-right">Budgeted</th>
-                <th className="py-3 px-4 font-semibold text-right">Actual Spent</th>
-                <th className="py-3 px-4 font-semibold text-right">Variance ($)</th>
-                <th className="py-3 px-4 font-semibold text-right">Variance (%)</th>
-                <th className="py-3 px-4 font-semibold text-center">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--border-subtle)]">
-              {isLoadingVariance ? (
-                Array.from({ length: 4 }).map((_, i) => (
-                  <tr key={i}>
-                    <td colSpan={7} className="py-3 px-4">
-                      <Skeleton className="h-4 w-full" />
-                    </td>
-                  </tr>
-                ))
-              ) : varianceData && varianceData.varianceLines.length > 0 ? (
-                varianceData.varianceLines.map((line, idx) => {
-                  const isOverrun = line.status === 'OVERRUN';
-                  const isWarning = line.status === 'WARNING';
-                  return (
-                    <tr
-                      key={idx}
-                      className="hover:bg-[var(--surface-elevated)]/40 transition-colors"
+              {selectedBudget && (
+                <div className="space-y-1 pt-2 border-t border-[var(--border-subtle)] text-xs text-[var(--text-secondary)]">
+                  <div className="flex justify-between">
+                    <span className="text-[var(--text-muted)]">Period:</span>
+                    <span className="font-mono font-medium">
+                      {formatDate(selectedBudget.startDate)} – {formatDate(selectedBudget.endDate)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--text-muted)]">Status:</span>
+                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                      {selectedBudget.status}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[var(--text-muted)]">Version:</span>
+                    <span className="font-mono">
+                      v{selectedBudget.version} ({selectedBudget.revisions?.length || 0} revisions)
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {selectedBudget && (
+                <div className="flex gap-2 pt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-center"
+                    onClick={() => setIsRevisionsDrawerOpen(true)}
+                  >
+                    <History className="w-3.5 h-3.5 mr-1" />
+                    History
+                  </Button>
+
+                  {canManageBudgets && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="w-full justify-center"
+                      onClick={handleOpenReviseModal}
                     >
-                      <td className="py-3 px-4 font-semibold text-[var(--text-primary)]">
-                        {line.category}
-                      </td>
-                      <td className="py-3 px-4 text-[var(--text-secondary)]">
-                        {line.department || 'General'}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono font-medium text-[var(--text-secondary)]">
-                        {formatCurrency(line.budgetedAmount, currency)}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono font-bold text-[var(--text-primary)]">
-                        {formatCurrency(line.actualAmount, currency)}
-                      </td>
-                      <td
-                        className={`py-3 px-4 text-right font-mono font-semibold ${
-                          Number.parseFloat(line.varianceAmount) < 0
-                            ? 'text-red-600 dark:text-red-400'
-                            : 'text-emerald-600 dark:text-emerald-400'
-                        }`}
-                      >
-                        {formatCurrency(line.varianceAmount, currency)}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono">
-                        {formatPercentage(line.variancePercentage, true)}
-                      </td>
-                      <td className="py-3 px-4 text-center">
+                      <Edit3 className="w-3.5 h-3.5 mr-1" />
+                      Revise
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* KPI 1: Total Budgeted */}
+            <div className="p-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs flex flex-col justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                Total Allocated Budget
+              </span>
+              <div className="mt-2 font-mono text-2xl font-bold text-[var(--text-primary)]">
+                {varianceData
+                  ? formatCurrency(varianceData.totalAllocated, currency)
+                  : selectedBudget
+                    ? formatCurrency(selectedBudget.totalAllocated, currency)
+                    : '—'}
+              </div>
+              <span className="text-[11px] text-[var(--text-muted)] mt-1">
+                Across {varianceData?.lines?.length ?? selectedBudget?.lines?.length ?? 0} spending
+                categories
+              </span>
+            </div>
+
+            {/* KPI 2: Actual Spent */}
+            <div className="p-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs flex flex-col justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                Actual Spent To Date
+              </span>
+              <div className="mt-2 font-mono text-2xl font-bold text-[var(--text-primary)]">
+                {varianceData ? formatCurrency(varianceData.totalActualSpent, currency) : '—'}
+              </div>
+              <span className="text-[11px] text-[var(--text-muted)] mt-1">
+                {varianceData
+                  ? `${formatPercentage(varianceData.totalUtilizationPct, false)} utilized`
+                  : 'Grounded in expense transactions'}
+              </span>
+            </div>
+
+            {/* KPI 3: Net Variance */}
+            <div className="p-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs flex flex-col justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                Net Budget Variance
+              </span>
+              <div
+                className={`mt-2 font-mono text-2xl font-bold ${
+                  varianceData && Number.parseFloat(varianceData.totalVarianceAmount) < 0
+                    ? 'text-red-600 dark:text-red-400'
+                    : 'text-emerald-600 dark:text-emerald-400'
+                }`}
+              >
+                {varianceData ? formatCurrency(varianceData.totalVarianceAmount, currency) : '—'}
+              </div>
+              <span className="text-[11px] text-[var(--text-muted)] mt-1">
+                {varianceData && Number.parseFloat(varianceData.totalVarianceAmount) < 0
+                  ? 'Overrun across planned lines'
+                  : 'Remaining headroom'}
+              </span>
+            </div>
+          </div>
+
+          {/* Missing FX Warning */}
+          {varianceData && varianceData.isComplete === false && (
+            <div className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200 text-xs">
+              <strong>Incomplete FX Conversion:</strong> Missing exchange rate(s) for{' '}
+              <span className="font-mono">{varianceData.missingCurrencies.join(', ')}</span> →{' '}
+              <span className="font-mono">{currency}</span>. Unconverted foreign expenses were
+              excluded from totals.
+            </div>
+          )}
+
+          {/* Unbudgeted Expenses Notice */}
+          {varianceData &&
+            Number.parseFloat(varianceData.unbudgetedActualSpent || '0') > 0 && (
+              <div className="p-4 rounded-2xl border border-amber-500/30 bg-amber-500/5 text-xs space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-bold text-amber-700 dark:text-amber-300">
+                    Unbudgeted Period Expenses:{' '}
+                    <span className="font-mono">
+                      {formatCurrency(varianceData.unbudgetedActualSpent || '0', currency)}
+                    </span>
+                  </span>
+                  <span className="text-[var(--text-muted)] font-mono">
+                    Total Organization Period Spend:{' '}
+                    {formatCurrency(varianceData.totalOrganizationExpenses || '0', currency)}
+                  </span>
+                </div>
+                {varianceData.unbudgetedCategories &&
+                  varianceData.unbudgetedCategories.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {varianceData.unbudgetedCategories.map((u, i) => (
                         <span
-                          className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
-                            isOverrun
-                              ? 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20'
-                              : isWarning
-                                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-                                : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
-                          }`}
+                          key={i}
+                          className="px-2.5 py-1 rounded-lg bg-[var(--surface-card)] border border-[var(--border-subtle)] text-[11px]"
                         >
-                          {line.status}
+                          {u.category} ({u.department}):{' '}
+                          <strong className="font-mono">
+                            {formatCurrency(u.actualSpent, currency)}
+                          </strong>
                         </span>
+                      ))}
+                    </div>
+                  )}
+              </div>
+            )}
+
+          {/* Variance Attribution Table */}
+          <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs overflow-hidden">
+            <div className="p-4 border-b border-[var(--border-subtle)] flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-bold text-[var(--text-primary)]">
+                  Departmental & Category Variance Attribution
+                </h2>
+                <p className="text-[11px] text-[var(--text-muted)]">
+                  Actual expenditures mapped against approved allocation ceilings
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-[var(--surface-elevated)]/60 text-[var(--text-muted)] uppercase text-[10px] tracking-wider border-b border-[var(--border-subtle)]">
+                  <tr>
+                    <th className="py-3 px-4 font-semibold">Category</th>
+                    <th className="py-3 px-4 font-semibold">Department</th>
+                    <th className="py-3 px-4 font-semibold text-right">Budgeted</th>
+                    <th className="py-3 px-4 font-semibold text-right">Actual Spent</th>
+                    <th className="py-3 px-4 font-semibold text-right">Variance</th>
+                    <th className="py-3 px-4 font-semibold text-right">Utilization</th>
+                    <th className="py-3 px-4 font-semibold text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border-subtle)]">
+                  {isLoadingVariance ? (
+                    Array.from({ length: 4 }).map((_, i) => (
+                      <tr key={i}>
+                        <td colSpan={7} className="py-3 px-4">
+                          <Skeleton className="h-4 w-full" />
+                        </td>
+                      </tr>
+                    ))
+                  ) : varianceData && varianceData.lines.length > 0 ? (
+                    varianceData.lines.map((line) => {
+                      const isOverrun = line.status === 'OVERRUN';
+                      const isWarning = line.status === 'WARNING';
+                      return (
+                        <tr
+                          key={line.lineId}
+                          className="hover:bg-[var(--surface-elevated)]/40 transition-colors"
+                        >
+                          <td className="py-3 px-4 font-semibold text-[var(--text-primary)]">
+                            {line.category}
+                          </td>
+                          <td className="py-3 px-4 text-[var(--text-secondary)]">
+                            {line.department || 'General'}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono font-medium text-[var(--text-secondary)]">
+                            {formatCurrency(line.allocatedAmount, currency)}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono font-bold text-[var(--text-primary)]">
+                            {formatCurrency(line.actualSpent, currency)}
+                          </td>
+                          <td
+                            className={`py-3 px-4 text-right font-mono font-semibold ${
+                              Number.parseFloat(line.varianceAmount) < 0
+                                ? 'text-red-600 dark:text-red-400'
+                                : 'text-emerald-600 dark:text-emerald-400'
+                            }`}
+                          >
+                            {formatCurrency(line.varianceAmount, currency)}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono">
+                            {formatPercentage(line.utilizationPct, false)}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <span
+                              className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
+                                isOverrun
+                                  ? 'bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20'
+                                  : isWarning
+                                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                                    : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
+                              }`}
+                            >
+                              {line.status}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-xs text-[var(--text-muted)]">
+                        No budget variance records found for the selected plan.
                       </td>
                     </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-xs text-[var(--text-muted)]">
-                    No budget variance records found for the selected plan.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Revision History Drawer */}
       <Drawer
@@ -658,19 +702,19 @@ export function BudgetsPage() {
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-bold font-mono text-[var(--accent-teal)]">
-                      Revision #{rev.revisionNumber}
+                      Revision v{rev.version}
                     </span>
                     <span className="text-[11px] text-[var(--text-muted)]">
                       {formatDate(rev.createdAt)}
                     </span>
                   </div>
-                  <p className="text-[var(--text-secondary)] font-medium">{rev.reason}</p>
+                  <p className="text-[var(--text-secondary)] font-medium">{rev.changeSummary}</p>
                   <div className="flex items-center justify-between pt-1 border-t border-[var(--border-subtle)] text-[11px]">
                     <span className="text-[var(--text-muted)]">
-                      Prior: {formatCurrency(rev.previousTotal, currency)}
+                      Prior: {formatCurrency(rev.previousAllocated, currency)}
                     </span>
                     <span className="font-bold text-[var(--text-primary)]">
-                      New: {formatCurrency(rev.newTotal, currency)}
+                      New: {formatCurrency(rev.newAllocated, currency)}
                     </span>
                   </div>
                 </div>
@@ -787,7 +831,8 @@ export function BudgetsPage() {
                     <input
                       type="number"
                       step="1"
-                      placeholder="Amount ($)"
+                      min="1"
+                      placeholder={`Amount (${currency})`}
                       value={line.allocatedAmount}
                       onChange={(e) => handleUpdateLine(idx, 'allocatedAmount', e.target.value)}
                       className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-card)] p-1.5 font-mono"
@@ -865,7 +910,8 @@ export function BudgetsPage() {
                     <input
                       type="number"
                       step="1"
-                      placeholder="Updated Allocation ($)"
+                      min="1"
+                      placeholder={`Updated Allocation (${currency})`}
                       value={line.allocatedAmount}
                       onChange={(e) =>
                         setRevisionLines((prev) =>

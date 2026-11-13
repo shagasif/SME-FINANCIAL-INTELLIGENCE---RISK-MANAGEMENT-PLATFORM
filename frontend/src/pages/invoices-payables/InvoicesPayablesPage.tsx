@@ -726,7 +726,7 @@ export function InvoicesPayablesPage() {
       setIsPaymentModalOpen(false);
       setSelectedTarget(null);
       setPaymentAmount('');
-      setPaymentAccountId('');
+      setPaymentAccountId(accounts[0]?.id ?? '');
       setPaymentReference('');
       handleRefresh();
     } catch (err: unknown) {
@@ -749,7 +749,7 @@ export function InvoicesPayablesPage() {
   ) => {
     setSelectedTarget({ id, type, number, outstanding, currency: docCurrency });
     setPaymentAmount(outstanding);
-    setPaymentAccountId('');
+    setPaymentAccountId(accounts[0]?.id ?? '');
     setModalError(null);
     setIsPaymentModalOpen(true);
   };
@@ -2207,16 +2207,14 @@ export function InvoicesPayablesPage() {
           {accounts.length > 0 && (
             <Select
               id="payAccount"
-              label="Post Cash Movement to Account (Optional)"
+              label="Post Cash Movement to Account *"
+              required
               value={paymentAccountId}
               onChange={(e) => setPaymentAccountId(e.target.value)}
-              options={[
-                { value: '', label: 'Do not post ledger transaction (status only)' },
-                ...accounts.map((acc) => ({
-                  value: acc.id,
-                  label: `${acc.name} (${acc.currency})`,
-                })),
-              ]}
+              options={accounts.map((acc) => ({
+                value: acc.id,
+                label: `${acc.name} (${acc.currency})`,
+              }))}
             />
           )}
 
@@ -2357,7 +2355,31 @@ export function InvoicesPayablesPage() {
                   </div>
                   <div>
                     <span className="text-[10px] text-[var(--text-muted)] block font-sans">
-                      Tax ({doc.taxRate || '0'}%)
+                      Tax (
+                      {(() => {
+                        const headerRate = Number.parseFloat(doc.taxRate || '0') || 0;
+                        const items = Array.isArray(doc.lineItems) ? doc.lineItems : [];
+                        const itemRates = items
+                          .map((li) => Number.parseFloat(li.taxRate || ''))
+                          .filter((r) => !Number.isNaN(r));
+                        const distinctRates = Array.from(
+                          new Set(itemRates.map((r) => Number(r.toFixed(4)))),
+                        );
+                        const sub = Number.parseFloat(doc.subtotalAmount || doc.totalAmount || '0') || 0;
+                        const taxAmt = Number.parseFloat(doc.taxAmount || '0') || 0;
+                        if (distinctRates.length > 1) {
+                          const eff = sub > 0 ? (taxAmt / sub) * 100 : 0;
+                          return `Mixed (~${Number(eff.toFixed(2))}%)`;
+                        }
+                        if (distinctRates.length === 1 && (distinctRates[0] > 0 || headerRate === 0)) {
+                          return `${Number(distinctRates[0].toFixed(2))}%`;
+                        }
+                        if (headerRate === 0 && taxAmt > 0 && sub > 0) {
+                          return `~${Number(((taxAmt / sub) * 100).toFixed(2))}%`;
+                        }
+                        return `${Number(headerRate.toFixed(2))}%`;
+                      })()}
+                      )
                     </span>
                     <span className="font-semibold">
                       {formatCurrency(doc.taxAmount || '0', docCurr)}
@@ -2386,6 +2408,15 @@ export function InvoicesPayablesPage() {
                     </span>
                   </div>
                 </div>
+
+                {doc.notes && (
+                  <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)]/40 p-3 text-xs">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] block mb-1">
+                      Notes / Terms
+                    </span>
+                    <p className="text-[var(--text-secondary)] whitespace-pre-wrap">{doc.notes}</p>
+                  </div>
+                )}
 
                 {/* Payment History */}
                 <div className="space-y-1.5">

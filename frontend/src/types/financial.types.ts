@@ -221,14 +221,16 @@ export interface BudgetLine {
   category: string;
   department?: string | null;
   allocatedAmount: string;
+  alertThreshold?: string;
+  notes?: string | null;
 }
 
 export interface BudgetRevision {
   id: string;
-  revisionNumber: number;
-  reason: string;
-  previousTotal: string;
-  newTotal: string;
+  version: number;
+  previousAllocated: string;
+  newAllocated: string;
+  changeSummary: string;
   revisedByUserId?: string | null;
   createdAt: string;
 }
@@ -240,8 +242,11 @@ export interface Budget {
   periodType: BudgetPeriodType;
   startDate: string;
   endDate: string;
-  totalBudgetedAmount: string;
+  currency: string;
+  totalAllocated: string;
   status: string;
+  version: number;
+  notes?: string | null;
   lines: BudgetLine[];
   revisions?: BudgetRevision[];
   createdAt: string;
@@ -249,23 +254,47 @@ export interface Budget {
 }
 
 export interface BudgetVarianceLine {
+  lineId: string;
   category: string;
   department?: string | null;
-  budgetedAmount: string;
-  actualAmount: string;
+  allocatedAmount: string;
+  actualSpent: string;
   varianceAmount: string;
-  variancePercentage: string;
+  utilizationPct: string;
+  variancePct: string;
+  alertThresholdPct: string;
   status: 'ON_TRACK' | 'WARNING' | 'OVERRUN';
+  sourceTransactionIds?: string[];
+}
+
+export interface UnbudgetedCategorySummary {
+  category: string;
+  department: string;
+  actualSpent: string;
+  transactionIds: string[];
 }
 
 export interface BudgetVarianceResponse {
   budgetId: string;
   budgetName: string;
-  reportingPeriod: string;
-  totalBudgeted: string;
-  totalActual: string;
-  totalVariance: string;
-  varianceLines: BudgetVarianceLine[];
+  version: number;
+  periodType: BudgetPeriodType;
+  periodStart: string;
+  periodEnd: string;
+  currency: string;
+  isComplete: boolean;
+  missingCurrencies: string[];
+  totalAllocated: string;
+  totalActualSpent: string;
+  unbudgetedActualSpent?: string;
+  totalOrganizationExpenses?: string;
+  totalVarianceAmount: string;
+  totalUtilizationPct: string;
+  totalVariancePct: string;
+  isOverBudget: boolean;
+  lines: BudgetVarianceLine[];
+  unbudgetedCategories?: UnbudgetedCategorySummary[];
+  revisions?: BudgetRevision[];
 }
 
 export interface ImportBatch {
@@ -318,6 +347,7 @@ export interface ExtractedFieldConfidence {
 
 export interface DocumentArithmeticVerification {
   isValid: boolean;
+  arithmeticValid?: boolean;
   lineItemsMatchSubtotal: boolean | null;
   subtotalPlusTaxMatchesTotal: boolean | null;
   taxRateMatchesTaxAmount: boolean | null;
@@ -398,6 +428,8 @@ export interface DocumentImportExtractionResponse {
     currency: string;
     currencySource: 'DOCUMENT' | 'ORGANIZATION_DEFAULT';
     subtotalAmount: string | null;
+    discountRate?: string | null;
+    discountAmount?: string | null;
     taxRate: string | null;
     taxAmount: string | null;
     totalAmount: string | null;

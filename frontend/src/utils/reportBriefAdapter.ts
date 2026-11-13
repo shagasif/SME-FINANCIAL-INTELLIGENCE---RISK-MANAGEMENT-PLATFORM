@@ -1,4 +1,4 @@
-import { formatCurrency } from './formatters';
+import { formatCurrency, formatEmbeddedAmountsInText } from './formatters';
 import {
   ReportType,
   type ExecutiveBrief,
@@ -45,6 +45,39 @@ function metricLabel(key: string): string {
   return labels[key] || key.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase());
 }
 
+function normalizeBriefDisplayNumbers(brief: ExecutiveBrief): ExecutiveBrief {
+  return {
+    ...brief,
+    executiveSummary: brief.executiveSummary.map((s) => formatEmbeddedAmountsInText(s)),
+    kpis: brief.kpis.map((k) => ({
+      ...k,
+      value: formatEmbeddedAmountsInText(k.value),
+      secondaryValue: k.secondaryValue
+        ? formatEmbeddedAmountsInText(k.secondaryValue)
+        : k.secondaryValue,
+      subtext: k.subtext ? formatEmbeddedAmountsInText(k.subtext) : k.subtext,
+    })),
+    tables: brief.tables.map((t) => ({
+      ...t,
+      note: t.note ? formatEmbeddedAmountsInText(t.note) : t.note,
+      rows: t.rows.map((r) => ({
+        ...r,
+        cells: r.cells.map((c) => formatEmbeddedAmountsInText(c)),
+      })),
+    })),
+    risksAndAnomalies: brief.risksAndAnomalies.map((r) => ({
+      ...r,
+      title: formatEmbeddedAmountsInText(r.title),
+      detail: formatEmbeddedAmountsInText(r.detail),
+    })),
+    prioritizedActionPlan: brief.prioritizedActionPlan.map((a) => ({
+      ...a,
+      title: formatEmbeddedAmountsInText(a.title),
+      rationale: formatEmbeddedAmountsInText(a.rationale),
+    })),
+  };
+}
+
 /**
  * Resolves a structured ExecutiveBrief from a report snapshot.
  * Uses the persisted v2.0 brief when present, or deterministically maps
@@ -56,7 +89,7 @@ export function resolveExecutiveBrief(
 ): ExecutiveBrief {
   const embedded = asBrief(report.narrativeBody?.executiveBrief);
   if (embedded) {
-    return embedded;
+    return normalizeBriefDisplayNumbers(embedded);
   }
 
   const rType = report.reportType || report.type || ReportType.BUSINESS_HEALTH;
@@ -152,7 +185,7 @@ export function resolveExecutiveBrief(
     forecasts: (srcIds.forecastIds ?? []).length,
   };
 
-  return {
+  return normalizeBriefDisplayNumbers({
     schemaVersion: '2.0',
     reportType: rType,
     executiveSummary: summarySentences.slice(0, 4),
@@ -171,5 +204,5 @@ export function resolveExecutiveBrief(
       missingInputs: report.dataLimitations ?? [],
       methodologyNote: 'Historical snapshot rendered strictly from saved report record values.',
     },
-  };
+  });
 }
