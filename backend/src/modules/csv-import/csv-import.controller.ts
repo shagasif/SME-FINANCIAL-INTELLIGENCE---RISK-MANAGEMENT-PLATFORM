@@ -76,7 +76,7 @@ export class CsvImportController {
     @Body() dto: ConfirmCsvImportDto,
     @CurrentUser() user: AuthenticatedPrincipal,
   ) {
-    return this.service.confirmImportBatch(orgId, batchId, dto, user.userId);
+    return this.service.confirmImportBatch(orgId, batchId, dto, user.userId, user.organizationRole);
   }
 
   @Get()

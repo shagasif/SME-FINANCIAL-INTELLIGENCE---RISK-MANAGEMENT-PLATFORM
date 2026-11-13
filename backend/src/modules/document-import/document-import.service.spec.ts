@@ -11,7 +11,7 @@ import { SupervisorOrchestratorService } from '../ai-orchestration/supervisor-or
 import { AuditService } from '../audit/audit.service.js';
 import { DocumentImportController } from './document-import.controller.js';
 import { DocumentImportService, type UploadedMulterDocument } from './document-import.service.js';
-import { parseInvoiceOrBillText } from './document-parser.util.js';
+import { parseInvoiceOrBillText, verifyExtractedDocumentArithmetic } from './document-parser.util.js';
 
 /**
  * Builds a valid single-page PDF 1.4 buffer containing embedded text lines for pdf-parse testing.
@@ -569,5 +569,128 @@ describe('DocumentImportService & DocumentImportController (Invoice/Bill Documen
     });
     expect(directParsed.counterpartyName).not.toBe('BILL TO (CUSTOMER DETAILS)');
     expect(directParsed.counterpartyName).not.toBe('Address: Main Market, Block B, Karachi');
+  });
+
+  it('separates Payment Mode from counterpartyName, keeps missing tax unverified, and distinguishes arithmeticValid from missingRequiredFields', () => {
+    const parsed = parseInvoiceOrBillText({
+      sanitizedText: [
+        'Star Business Supply',
+        'Customer: Walk-in Customer (Bilal Ahmed)\tPayment Mode: Cash / JazzCash',
+        '1\tOffice Stationery Bundle  2  1500.00  3000.00',
+        '2\tWireless Mouse (Logitech)  1  2800.00  2800.00',
+        '3\tA4 Printing Paper Rim (70gsm)  3  1200.00  3600.00',
+        'Subtotal: PKR 9,400.00',
+        'Total: PKR 9,400.00',
+      ].join('\n'),
+      documentType: 'INVOICE',
+      defaultCurrency: 'PKR',
+    });
+
+    expect(parsed.counterpartyName).toBe('Walk-in Customer (Bilal Ahmed)');
+    expect(parsed.counterpartyName).not.toContain('Payment Mode');
+    expect(parsed.extractionNotes.some((n) => n.includes('Cash / JazzCash'))).toBe(true);
+    expect(parsed.documentNumber).toBeNull();
+    expect(parsed.issueDate).toBeNull();
+    expect(parsed.dueDate).toBeNull();
+    expect(parsed.taxAmount).toBeNull();
+    expect(parsed.taxRate).toBeNull();
+    expect(parsed.lineItems).toHaveLength(3);
+    expect(parsed.subtotalAmount).toBe('9400.0000');
+    expect(parsed.totalAmount).toBe('9400.0000');
+
+    const verification = verifyExtractedDocumentArithmetic(parsed);
+    expect(verification.discrepancies).toEqual([]);
+    expect(verification.lineItemsMatchSubtotal).toBe(true);
+    expect(verification.subtotalPlusTaxMatchesTotal).toBeNull();
+    expect(verification.taxRateMatchesTaxAmount).toBeNull();
+    expect(verification.arithmeticValid).toBe(true);
+    expect(verification.isValid).toBe(false);
+    expect(verification.missingRequiredFields).toEqual(['invoiceNumber', 'issueDate', 'dueDate']);
+    expect(verification.summary).toContain('Arithmetic checks passed (0 discrepancies)');
+  });
+
+  it('extracts customer email over issuer header email, parses November 12/19 2026 without timezone shift, and applies discount to Final Total Payable', () => {
+    const parsed = parseInvoiceOrBillText({
+      sanitizedText: [
+        'Star Business Solutions',
+        'Email: billing@starbusiness.pk',
+        'INVOICE',
+        'Invoice Number: INV-SB-2026-101',
+        'Issue Date: November 12, 2026',
+        'Due Date: November 19, 2026',
+        'Bill To: Al-Madina Traders',
+        'Email: accounts@almadinatraders.pk',
+        'Storefront & Dashboard  1  40000.00  40000.00',
+        'SEO Optimization  1  10000.00  10000.00',
+        'Brand Guidelines  1  5000.00  5000.00',
+        'Subtotal: PKR 55,000.00',
+        'Discount (5%): PKR 2,750.00',
+        'Tax (0%): PKR 0.00',
+        'Final Total Payable: PKR 52,250.00',
+      ].join('\n'),
+      documentType: 'INVOICE',
+      defaultCurrency: 'PKR',
+    });
+
+    expect(parsed.documentNumber).toBe('INV-SB-2026-101');
+    expect(parsed.counterpartyName).toBe('Al-Madina Traders');
+    expect(parsed.counterpartyEmail).toBe('accounts@almadinatraders.pk');
+    expect(parsed.issueDate).toBe('2026-11-12');
+    expect(parsed.dueDate).toBe('2026-11-19');
+    expect(parsed.currency).toBe('PKR');
+    expect(parsed.subtotalAmount).toBe('55000.0000');
+    expect(parsed.discountAmount).toBe('2750.0000');
+    expect(parsed.discountRate).toBe('5.0000');
+    expect(parsed.taxAmount).toBe('0.0000');
+    expect(parsed.taxRate).toBe('0.0000');
+    expect(parsed.totalAmount).toBe('52250.0000');
+    expect(parsed.lineItems).toHaveLength(3);
+
+    const verification = verifyExtractedDocumentArithmetic(parsed);
+    expect(verification.discrepancies).toEqual([]);
+    expect(verification.lineItemsMatchSubtotal).toBe(true);
+    expect(verification.subtotalPlusTaxMatchesTotal).toBe(true);
+    expect(verification.arithmeticValid).toBe(true);
+    expect(verification.isValid).toBe(true);
+  });
+
+  it('supports diverse supplier bill layouts (DD-MMM-YYYY dates, Department, Category, supplier-vs-recipient email, and flags arithmetic mismatch)', () => {
+    const billParsed = parseInvoiceOrBillText({
+      sanitizedText: [
+        'Vendor Name: Crescent Freight Services',
+        'Email: billing@crescentfreight.pk',
+        'Bill To: Star Business (Buyer)',
+        'Email: payables@starbusiness.pk',
+        'Vendor Invoice No: CFS-2026-88',
+        'Date of Issue: 12-Nov-2026',
+        'Payment Due Date: 26-Nov-2026',
+        'Category: Freight & Logistics',
+        'Department: Operations',
+        'Payment Terms: Net 14 Bank Transfer',
+        'Port Handling  2  5000.00  10000.00',
+        'Customs Clearance  1  4000.00  4000.00',
+        'Subtotal: PKR 14,000.00',
+        'Sales Tax (10%): PKR 1,400.00',
+        'Total Payable: PKR 16,000.00',
+      ].join('\n'),
+      documentType: 'BILL',
+      defaultCurrency: 'PKR',
+    });
+
+    expect(billParsed.documentNumber).toBe('CFS-2026-88');
+    expect(billParsed.counterpartyName).toBe('Crescent Freight Services');
+    expect(billParsed.counterpartyEmail).toBe('billing@crescentfreight.pk');
+    expect(billParsed.issueDate).toBe('2026-11-12');
+    expect(billParsed.dueDate).toBe('2026-11-26');
+    expect(billParsed.category).toBe('Freight & Logistics');
+    expect(billParsed.department).toBe('Operations');
+    expect(billParsed.notes).toContain('Net 14 Bank Transfer');
+
+    const billVerification = verifyExtractedDocumentArithmetic(billParsed);
+    expect(billVerification.lineItemsMatchSubtotal).toBe(true);
+    expect(billVerification.subtotalPlusTaxMatchesTotal).toBe(false);
+    expect(billVerification.arithmeticValid).toBe(false);
+    expect(billVerification.isValid).toBe(false);
+    expect(billVerification.discrepancies.length).toBeGreaterThanOrEqual(1);
   });
 });

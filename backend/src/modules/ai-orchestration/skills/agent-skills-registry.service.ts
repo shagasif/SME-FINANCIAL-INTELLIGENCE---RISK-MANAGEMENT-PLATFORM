@@ -348,6 +348,7 @@ export class AgentSkillsRegistryService {
             {
               organizationId: sandboxContext.organizationId,
               horizonDays: Number(input.horizonDays ?? 30),
+              ...(input.forceRefresh === true ? { forceRefresh: true } : {}),
             },
             sandboxContext,
           );
@@ -439,7 +440,11 @@ export class AgentSkillsRegistryService {
         executeProcedure: async ({ input, sandboxContext, mcp, modelProvider }) => {
           const riskCall = await mcp.invokeTool(
             'mcp.risk.get_or_scan_anomalies_and_alerts',
-            { organizationId: sandboxContext.organizationId, triggerScanIfEmpty: true },
+            {
+              organizationId: sandboxContext.organizationId,
+              triggerScanIfEmpty: true,
+              ...(input.forceRefresh === true ? { forceRefresh: true } : {}),
+            },
             sandboxContext,
           );
 
@@ -531,7 +536,11 @@ export class AgentSkillsRegistryService {
           const [riskCall, agingCall] = await Promise.all([
             mcp.invokeTool(
               'mcp.risk.get_or_scan_anomalies_and_alerts',
-              { organizationId: sandboxContext.organizationId, triggerScanIfEmpty: true },
+              {
+                organizationId: sandboxContext.organizationId,
+                triggerScanIfEmpty: true,
+                ...(input.forceRefresh === true ? { forceRefresh: true } : {}),
+              },
               sandboxContext,
             ),
             mcp.invokeTool(
@@ -737,11 +746,183 @@ export class AgentSkillsRegistryService {
             ),
           ]);
 
-          const metricsObj = metricsCall.output.metrics as Record<string, { value: unknown }>;
-          const alerts = (riskCall.output.alerts as Array<{ id: string; title: string }>) ?? [];
+          const metricsObj = metricsCall.output.metrics as Record<
+            string,
+            {
+              status?: string;
+              value?: unknown;
+              components?: Record<string, string>;
+            }
+          >;
+          const currency = String(metricsCall.output.currency ?? 'USD');
+          const missingCurrencies = Array.isArray(
+            (metricsCall.output.conversionContext as { missingCurrencies?: unknown } | undefined)
+              ?.missingCurrencies,
+          )
+            ? (
+                (metricsCall.output.conversionContext as { missingCurrencies: unknown[] })
+                  .missingCurrencies
+              ).map(String)
+            : [];
+          const alerts =
+            (riskCall.output.alerts as Array<{
+              id: string;
+              title: string;
+              severity?: string;
+              status?: string;
+            }>) ?? [];
+          const openAlerts = alerts.filter(
+            (a) => a.status !== 'RESOLVED' && a.status !== 'DISMISSED',
+          );
           const sourceRecordIds = {
             ...((metricsCall.output.sourceRecordIds ?? {}) as Record<string, string[]>),
             ...((riskCall.output.sourceRecordIds ?? {}) as Record<string, string[]>),
+          };
+
+          const toNum = (v: unknown): number => {
+            if (v === null || v === undefined) return 0;
+            const n = Number.parseFloat(String(v));
+            return Number.isNaN(n) ? 0 : n;
+          };
+
+          const arVal = metricsObj.receivableAging?.value as
+            | { totalOutstanding?: string; totalOverdue?: string }
+            | undefined;
+          const apVal = metricsObj.payableAging?.value as
+            | { totalOutstanding?: string; totalOverdue?: string }
+            | undefined;
+          const openAr = toNum(arVal?.totalOutstanding);
+          const overdueAr = toNum(arVal?.totalOverdue);
+          const openAp = toNum(apVal?.totalOutstanding);
+          const overdueAp = toNum(apVal?.totalOverdue);
+          const ocfVal =
+            metricsObj.operatingCashFlow?.status === 'COMPUTED'
+              ? toNum(metricsObj.operatingCashFlow.value)
+              : null;
+          const wcVal =
+            metricsObj.workingCapital?.status === 'COMPUTED'
+              ? toNum(metricsObj.workingCapital.value)
+              : null;
+          const hasActiveBudget = metricsObj.budgetVariance?.status === 'COMPUTED';
+          const budgetVariancePct = hasActiveBudget
+            ? toNum(metricsObj.budgetVariance?.value)
+            : null;
+          const arDraftCount = Number(metricsObj.receivableAging?.components?.draftCount ?? 0);
+          const apDraftCount = Number(metricsObj.payableAging?.components?.draftCount ?? 0);
+
+          const buildGroundedRecommendations = () => {
+            const recs: Array<{
+              priority: number;
+              action: string;
+              rationale: string;
+              requiresHumanApproval: boolean;
+            }> = [];
+            const pushRec = (rec: {
+              action: string;
+              rationale: string;
+              requiresHumanApproval: boolean;
+            }) => {
+              if (recs.some((r) => r.action === rec.action)) return;
+              recs.push({ priority: recs.length + 1, ...rec });
+            };
+
+            if (missingCurrencies.length > 0) {
+              pushRec({
+                action: `Configure missing exchange rates (${missingCurrencies.join(', ')} -> ${currency})`,
+                rationale: `Multi-currency consolidation is incomplete until verified FX rates are added for ${missingCurrencies.join(', ')}.`,
+                requiresHumanApproval: true,
+              });
+            }
+
+            if (overdueAr > 0) {
+              pushRec({
+                action: `Accelerate collection on ${currency} ${overdueAr.toFixed(2)} in overdue receivables`,
+                rationale: `Overdue customer invoices represent ${overdueAr.toFixed(2)} ${currency} of ${openAr.toFixed(2)} ${currency} total open AR.`,
+                requiresHumanApproval: true,
+              });
+            }
+
+            if (overdueAp > 0) {
+              pushRec({
+                action: `Schedule settlement for ${currency} ${overdueAp.toFixed(2)} in overdue supplier payables`,
+                rationale: `Past-due supplier bills total ${overdueAp.toFixed(2)} ${currency}; coordinate payment timing with cash reserves.`,
+                requiresHumanApproval: true,
+              });
+            }
+
+            if (openAlerts.length > 0) {
+              pushRec({
+                action: `Triage ${openAlerts.length} active anomaly/risk alert(s) in Risk Center`,
+                rationale: `Top flagged signal: "${openAlerts[0].title}" (${openAlerts[0].severity ?? 'REVIEW'}).`,
+                requiresHumanApproval: true,
+              });
+            }
+
+            if (hasActiveBudget && budgetVariancePct !== null && budgetVariancePct < 0) {
+              pushRec({
+                action: `Review over-budget categories (${Math.abs(budgetVariancePct).toFixed(1)}% overrun)`,
+                rationale: `Actual spending exceeded allocated budget limits during the active reporting period.`,
+                requiresHumanApproval: true,
+              });
+            }
+
+            if (ocfVal !== null && ocfVal < 0) {
+              pushRec({
+                action: `Address negative operating cash flow (${currency} ${ocfVal.toFixed(2)})`,
+                rationale: `Period cash outflows exceeded inflows; review discretionary spending and collection timing.`,
+                requiresHumanApproval: true,
+              });
+            }
+
+            if (wcVal !== null && wcVal < 0) {
+              pushRec({
+                action: `Restore positive working capital (${currency} ${wcVal.toFixed(2)})`,
+                rationale: `Current liabilities exceed liquid cash and open receivables.`,
+                requiresHumanApproval: true,
+              });
+            }
+
+            if (overdueAr === 0 && openAr > 0) {
+              pushRec({
+                action: `Track ${currency} ${openAr.toFixed(2)} in current customer receivables ahead of due dates`,
+                rationale: `Zero receivables are currently overdue; send proactive pre-due reminders to preserve on-time cash conversion.`,
+                requiresHumanApproval: false,
+              });
+            }
+
+            if (arDraftCount > 0 || apDraftCount > 0) {
+              pushRec({
+                action: `Review and finalize ${arDraftCount} draft invoice(s) and ${apDraftCount} draft bill(s)`,
+                rationale: `Draft documents remain excluded from active receivables, payables, and forecasts until issued or opened.`,
+                requiresHumanApproval: true,
+              });
+            }
+
+            if (!hasActiveBudget) {
+              pushRec({
+                action: 'Establish an active operating budget for automated variance tracking',
+                rationale: `Zero active budgets overlap the current reporting period; setting category allocations enables overrun alerts.`,
+                requiresHumanApproval: true,
+              });
+            }
+
+            if (recs.length === 0 && openAp > 0) {
+              pushRec({
+                action: `Monitor ${currency} ${openAp.toFixed(2)} in current supplier payables`,
+                rationale: `All open supplier bills are within due dates; schedule disbursements to match incoming collections.`,
+                requiresHumanApproval: false,
+              });
+            }
+
+            if (recs.length === 0) {
+              pushRec({
+                action: `Maintain monthly ledger reconciliation and ${currency} liquidity monitoring`,
+                rationale: `No overdue balances, active anomalies, or budget overruns were detected in the current snapshot.`,
+                requiresHumanApproval: false,
+              });
+            }
+
+            return recs.slice(0, 3);
           };
 
           const aiResult = await modelProvider.executeStructuredTask({
@@ -749,9 +930,20 @@ export class AgentSkillsRegistryService {
             agentType: AgentType.STRATEGIC_RECOMMENDATION,
             skillId: 'skill.strategic-financial-recommendations',
             systemInstructions:
-              'Synthesize evidence-linked SME financial recommendations with mandatory human review for consequential actions.',
+              'Synthesize evidence-linked SME financial recommendations strictly from verified metrics and open alerts. Never recommend overdue collection when overdue receivables are 0, and never recommend reviewing budget variance lines when no active budget exists.',
             userPrompt: String(input.prompt ?? ''),
-            deterministicEvidence: { metrics: metricsObj, alertsCount: alerts.length },
+            deterministicEvidence: {
+              currency,
+              operatingCashFlow: metricsObj.operatingCashFlow?.value ?? null,
+              openReceivables: openAr,
+              overdueReceivables: overdueAr,
+              openPayables: openAp,
+              overduePayables: overdueAp,
+              hasActiveBudget,
+              budgetVariancePct,
+              openAlertsCount: openAlerts.length,
+              missingCurrencies,
+            },
             requiredOutputKeys: [
               'skillId',
               'summary',
@@ -759,27 +951,16 @@ export class AgentSkillsRegistryService {
               'requiresHumanApproval',
               'sourceRecordIds',
             ],
-            deterministicSynthesisBuilder: () => ({
-              skillId: 'skill.strategic-financial-recommendations',
-              summary: `Generated prioritized strategic recommendations grounded in operating cash flow (${String(metricsObj.operatingCashFlow?.value ?? 'N/A')}) and ${alerts.length} risk signal(s). Human review is required before executing consequential financial actions.`,
-              recommendations: [
-                {
-                  priority: 1,
-                  action: 'Accelerate collection on overdue accounts receivable',
-                  rationale:
-                    'Improves immediate liquid cash conversion and strengthens quick ratio.',
-                  requiresHumanApproval: true,
-                },
-                {
-                  priority: 2,
-                  action: 'Review flagged expense outliers and budget variance lines',
-                  rationale: `Addresses ${alerts.length} active anomaly/risk alert(s) in the review queue.`,
-                  requiresHumanApproval: true,
-                },
-              ],
-              requiresHumanApproval: true,
-              sourceRecordIds,
-            }),
+            deterministicSynthesisBuilder: () => {
+              const recommendations = buildGroundedRecommendations();
+              return {
+                skillId: 'skill.strategic-financial-recommendations',
+                summary: `Generated ${recommendations.length} evidence-linked recommendation(s) grounded in ${currency} operating cash flow (${String(metricsObj.operatingCashFlow?.value ?? 'N/A')}), overdue AR (${overdueAr.toFixed(2)}), and ${openAlerts.length} open risk alert(s). Human review is required before executing consequential financial actions.`,
+                recommendations,
+                requiresHumanApproval: recommendations.some((r) => r.requiresHumanApproval),
+                sourceRecordIds,
+              };
+            },
           });
 
           return {
@@ -819,6 +1000,7 @@ export class AgentSkillsRegistryService {
           'mcp.finance.get_deterministic_metrics',
           'mcp.finmemory.get_historical_snapshots',
           'mcp.budget.get_budget_variance_summary',
+          'mcp.report.generate_executive_brief',
         ],
         executionConstraints: {
           maxExecutionMs: 12000,
@@ -840,11 +1022,38 @@ export class AgentSkillsRegistryService {
             ),
           ]);
 
+          const invokedTools = [metricsCall.toolName, finMemoryCall.toolName];
+          let generatedReportId: string | null = null;
+          const reportSourceIds: Record<string, string[]> = {};
+          if (input.persistReport === true) {
+            const reportCall = await mcp.invokeTool(
+              'mcp.report.generate_executive_brief',
+              {
+                organizationId: sandboxContext.organizationId,
+                reportType: 'BUSINESS_HEALTH',
+                ...(typeof input.reportTitle === 'string' && input.reportTitle.trim()
+                  ? { title: input.reportTitle.trim() }
+                  : {}),
+              },
+              sandboxContext,
+            );
+            invokedTools.push(reportCall.toolName);
+            const repObj = reportCall.output.report as { id?: string } | undefined;
+            if (repObj?.id) {
+              generatedReportId = repObj.id;
+            }
+            Object.assign(
+              reportSourceIds,
+              (reportCall.output.sourceRecordIds ?? {}) as Record<string, string[]>,
+            );
+          }
+
           const metricsObj = metricsCall.output.metrics as Record<string, { value: unknown }>;
           const snapshots = (finMemoryCall.output.snapshots as unknown[]) ?? [];
           const sourceRecordIds = {
             ...((metricsCall.output.sourceRecordIds ?? {}) as Record<string, string[]>),
             ...((finMemoryCall.output.sourceRecordIds ?? {}) as Record<string, string[]>),
+            ...reportSourceIds,
           };
 
           const aiResult = await modelProvider.executeStructuredTask({
@@ -857,6 +1066,7 @@ export class AgentSkillsRegistryService {
             deterministicEvidence: {
               metrics: metricsObj,
               snapshotsCount: snapshots.length,
+              generatedReportId,
             },
             requiredOutputKeys: [
               'skillId',
@@ -874,13 +1084,14 @@ export class AgentSkillsRegistryService {
                 profitabilityAndBudgets: `Gross Margin: ${String(metricsObj.grossMargin?.value ?? 'UNSUPPORTED')}%; Budget Variance: ${String(metricsObj.budgetVariance?.value ?? 'UNSUPPORTED')}%.`,
               },
               finMemorySnapshotsAvailable: snapshots.length,
+              ...(generatedReportId ? { generatedReportId } : {}),
               sourceRecordIds,
             }),
           });
 
           return {
             output: aiResult.structuredOutput,
-            invokedMcpTools: [metricsCall.toolName, finMemoryCall.toolName],
+            invokedMcpTools: invokedTools,
             sourceRecordIds,
             modelUsage: aiResult.usage,
           };
@@ -1363,11 +1574,31 @@ export class AgentSkillsRegistryService {
             (coreScores.reduce((acc, s) => acc + s, 0) / coreScores.length).toFixed(2),
           );
           const hasSanitizationAlerts = (parsedDoc.sanitizationFlags?.length ?? 0) > 0;
+          const reconciliationConflicts = Array.isArray(
+            (parsedDoc as unknown as { reconciliationConflicts?: unknown[] }).reconciliationConflicts,
+          )
+            ? ((parsedDoc as unknown as {
+                reconciliationConflicts: Array<{
+                  field: string;
+                  pdfValue: string | null;
+                  databaseValue: string | null;
+                }>;
+              }).reconciliationConflicts)
+            : [];
+          const conflictMessages = reconciliationConflicts.map(
+            (c) =>
+              `PDF vs Database conflict on ${c.field}: PDF="${c.pdfValue ?? 'Missing'}" vs DB="${c.databaseValue ?? 'Missing'}"`,
+          );
           const validationErrors = [
             ...arithmetic.missingRequiredFields.map((f) => `Missing required field: ${f}`),
             ...arithmetic.discrepancies,
+            ...conflictMessages,
           ];
-          const isApproved = arithmetic.isValid && avgConfidence >= 0.7 && !hasSanitizationAlerts;
+          const isApproved =
+            arithmetic.isValid &&
+            avgConfidence >= 0.7 &&
+            !hasSanitizationAlerts &&
+            reconciliationConflicts.length === 0;
           const requiresHumanReview = !isApproved;
 
           const verificationPayload = {

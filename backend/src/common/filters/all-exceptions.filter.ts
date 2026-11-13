@@ -24,12 +24,27 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
 
     const isHttpException = exception instanceof HttpException;
-    const status = isHttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
+    let status = isHttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
 
     let message: string | string[] = 'Internal server error';
     let details: Record<string, unknown> | undefined;
 
-    if (isHttpException) {
+    const errObj = exception as Record<string, unknown> | null;
+    const isDbConnectionError = Boolean(
+      errObj &&
+        (errObj.code === 'P1001' ||
+          errObj.code === 'P1002' ||
+          errObj.code === 'P1017' ||
+          errObj.code === 'ECONNREFUSED' ||
+          (typeof errObj.message === 'string' &&
+            (errObj.message.includes("Can't reach database server") ||
+              errObj.message.includes('ECONNREFUSED')))),
+    );
+
+    if (isDbConnectionError) {
+      status = HttpStatus.SERVICE_UNAVAILABLE;
+      message = 'Database service is temporarily unavailable. Please verify database connectivity.';
+    } else if (isHttpException) {
       const exceptionResponse = exception.getResponse();
       if (typeof exceptionResponse === 'string') {
         message = exceptionResponse;

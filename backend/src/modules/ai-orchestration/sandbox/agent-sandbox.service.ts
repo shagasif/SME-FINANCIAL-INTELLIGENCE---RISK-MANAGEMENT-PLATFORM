@@ -95,6 +95,7 @@ export class AgentSandboxService {
       'mcp.risk.get_or_scan_anomalies_and_alerts',
       'mcp.budget.get_budget_variance_summary',
       'mcp.finmemory.get_historical_snapshots',
+      'mcp.report.generate_executive_brief',
     ],
     [AgentType.VERIFIER_AI]: [
       'mcp.finance.get_deterministic_metrics',

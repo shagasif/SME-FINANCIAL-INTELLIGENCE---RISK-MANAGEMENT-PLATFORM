@@ -3,14 +3,21 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
-import { AgentType, ForecastScenarioType, RoleType } from '../../../generated/prisma/client.js';
+import {
+  AgentType,
+  ForecastScenarioType,
+  ReportType,
+  RoleType,
+} from '../../../generated/prisma/client.js';
 import { BudgetsService } from '../../budgets/budgets.service.js';
 import { CashFlowForecastingService } from '../../cash-flow-forecasting/cash-flow-forecasting.service.js';
 import { FinancialAnalyticsService } from '../../financial-analytics/financial-analytics.service.js';
 import { FinancialTransactionsService } from '../../financial-transactions/financial-transactions.service.js';
 import { FinMemoryService } from '../../finmemory/finmemory.service.js';
 import { InvoicesPayablesService } from '../../invoices-payables/invoices-payables.service.js';
+import { ReportsService } from '../../reports/reports.service.js';
 import { RiskMonitoringService } from '../../risk-monitoring/risk-monitoring.service.js';
 import { ScenarioPlanningService } from '../../scenario-planning/scenario-planning.service.js';
 import { AgentSandboxService, SandboxContext } from '../sandbox/agent-sandbox.service.js';
@@ -67,6 +74,7 @@ export class ToolRegistryService {
     private readonly budgets: BudgetsService,
     private readonly scenarioPlanning: ScenarioPlanningService,
     private readonly finMemory: FinMemoryService,
+    @Optional() private readonly reports?: ReportsService,
   ) {
     this.registerCoreMcpTools();
   }
@@ -174,7 +182,7 @@ export class ToolRegistryService {
         timeoutMs: 10000,
         inputSchema: {
           requiredFields: ['organizationId'],
-          allowedFields: ['organizationId', 'horizonDays', 'scenarioType'],
+          allowedFields: ['organizationId', 'horizonDays', 'scenarioType', 'forceRefresh'],
         },
         outputRequiredKeys: ['forecast', 'sourceRecordIds'],
         handler: async (input, ctx) => {
@@ -183,18 +191,22 @@ export class ToolRegistryService {
             horizonRaw === 7 || horizonRaw === 30 || horizonRaw === 60 || horizonRaw === 90
               ? horizonRaw
               : 30;
-          const existing = await this.forecasting.listForecasts(ctx.organizationId, horizonDays);
-          const forecast =
-            existing.length > 0
-              ? await this.forecasting.getForecastById(ctx.organizationId, existing[0].id)
-              : await this.forecasting.generateForecast(
-                  ctx.organizationId,
-                  {
-                    horizonDays,
-                    scenarioType: ForecastScenarioType.BASE,
-                  },
-                  ctx.actorUserId,
-                );
+          const forceRefresh = input.forceRefresh === true;
+          const existing = forceRefresh
+            ? []
+            : await this.forecasting.listForecasts(ctx.organizationId, horizonDays);
+          const latestExisting = existing[0];
+          const shouldGenerateFresh = !latestExisting || latestExisting.isStale === true;
+          const forecast = shouldGenerateFresh
+            ? await this.forecasting.generateForecast(
+                ctx.organizationId,
+                {
+                  horizonDays,
+                  scenarioType: ForecastScenarioType.BASE,
+                },
+                ctx.actorUserId,
+              )
+            : await this.forecasting.getForecastById(ctx.organizationId, latestExisting.id);
           return {
             forecast,
             sourceRecordIds: {
@@ -222,12 +234,15 @@ export class ToolRegistryService {
         timeoutMs: 10000,
         inputSchema: {
           requiredFields: ['organizationId'],
-          allowedFields: ['organizationId', 'triggerScanIfEmpty'],
+          allowedFields: ['organizationId', 'triggerScanIfEmpty', 'forceRefresh'],
         },
         outputRequiredKeys: ['alerts', 'nonFraudPolicy', 'sourceRecordIds'],
         handler: async (input, ctx) => {
-          let alerts = await this.riskMonitoring.listAlerts(ctx.organizationId, {});
-          if (alerts.length === 0 && input.triggerScanIfEmpty !== false) {
+          const forceRefresh = input.forceRefresh === true;
+          let alerts = forceRefresh
+            ? []
+            : await this.riskMonitoring.listAlerts(ctx.organizationId, {});
+          if (forceRefresh || (alerts.length === 0 && input.triggerScanIfEmpty !== false)) {
             const scanResult = await this.riskMonitoring.runAnomalyAndRiskScan(
               ctx.organizationId,
               ctx.actorUserId,
@@ -394,6 +409,46 @@ export class ToolRegistryService {
             snapshots,
             sourceRecordIds: {
               snapshotIds: snapshots.map((s) => s.id),
+            },
+          };
+        },
+      },
+      {
+        name: 'mcp.report.generate_executive_brief',
+        serverId: 'sme-financial-mcp-core',
+        description:
+          'Generates and persists a grounded Executive Financial Brief ReportRecord from current organization ledger, forecast, and risk data.',
+        version: '1.0.0',
+        allowedAgents: [AgentType.FINANCIAL_REPORTING],
+        requiredRoles: ALL_READ_CAPABLE_ROLES.filter((r) => r !== RoleType.AUDITOR),
+        timeoutMs: 12000,
+        inputSchema: {
+          requiredFields: ['organizationId'],
+          allowedFields: ['organizationId', 'reportType', 'title'],
+        },
+        outputRequiredKeys: ['report', 'sourceRecordIds'],
+        handler: async (input, ctx) => {
+          if (!this.reports) {
+            throw new NotFoundException('ReportsService is unavailable in current module context');
+          }
+          const rawType = typeof input.reportType === 'string' ? input.reportType : 'BUSINESS_HEALTH';
+          const type =
+            rawType in ReportType
+              ? (rawType as ReportType)
+              : ReportType.BUSINESS_HEALTH;
+          const title =
+            typeof input.title === 'string' && input.title.trim()
+              ? input.title.trim()
+              : undefined;
+          const report = await this.reports.generateReport(
+            ctx.organizationId,
+            { type, title },
+            ctx.actorUserId,
+          );
+          return {
+            report,
+            sourceRecordIds: {
+              reportIds: [report.id],
             },
           };
         },

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import {
   AccountType,
   BillStatus,
@@ -16,10 +16,36 @@ import {
 } from '../currency/currency.service.js';
 import { InvoicesPayablesService } from '../invoices-payables/invoices-payables.service.js';
 
+export interface MetricAuditTraceRecord {
+  id: string;
+  type: 'ACCOUNT' | 'INVOICE' | 'BILL' | 'TRANSACTION';
+  label: string;
+  classification: string;
+  currency: string;
+  nativeAmount: string;
+  convertedAmount: string;
+  role: 'CALCULATION_INPUT' | 'SUPPORTING_EVIDENCE';
+}
+
+export interface MetricAuditTrace {
+  metricKey: string;
+  calculationReason: string;
+  status: 'COMPUTED' | 'NOT_CALCULABLE' | 'UNSUPPORTED_MISSING_DATA' | 'ERROR';
+  reportingPeriod: {
+    startDate: string;
+    endDate: string;
+  };
+  currency: string;
+  inputs: Record<string, string>;
+  assetRecords?: MetricAuditTraceRecord[];
+  liabilityRecords?: MetricAuditTraceRecord[];
+  supportingRecords?: MetricAuditTraceRecord[];
+}
+
 export interface DeterministicMetricResult<T = string | null> {
   metricKey: string;
   name: string;
-  status: 'COMPUTED' | 'UNSUPPORTED_MISSING_DATA';
+  status: 'COMPUTED' | 'UNSUPPORTED_MISSING_DATA' | 'NOT_CALCULABLE' | 'ERROR';
   value: T;
   unit: 'CURRENCY' | 'PERCENTAGE' | 'RATIO' | 'MONTHS' | 'SCHEDULE';
   formula: string;
@@ -38,6 +64,7 @@ export interface DeterministicMetricResult<T = string | null> {
   };
   dataLimitations: string[];
   components?: Record<string, string>;
+  auditTrace?: MetricAuditTrace;
 }
 
 @Injectable()
@@ -63,21 +90,34 @@ export class FinancialAnalyticsService {
     }
 
     const rawEndDate = options.endDate ?? new Date();
-    const endDate = options.endDate
-      ? rawEndDate
-      : new Date(
-          Date.UTC(
-            rawEndDate.getUTCFullYear(),
-            rawEndDate.getUTCMonth(),
-            rawEndDate.getUTCDate(),
-            23,
-            59,
-            59,
-            999,
-          ),
-        );
+    if (Number.isNaN(rawEndDate.getTime())) {
+      throw new BadRequestException('Invalid endDate');
+    }
+    const isEndMidnightUtc =
+      rawEndDate.getUTCHours() === 0 &&
+      rawEndDate.getUTCMinutes() === 0 &&
+      rawEndDate.getUTCSeconds() === 0 &&
+      rawEndDate.getUTCMilliseconds() === 0;
+    const endDate =
+      !options.endDate || isEndMidnightUtc
+        ? new Date(
+            Date.UTC(
+              rawEndDate.getUTCFullYear(),
+              rawEndDate.getUTCMonth(),
+              rawEndDate.getUTCDate(),
+              23,
+              59,
+              59,
+              999,
+            ),
+          )
+        : rawEndDate;
+
     const rawStart =
       options.startDate ?? new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+    if (Number.isNaN(rawStart.getTime())) {
+      throw new BadRequestException('Invalid startDate');
+    }
     const startDate = options.startDate
       ? rawStart
       : new Date(
@@ -91,6 +131,9 @@ export class FinancialAnalyticsService {
             0,
           ),
         );
+    if (startDate.getTime() > endDate.getTime()) {
+      throw new BadRequestException('startDate must be on or before endDate');
+    }
     const periodDurationMs = Math.max(24 * 60 * 60 * 1000, endDate.getTime() - startDate.getTime());
     const priorStartDate = new Date(startDate.getTime() - periodDurationMs);
     const priorEndDate = new Date(startDate.getTime() - 1);
@@ -394,11 +437,11 @@ export class FinancialAnalyticsService {
       cashRunway = {
         metricKey: 'cashRunway',
         name: 'Cash Runway',
-        status: 'COMPUTED',
-        value: '999.0000', // Self-sustaining / cash-flow positive
+        status: 'NOT_CALCULABLE',
+        value: null,
         unit: 'MONTHS',
         formula:
-          'CashRunwayMonths = LiquidCashBalance / MonthlyNetBurnRate (NetBurn <= 0 -> Self-Sustaining)',
+          'CashRunwayMonths = LiquidCashBalance / MonthlyNetBurnRate (requires MonthlyNetBurnRate > 0)',
         formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
         reportingPeriod: periodInfo,
         currency,
@@ -407,11 +450,13 @@ export class FinancialAnalyticsService {
           transactionIds: currentTxs.map((t) => t.id),
         },
         dataLimitations: [
-          'Organization is cash-flow positive or break-even in this period (no net cash burn).',
+          'Organization is cash-flow positive or break-even in this period (net cash burn <= 0); cash exhaustion runway is not applicable (self-sustaining).',
         ],
         components: {
           liquidCashBalance: DecimalMath.toFixed4(liquidCashBalance),
           monthlyNetBurn: DecimalMath.toFixed4(monthlyNetBurn),
+          calculationReason:
+            'Organization is cash-flow positive or break-even in this period (net cash burn <= 0); cash exhaustion runway is not calculable (self-sustaining).',
         },
       };
     } else {
@@ -439,133 +484,450 @@ export class FinancialAnalyticsService {
       };
     }
 
-    // 3. Current Ratio
-    const currentRatioVal = DecimalMath.divSafe(currentAssets, currentLiabilities);
-    const currentRatio: DeterministicMetricResult =
-      wcMissing.length > 0
-        ? {
-            metricKey: 'currentRatio',
-            name: 'Current Ratio',
-            status: 'UNSUPPORTED_MISSING_DATA',
-            value: null,
-            unit: 'RATIO',
-            formula: 'CurrentRatio = CurrentAssets / CurrentLiabilities',
-            formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
-            reportingPeriod: periodInfo,
-            currency,
-            sourceRecordIds: {
-              accountIds: [...liquidAccounts, ...shortTermDebtAccounts].map((a) => a.id),
-              invoiceIds: openInvoices.map((i) => i.id),
-              billIds: openBills.map((b) => b.id),
-            },
-            dataLimitations: [missingRateMsg(wcMissing)],
+    // 3. Current Ratio & 4. Quick Ratio Audit Traces
+    const currentAssetAuditRecords: MetricAuditTraceRecord[] = [
+      ...liquidAccounts.map((a) => {
+        let converted = a.currentBalance;
+        if (a.currency !== currency && this.currencyService) {
+          const res = this.currencyService.convertAmountSync({
+            rates: preloadedRates,
+            organizationId,
+            amount: a.currentBalance,
+            fromCurrency: a.currency,
+            toCurrency: currency,
+            asOfDate: endDate,
+          });
+          if (res.isConverted && res.convertedAmount !== null) {
+            converted = res.convertedAmount;
           }
-        : currentRatioVal === null
-          ? {
-              metricKey: 'currentRatio',
-              name: 'Current Ratio',
-              status: 'UNSUPPORTED_MISSING_DATA',
-              value: null,
-              unit: 'RATIO',
-              formula: 'CurrentRatio = CurrentAssets / CurrentLiabilities',
-              formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
-              reportingPeriod: periodInfo,
-              currency,
-              sourceRecordIds: {
-                accountIds: liquidAccounts.map((a) => a.id),
-                invoiceIds: openInvoices.map((i) => i.id),
-                billIds: openBills.map((b) => b.id),
-              },
-              dataLimitations: [
-                'Current liabilities (open supplier bills and short-term debt) are zero; division by zero prevented.',
-              ],
-            }
-          : {
-              metricKey: 'currentRatio',
-              name: 'Current Ratio',
-              status: 'COMPUTED',
-              value: DecimalMath.toFixed4(currentRatioVal),
-              unit: 'RATIO',
-              formula: 'CurrentRatio = CurrentAssets / CurrentLiabilities',
-              formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
-              reportingPeriod: periodInfo,
-              currency,
-              sourceRecordIds: {
-                accountIds: [...liquidAccounts, ...shortTermDebtAccounts].map((a) => a.id),
-                invoiceIds: openInvoices.map((i) => i.id),
-                billIds: openBills.map((b) => b.id),
-              },
-              dataLimitations: ['Inventory is excluded unless tracked in current asset accounts.'],
-              components: {
-                currentAssets: DecimalMath.toFixed4(currentAssets),
-                currentLiabilities: DecimalMath.toFixed4(currentLiabilities),
-              },
-            };
+        }
+        return {
+          id: a.id,
+          type: 'ACCOUNT' as const,
+          label: a.name,
+          classification: `Liquid Asset (${a.type})`,
+          currency: a.currency,
+          nativeAmount: DecimalMath.toFixed4(a.currentBalance),
+          convertedAmount: DecimalMath.toFixed4(converted),
+          role: 'CALCULATION_INPUT' as const,
+        };
+      }),
+      ...openInvoices.map((i) => {
+        let converted = i.outstandingBalance;
+        if (i.currency !== currency && this.currencyService) {
+          const res = this.currencyService.convertAmountSync({
+            rates: preloadedRates,
+            organizationId,
+            amount: i.outstandingBalance,
+            fromCurrency: i.currency,
+            toCurrency: currency,
+            asOfDate: endDate,
+          });
+          if (res.isConverted && res.convertedAmount !== null) {
+            converted = res.convertedAmount;
+          }
+        }
+        return {
+          id: i.id,
+          type: 'INVOICE' as const,
+          label: `${i.invoiceNumber}${i.customerName ? ` (${i.customerName})` : ''}`,
+          classification: 'Accounts Receivable',
+          currency: i.currency,
+          nativeAmount: DecimalMath.toFixed4(i.outstandingBalance),
+          convertedAmount: DecimalMath.toFixed4(converted),
+          role: 'CALCULATION_INPUT' as const,
+        };
+      }),
+    ];
+
+    const currentLiabilityAuditRecords: MetricAuditTraceRecord[] = [
+      ...shortTermDebtAccounts.map((a) => {
+        const absBal = a.currentBalance.abs();
+        let converted = absBal;
+        if (a.currency !== currency && this.currencyService) {
+          const res = this.currencyService.convertAmountSync({
+            rates: preloadedRates,
+            organizationId,
+            amount: absBal,
+            fromCurrency: a.currency,
+            toCurrency: currency,
+            asOfDate: endDate,
+          });
+          if (res.isConverted && res.convertedAmount !== null) {
+            converted = res.convertedAmount;
+          }
+        }
+        return {
+          id: a.id,
+          type: 'ACCOUNT' as const,
+          label: a.name,
+          classification: `Short-Term Debt (${a.type})`,
+          currency: a.currency,
+          nativeAmount: DecimalMath.toFixed4(absBal),
+          convertedAmount: DecimalMath.toFixed4(converted),
+          role: 'CALCULATION_INPUT' as const,
+        };
+      }),
+      ...openBills.map((b) => {
+        let converted = b.outstandingBalance;
+        if (b.currency !== currency && this.currencyService) {
+          const res = this.currencyService.convertAmountSync({
+            rates: preloadedRates,
+            organizationId,
+            amount: b.outstandingBalance,
+            fromCurrency: b.currency,
+            toCurrency: currency,
+            asOfDate: endDate,
+          });
+          if (res.isConverted && res.convertedAmount !== null) {
+            converted = res.convertedAmount;
+          }
+        }
+        return {
+          id: b.id,
+          type: 'BILL' as const,
+          label: `${b.billNumber}${b.supplierName ? ` (${b.supplierName})` : ''}`,
+          classification: 'Accounts Payable',
+          currency: b.currency,
+          nativeAmount: DecimalMath.toFixed4(b.outstandingBalance),
+          convertedAmount: DecimalMath.toFixed4(converted),
+          role: 'CALCULATION_INPUT' as const,
+        };
+      }),
+    ];
+
+    // 3. Current Ratio
+    let currentRatio: DeterministicMetricResult;
+    if (liquidAccounts.length === 0) {
+      currentRatio = {
+        metricKey: 'currentRatio',
+        name: 'Current Ratio',
+        status: 'UNSUPPORTED_MISSING_DATA',
+        value: null,
+        unit: 'RATIO',
+        formula: 'CurrentRatio = CurrentAssets / CurrentLiabilities',
+        formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
+        reportingPeriod: periodInfo,
+        currency,
+        sourceRecordIds: {
+          accountIds: [],
+          invoiceIds: openInvoices.map((i) => i.id),
+          billIds: openBills.map((b) => b.id),
+        },
+        dataLimitations: ['No liquid bank or cash accounts configured for this organization.'],
+        components: {
+          currentAssets: DecimalMath.toFixed4(totalOpenReceivables),
+          currentLiabilities: DecimalMath.toFixed4(currentLiabilities),
+        },
+      };
+    } else if (assetsMissing.length > 0) {
+      currentRatio = {
+        metricKey: 'currentRatio',
+        name: 'Current Ratio',
+        status: 'UNSUPPORTED_MISSING_DATA',
+        value: null,
+        unit: 'RATIO',
+        formula: 'CurrentRatio = CurrentAssets / CurrentLiabilities',
+        formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
+        reportingPeriod: periodInfo,
+        currency,
+        sourceRecordIds: {
+          accountIds: liquidAccounts.map((a) => a.id),
+          invoiceIds: openInvoices.map((i) => i.id),
+          billIds: openBills.map((b) => b.id),
+        },
+        dataLimitations: [missingRateMsg(assetsMissing)],
+        components: {
+          currentAssets: DecimalMath.toFixed4(currentAssets),
+          currentLiabilities: DecimalMath.toFixed4(currentLiabilities),
+        },
+      };
+    } else if (liabilitiesMissing.length > 0) {
+      currentRatio = {
+        metricKey: 'currentRatio',
+        name: 'Current Ratio',
+        status: 'UNSUPPORTED_MISSING_DATA',
+        value: null,
+        unit: 'RATIO',
+        formula: 'CurrentRatio = CurrentAssets / CurrentLiabilities',
+        formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
+        reportingPeriod: periodInfo,
+        currency,
+        sourceRecordIds: {
+          accountIds: liquidAccounts.map((a) => a.id),
+          invoiceIds: openInvoices.map((i) => i.id),
+          billIds: openBills.map((b) => b.id),
+        },
+        dataLimitations: [missingRateMsg(liabilitiesMissing)],
+        components: {
+          currentAssets: DecimalMath.toFixed4(currentAssets),
+          currentLiabilities: DecimalMath.toFixed4(currentLiabilities),
+        },
+      };
+    } else if (currentLiabilities.isZero()) {
+      currentRatio = {
+        metricKey: 'currentRatio',
+        name: 'Current Ratio',
+        status: 'NOT_CALCULABLE',
+        value: null,
+        unit: 'RATIO',
+        formula: 'CurrentRatio = CurrentAssets / CurrentLiabilities',
+        formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
+        reportingPeriod: periodInfo,
+        currency,
+        sourceRecordIds: {
+          accountIds: [...liquidAccounts, ...shortTermDebtAccounts].map((a) => a.id),
+          invoiceIds: openInvoices.map((i) => i.id),
+          billIds: openBills.map((b) => b.id),
+        },
+        dataLimitations: [
+          'Current liabilities (open supplier bills and short-term debt) are verified zero; ratio cannot be mathematically calculated (division by zero prevented).',
+        ],
+        components: {
+          currentAssets: DecimalMath.toFixed4(currentAssets),
+          currentLiabilities: '0.0000',
+          liquidCash: DecimalMath.toFixed4(liquidCashBalance),
+          accountsReceivable: DecimalMath.toFixed4(totalOpenReceivables),
+          shortTermDebt: DecimalMath.toFixed4(shortTermDebtBalance),
+          openBillsPayable: DecimalMath.toFixed4(totalOpenPayables),
+          calculationReason:
+            'Current liabilities are verified zero (0 open supplier bills, 0 short-term debt accounts). Division by zero prevented; metric is not calculable.',
+        },
+        auditTrace: {
+          metricKey: 'currentRatio',
+          calculationReason:
+            'Current liabilities are verified zero (0 open supplier bills, 0 short-term debt accounts). Division by zero prevented; metric is not calculable.',
+          status: 'NOT_CALCULABLE',
+          reportingPeriod: periodInfo,
+          currency,
+          inputs: {
+            currentAssets: DecimalMath.toFixed4(currentAssets),
+            currentLiabilities: '0.0000',
+            liquidCash: DecimalMath.toFixed4(liquidCashBalance),
+            accountsReceivable: DecimalMath.toFixed4(totalOpenReceivables),
+            shortTermDebt: DecimalMath.toFixed4(shortTermDebtBalance),
+            openBillsPayable: DecimalMath.toFixed4(totalOpenPayables),
+          },
+          assetRecords: currentAssetAuditRecords,
+          liabilityRecords: currentLiabilityAuditRecords,
+        },
+      };
+    } else {
+      const currentRatioVal = DecimalMath.divSafe(currentAssets, currentLiabilities);
+      currentRatio = {
+        metricKey: 'currentRatio',
+        name: 'Current Ratio',
+        status: 'COMPUTED',
+        value: DecimalMath.toFixed4(currentRatioVal ?? DecimalMath.ZERO),
+        unit: 'RATIO',
+        formula: 'CurrentRatio = CurrentAssets / CurrentLiabilities',
+        formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
+        reportingPeriod: periodInfo,
+        currency,
+        sourceRecordIds: {
+          accountIds: [...liquidAccounts, ...shortTermDebtAccounts].map((a) => a.id),
+          invoiceIds: openInvoices.map((i) => i.id),
+          billIds: openBills.map((b) => b.id),
+        },
+        dataLimitations: ['Inventory is excluded unless tracked in current asset accounts.'],
+        components: {
+          currentAssets: DecimalMath.toFixed4(currentAssets),
+          currentLiabilities: DecimalMath.toFixed4(currentLiabilities),
+          liquidCash: DecimalMath.toFixed4(liquidCashBalance),
+          accountsReceivable: DecimalMath.toFixed4(totalOpenReceivables),
+          shortTermDebt: DecimalMath.toFixed4(shortTermDebtBalance),
+          openBillsPayable: DecimalMath.toFixed4(totalOpenPayables),
+          calculationReason: `Calculated as CurrentAssets (${DecimalMath.toFixed4(currentAssets)}) / CurrentLiabilities (${DecimalMath.toFixed4(currentLiabilities)})`,
+        },
+        auditTrace: {
+          metricKey: 'currentRatio',
+          calculationReason: `Calculated as CurrentAssets (${DecimalMath.toFixed4(currentAssets)}) / CurrentLiabilities (${DecimalMath.toFixed4(currentLiabilities)})`,
+          status: 'COMPUTED',
+          reportingPeriod: periodInfo,
+          currency,
+          inputs: {
+            currentAssets: DecimalMath.toFixed4(currentAssets),
+            currentLiabilities: DecimalMath.toFixed4(currentLiabilities),
+            liquidCash: DecimalMath.toFixed4(liquidCashBalance),
+            accountsReceivable: DecimalMath.toFixed4(totalOpenReceivables),
+            shortTermDebt: DecimalMath.toFixed4(shortTermDebtBalance),
+            openBillsPayable: DecimalMath.toFixed4(totalOpenPayables),
+          },
+          assetRecords: currentAssetAuditRecords,
+          liabilityRecords: currentLiabilityAuditRecords,
+        },
+      };
+    }
 
     // 4. Quick Ratio
     const quickAssets = DecimalMath.add(liquidCashBalance, totalOpenReceivables);
-    const quickRatioVal = DecimalMath.divSafe(quickAssets, currentLiabilities);
-    const quickRatio: DeterministicMetricResult =
-      wcMissing.length > 0
-        ? {
-            metricKey: 'quickRatio',
-            name: 'Quick Ratio (Acid-Test)',
-            status: 'UNSUPPORTED_MISSING_DATA',
-            value: null,
-            unit: 'RATIO',
-            formula: 'QuickRatio = (LiquidCash + AccountsReceivable) / CurrentLiabilities',
-            formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
-            reportingPeriod: periodInfo,
-            currency,
-            sourceRecordIds: {
-              accountIds: [...liquidAccounts, ...shortTermDebtAccounts].map((a) => a.id),
-              invoiceIds: openInvoices.map((i) => i.id),
-              billIds: openBills.map((b) => b.id),
-            },
-            dataLimitations: [missingRateMsg(wcMissing)],
-          }
-        : quickRatioVal === null
-          ? {
-              metricKey: 'quickRatio',
-              name: 'Quick Ratio (Acid-Test)',
-              status: 'UNSUPPORTED_MISSING_DATA',
-              value: null,
-              unit: 'RATIO',
-              formula: 'QuickRatio = (LiquidCash + AccountsReceivable) / CurrentLiabilities',
-              formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
-              reportingPeriod: periodInfo,
-              currency,
-              sourceRecordIds: {
-                accountIds: liquidAccounts.map((a) => a.id),
-                invoiceIds: openInvoices.map((i) => i.id),
-                billIds: openBills.map((b) => b.id),
-              },
-              dataLimitations: [
-                'Current liabilities are zero; quick ratio cannot be calculated without liabilities.',
-              ],
-            }
-          : {
-              metricKey: 'quickRatio',
-              name: 'Quick Ratio (Acid-Test)',
-              status: 'COMPUTED',
-              value: DecimalMath.toFixed4(quickRatioVal),
-              unit: 'RATIO',
-              formula: 'QuickRatio = (LiquidCash + AccountsReceivable) / CurrentLiabilities',
-              formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
-              reportingPeriod: periodInfo,
-              currency,
-              sourceRecordIds: {
-                accountIds: [...liquidAccounts, ...shortTermDebtAccounts].map((a) => a.id),
-                invoiceIds: openInvoices.map((i) => i.id),
-                billIds: openBills.map((b) => b.id),
-              },
-              dataLimitations: [],
-              components: {
-                liquidCash: DecimalMath.toFixed4(liquidCashBalance),
-                accountsReceivable: DecimalMath.toFixed4(totalOpenReceivables),
-                currentLiabilities: DecimalMath.toFixed4(currentLiabilities),
-              },
-            };
+    let quickRatio: DeterministicMetricResult;
+    if (liquidAccounts.length === 0) {
+      quickRatio = {
+        metricKey: 'quickRatio',
+        name: 'Quick Ratio (Acid-Test)',
+        status: 'UNSUPPORTED_MISSING_DATA',
+        value: null,
+        unit: 'RATIO',
+        formula: 'QuickRatio = (LiquidCash + AccountsReceivable) / CurrentLiabilities',
+        formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
+        reportingPeriod: periodInfo,
+        currency,
+        sourceRecordIds: {
+          accountIds: [],
+          invoiceIds: openInvoices.map((i) => i.id),
+          billIds: openBills.map((b) => b.id),
+        },
+        dataLimitations: ['No liquid bank or cash accounts configured for this organization.'],
+        components: {
+          liquidCash: '0.0000',
+          accountsReceivable: DecimalMath.toFixed4(totalOpenReceivables),
+          quickAssets: DecimalMath.toFixed4(totalOpenReceivables),
+          currentLiabilities: DecimalMath.toFixed4(currentLiabilities),
+        },
+      };
+    } else if (assetsMissing.length > 0) {
+      quickRatio = {
+        metricKey: 'quickRatio',
+        name: 'Quick Ratio (Acid-Test)',
+        status: 'UNSUPPORTED_MISSING_DATA',
+        value: null,
+        unit: 'RATIO',
+        formula: 'QuickRatio = (LiquidCash + AccountsReceivable) / CurrentLiabilities',
+        formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
+        reportingPeriod: periodInfo,
+        currency,
+        sourceRecordIds: {
+          accountIds: liquidAccounts.map((a) => a.id),
+          invoiceIds: openInvoices.map((i) => i.id),
+          billIds: openBills.map((b) => b.id),
+        },
+        dataLimitations: [missingRateMsg(assetsMissing)],
+        components: {
+          liquidCash: DecimalMath.toFixed4(liquidCashBalance),
+          accountsReceivable: DecimalMath.toFixed4(totalOpenReceivables),
+          quickAssets: DecimalMath.toFixed4(quickAssets),
+          currentLiabilities: DecimalMath.toFixed4(currentLiabilities),
+        },
+      };
+    } else if (liabilitiesMissing.length > 0) {
+      quickRatio = {
+        metricKey: 'quickRatio',
+        name: 'Quick Ratio (Acid-Test)',
+        status: 'UNSUPPORTED_MISSING_DATA',
+        value: null,
+        unit: 'RATIO',
+        formula: 'QuickRatio = (LiquidCash + AccountsReceivable) / CurrentLiabilities',
+        formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
+        reportingPeriod: periodInfo,
+        currency,
+        sourceRecordIds: {
+          accountIds: liquidAccounts.map((a) => a.id),
+          invoiceIds: openInvoices.map((i) => i.id),
+          billIds: openBills.map((b) => b.id),
+        },
+        dataLimitations: [missingRateMsg(liabilitiesMissing)],
+        components: {
+          liquidCash: DecimalMath.toFixed4(liquidCashBalance),
+          accountsReceivable: DecimalMath.toFixed4(totalOpenReceivables),
+          quickAssets: DecimalMath.toFixed4(quickAssets),
+          currentLiabilities: DecimalMath.toFixed4(currentLiabilities),
+        },
+      };
+    } else if (currentLiabilities.isZero()) {
+      quickRatio = {
+        metricKey: 'quickRatio',
+        name: 'Quick Ratio (Acid-Test)',
+        status: 'NOT_CALCULABLE',
+        value: null,
+        unit: 'RATIO',
+        formula: 'QuickRatio = (LiquidCash + AccountsReceivable) / CurrentLiabilities',
+        formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
+        reportingPeriod: periodInfo,
+        currency,
+        sourceRecordIds: {
+          accountIds: [...liquidAccounts, ...shortTermDebtAccounts].map((a) => a.id),
+          invoiceIds: openInvoices.map((i) => i.id),
+          billIds: openBills.map((b) => b.id),
+        },
+        dataLimitations: [
+          'Current liabilities (open supplier bills and short-term debt) are verified zero; quick ratio cannot be mathematically calculated without liabilities.',
+        ],
+        components: {
+          liquidCash: DecimalMath.toFixed4(liquidCashBalance),
+          accountsReceivable: DecimalMath.toFixed4(totalOpenReceivables),
+          quickAssets: DecimalMath.toFixed4(quickAssets),
+          currentLiabilities: '0.0000',
+          shortTermDebt: DecimalMath.toFixed4(shortTermDebtBalance),
+          openBillsPayable: DecimalMath.toFixed4(totalOpenPayables),
+          calculationReason:
+            'Current liabilities are verified zero (0 open supplier bills, 0 short-term debt accounts). Division by zero prevented; quick ratio is not calculable.',
+        },
+        auditTrace: {
+          metricKey: 'quickRatio',
+          calculationReason:
+            'Current liabilities are verified zero (0 open supplier bills, 0 short-term debt accounts). Division by zero prevented; quick ratio is not calculable.',
+          status: 'NOT_CALCULABLE',
+          reportingPeriod: periodInfo,
+          currency,
+          inputs: {
+            liquidCash: DecimalMath.toFixed4(liquidCashBalance),
+            accountsReceivable: DecimalMath.toFixed4(totalOpenReceivables),
+            quickAssets: DecimalMath.toFixed4(quickAssets),
+            currentLiabilities: '0.0000',
+            shortTermDebt: DecimalMath.toFixed4(shortTermDebtBalance),
+            openBillsPayable: DecimalMath.toFixed4(totalOpenPayables),
+          },
+          assetRecords: currentAssetAuditRecords,
+          liabilityRecords: currentLiabilityAuditRecords,
+        },
+      };
+    } else {
+      const quickRatioVal = DecimalMath.divSafe(quickAssets, currentLiabilities);
+      quickRatio = {
+        metricKey: 'quickRatio',
+        name: 'Quick Ratio (Acid-Test)',
+        status: 'COMPUTED',
+        value: DecimalMath.toFixed4(quickRatioVal ?? DecimalMath.ZERO),
+        unit: 'RATIO',
+        formula: 'QuickRatio = (LiquidCash + AccountsReceivable) / CurrentLiabilities',
+        formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
+        reportingPeriod: periodInfo,
+        currency,
+        sourceRecordIds: {
+          accountIds: [...liquidAccounts, ...shortTermDebtAccounts].map((a) => a.id),
+          invoiceIds: openInvoices.map((i) => i.id),
+          billIds: openBills.map((b) => b.id),
+        },
+        dataLimitations: [],
+        components: {
+          liquidCash: DecimalMath.toFixed4(liquidCashBalance),
+          accountsReceivable: DecimalMath.toFixed4(totalOpenReceivables),
+          quickAssets: DecimalMath.toFixed4(quickAssets),
+          currentLiabilities: DecimalMath.toFixed4(currentLiabilities),
+          shortTermDebt: DecimalMath.toFixed4(shortTermDebtBalance),
+          openBillsPayable: DecimalMath.toFixed4(totalOpenPayables),
+          calculationReason: `Calculated as QuickAssets (${DecimalMath.toFixed4(quickAssets)}) / CurrentLiabilities (${DecimalMath.toFixed4(currentLiabilities)})`,
+        },
+        auditTrace: {
+          metricKey: 'quickRatio',
+          calculationReason: `Calculated as QuickAssets (${DecimalMath.toFixed4(quickAssets)}) / CurrentLiabilities (${DecimalMath.toFixed4(currentLiabilities)})`,
+          status: 'COMPUTED',
+          reportingPeriod: periodInfo,
+          currency,
+          inputs: {
+            liquidCash: DecimalMath.toFixed4(liquidCashBalance),
+            accountsReceivable: DecimalMath.toFixed4(totalOpenReceivables),
+            quickAssets: DecimalMath.toFixed4(quickAssets),
+            currentLiabilities: DecimalMath.toFixed4(currentLiabilities),
+            shortTermDebt: DecimalMath.toFixed4(shortTermDebtBalance),
+            openBillsPayable: DecimalMath.toFixed4(totalOpenPayables),
+          },
+          assetRecords: currentAssetAuditRecords,
+          liabilityRecords: currentLiabilityAuditRecords,
+        },
+      };
+    }
 
     // 5. Gross Margin
     const grossProfit = DecimalMath.sub(totalRevenue, totalCogs);
@@ -589,7 +951,7 @@ export class FinancialAnalyticsService {
           ? {
               metricKey: 'grossMargin',
               name: 'Gross Margin',
-              status: 'UNSUPPORTED_MISSING_DATA',
+              status: 'NOT_CALCULABLE',
               value: null,
               unit: 'PERCENTAGE',
               formula: 'GrossMarginPct = ((Revenue - CostOfGoodsSold) / Revenue) * 100',
@@ -597,33 +959,52 @@ export class FinancialAnalyticsService {
               reportingPeriod: periodInfo,
               currency,
               sourceRecordIds: { transactionIds: [] },
-              dataLimitations: ['No revenue transactions recorded in the reporting period.'],
+              dataLimitations: [
+                'No revenue transactions recorded in the reporting period (revenue denominator is zero; gross margin is not calculable).',
+              ],
             }
-          : {
-              metricKey: 'grossMargin',
-              name: 'Gross Margin',
-              status: 'COMPUTED',
-              value: DecimalMath.toFixed4(grossMarginVal),
-              unit: 'PERCENTAGE',
-              formula: 'GrossMarginPct = ((Revenue - CostOfGoodsSold) / Revenue) * 100',
-              formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
-              reportingPeriod: periodInfo,
-              currency,
-              sourceRecordIds: {
-                transactionIds: [...incomeTxs, ...cogsTxs].map((t) => t.id),
-              },
-              dataLimitations:
-                cogsTxs.length === 0
-                  ? [
-                      'No expense transactions marked with isCostOfGoodsSold=true in period; COGS treated as 0.0000.',
-                    ]
-                  : [],
-              components: {
-                revenue: DecimalMath.toFixed4(totalRevenue),
-                costOfGoodsSold: DecimalMath.toFixed4(totalCogs),
-                grossProfit: DecimalMath.toFixed4(grossProfit),
-              },
-            };
+          : cogsTxs.length === 0 && expenseTxs.length > 0
+            ? {
+                metricKey: 'grossMargin',
+                name: 'Gross Margin',
+                status: 'UNSUPPORTED_MISSING_DATA',
+                value: null,
+                unit: 'PERCENTAGE',
+                formula: 'GrossMarginPct = ((Revenue - CostOfGoodsSold) / Revenue) * 100',
+                formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
+                reportingPeriod: periodInfo,
+                currency,
+                sourceRecordIds: {
+                  transactionIds: [...incomeTxs, ...expenseTxs].map((t) => t.id),
+                },
+                dataLimitations: [
+                  'No expense transactions are classified as Cost of Goods Sold (isCostOfGoodsSold=true) in this period; gross margin cannot be computed without COGS classification (operating expenses are not assumed to be COGS).',
+                ],
+                components: {
+                  revenue: DecimalMath.toFixed4(totalRevenue),
+                  costOfGoodsSold: '0.0000',
+                },
+              }
+            : {
+                metricKey: 'grossMargin',
+                name: 'Gross Margin',
+                status: 'COMPUTED',
+                value: DecimalMath.toFixed4(grossMarginVal),
+                unit: 'PERCENTAGE',
+                formula: 'GrossMarginPct = ((Revenue - CostOfGoodsSold) / Revenue) * 100',
+                formulaVersion: FinancialAnalyticsService.FORMULA_VERSION,
+                reportingPeriod: periodInfo,
+                currency,
+                sourceRecordIds: {
+                  transactionIds: [...incomeTxs, ...cogsTxs].map((t) => t.id),
+                },
+                dataLimitations: [],
+                components: {
+                  revenue: DecimalMath.toFixed4(totalRevenue),
+                  costOfGoodsSold: DecimalMath.toFixed4(totalCogs),
+                  grossProfit: DecimalMath.toFixed4(grossProfit),
+                },
+              };
 
     // 6. Expense Growth
     const expenseGrowthVal = DecimalMath.growthRatePct(totalExpenses, priorTotalExpenses);
@@ -649,7 +1030,7 @@ export class FinancialAnalyticsService {
           ? {
               metricKey: 'expenseGrowth',
               name: 'Period-over-Period Expense Growth',
-              status: 'UNSUPPORTED_MISSING_DATA',
+              status: 'NOT_CALCULABLE',
               value: null,
               unit: 'PERCENTAGE',
               formula:
@@ -661,8 +1042,15 @@ export class FinancialAnalyticsService {
                 transactionIds: expenseTxs.map((t) => t.id),
               },
               dataLimitations: [
-                `Prior comparison period (${priorStartDate.toISOString().slice(0, 10)} to ${priorEndDate.toISOString().slice(0, 10)}) has zero recorded expenses.`,
+                `Prior comparison period (${priorStartDate.toISOString().slice(0, 10)} to ${priorEndDate.toISOString().slice(0, 10)}) has zero recorded expenses (prior expense denominator is zero; percentage growth is not calculable).`,
               ],
+              components: {
+                currentPeriodExpenses: DecimalMath.toFixed4(totalExpenses),
+                priorPeriodExpenses: '0.0000',
+                priorPeriodStart: priorStartDate.toISOString().slice(0, 10),
+                priorPeriodEnd: priorEndDate.toISOString().slice(0, 10),
+                calculationReason: `Prior comparison period has zero recorded expenses; percentage growth is not calculable (division by zero prevented).`,
+              },
             }
           : {
               metricKey: 'expenseGrowth',
@@ -682,6 +1070,8 @@ export class FinancialAnalyticsService {
               components: {
                 currentPeriodExpenses: DecimalMath.toFixed4(totalExpenses),
                 priorPeriodExpenses: DecimalMath.toFixed4(priorTotalExpenses),
+                priorPeriodStart: priorStartDate.toISOString().slice(0, 10),
+                priorPeriodEnd: priorEndDate.toISOString().slice(0, 10),
               },
             };
 
@@ -741,11 +1131,47 @@ export class FinancialAnalyticsService {
               components: {
                 currentAssets: DecimalMath.toFixed4(currentAssets),
                 currentLiabilities: DecimalMath.toFixed4(currentLiabilities),
+                liquidCash: DecimalMath.toFixed4(liquidCashBalance),
+                accountsReceivable: DecimalMath.toFixed4(totalOpenReceivables),
+                shortTermDebt: DecimalMath.toFixed4(shortTermDebtBalance),
+                openBillsPayable: DecimalMath.toFixed4(totalOpenPayables),
+                workingCapital: DecimalMath.toFixed4(workingCapitalVal),
+                calculationReason: `Calculated as CurrentAssets (${DecimalMath.toFixed4(currentAssets)}) - CurrentLiabilities (${DecimalMath.toFixed4(currentLiabilities)})`,
+              },
+              auditTrace: {
+                metricKey: 'workingCapital',
+                calculationReason: `Calculated as CurrentAssets (${DecimalMath.toFixed4(currentAssets)}) - CurrentLiabilities (${DecimalMath.toFixed4(currentLiabilities)})`,
+                status: 'COMPUTED',
+                reportingPeriod: periodInfo,
+                currency,
+                inputs: {
+                  currentAssets: DecimalMath.toFixed4(currentAssets),
+                  currentLiabilities: DecimalMath.toFixed4(currentLiabilities),
+                  liquidCash: DecimalMath.toFixed4(liquidCashBalance),
+                  accountsReceivable: DecimalMath.toFixed4(totalOpenReceivables),
+                  shortTermDebt: DecimalMath.toFixed4(shortTermDebtBalance),
+                  openBillsPayable: DecimalMath.toFixed4(totalOpenPayables),
+                },
+                assetRecords: currentAssetAuditRecords,
+                liabilityRecords: currentLiabilityAuditRecords,
               },
             };
 
     // 8. Budget Variance
     let budgetVariance: DeterministicMetricResult;
+    let budgetComparisonChart: {
+      budgetId: string;
+      budgetName: string;
+      currency: string;
+      isComplete: boolean;
+      lines: Array<{
+        category: string;
+        department: string;
+        allocatedAmount: string;
+        actualSpent: string;
+        status: string;
+      }>;
+    } | null = null;
     if (activeBudgets.length === 0) {
       budgetVariance = {
         metricKey: 'budgetVariance',
@@ -772,6 +1198,20 @@ export class FinancialAnalyticsService {
           : [];
       const budgetIncomplete =
         'isComplete' in varianceReport && varianceReport.isComplete === false;
+
+      budgetComparisonChart = {
+        budgetId: primaryBudget.id,
+        budgetName: varianceReport.budgetName,
+        currency: varianceReport.currency,
+        isComplete: !budgetIncomplete,
+        lines: varianceReport.lines.map((l) => ({
+          category: l.category,
+          department: l.department,
+          allocatedAmount: l.allocatedAmount,
+          actualSpent: l.actualSpent,
+          status: l.status,
+        })),
+      };
 
       budgetVariance = budgetIncomplete
         ? {
@@ -930,6 +1370,100 @@ export class FinancialAnalyticsService {
       new Set([...globalMissingCurrencies, ...arAgingMissing, ...apAgingMissing]),
     ).sort();
 
+    // Build deterministic chart datasets from the exact same converted period transactions
+    const convertSingleTx = (tx: (typeof currentTxs)[number]): Prisma.Decimal | null => {
+      const fromCurr = (tx.currency || currency).trim().toUpperCase();
+      if (fromCurr === currency) return tx.amount;
+      if (this.currencyService) {
+        const res = this.currencyService.convertAmountSync({
+          rates: preloadedRates,
+          organizationId,
+          amount: tx.amount,
+          fromCurrency: fromCurr,
+          toCurrency: currency,
+          asOfDate: tx.transactionDate,
+        });
+        if (res.isConverted && res.convertedAmount !== null) {
+          return res.convertedAmount;
+        }
+      }
+      return null;
+    };
+
+    const monthMap = new Map<
+      string,
+      { income: Prisma.Decimal; expenses: Prisma.Decimal; cogs: Prisma.Decimal }
+    >();
+    const categoryMap = new Map<string, { amount: Prisma.Decimal; count: number }>();
+
+    for (const tx of currentTxs) {
+      if (tx.type !== TransactionType.INCOME && tx.type !== TransactionType.EXPENSE) continue;
+      const converted = convertSingleTx(tx);
+      if (converted === null) continue;
+
+      const monthKey = tx.transactionDate.toISOString().slice(0, 7);
+      const bucket = monthMap.get(monthKey) ?? {
+        income: DecimalMath.ZERO,
+        expenses: DecimalMath.ZERO,
+        cogs: DecimalMath.ZERO,
+      };
+      if (tx.type === TransactionType.INCOME) {
+        bucket.income = DecimalMath.add(bucket.income, converted);
+      } else {
+        bucket.expenses = DecimalMath.add(bucket.expenses, converted);
+        if (tx.isCostOfGoodsSold) {
+          bucket.cogs = DecimalMath.add(bucket.cogs, converted);
+        }
+        const cat = (tx as { category?: string }).category?.trim() || 'Uncategorized';
+        const catEntry = categoryMap.get(cat) ?? { amount: DecimalMath.ZERO, count: 0 };
+        catEntry.amount = DecimalMath.add(catEntry.amount, converted);
+        catEntry.count += 1;
+        categoryMap.set(cat, catEntry);
+      }
+      monthMap.set(monthKey, bucket);
+    }
+
+    const monthlySeries = Array.from(monthMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, data]) => {
+        const [yr, mo] = month.split('-');
+        const label = new Date(Date.UTC(Number(yr), Number(mo) - 1, 1)).toLocaleDateString('en-US', {
+          month: 'short',
+          year: 'numeric',
+          timeZone: 'UTC',
+        });
+        const netCashFlow = DecimalMath.sub(data.income, data.expenses);
+        const grossMarginPct =
+          cogsTxs.length > 0 && data.income.gt(DecimalMath.ZERO)
+            ? DecimalMath.toFixed4(
+                DecimalMath.percentage(DecimalMath.sub(data.income, data.cogs), data.income) ??
+                  DecimalMath.ZERO,
+              )
+            : null;
+        return {
+          month,
+          label,
+          income: DecimalMath.toFixed4(data.income),
+          expenses: DecimalMath.toFixed4(data.expenses),
+          netCashFlow: DecimalMath.toFixed4(netCashFlow),
+          cogs: DecimalMath.toFixed4(data.cogs),
+          grossMarginPct,
+        };
+      });
+
+    const expenseBreakdown = Array.from(categoryMap.entries())
+      .sort((a, b) => b[1].amount.comparedTo(a[1].amount))
+      .map(([category, data]) => ({
+        category,
+        amount: DecimalMath.toFixed4(data.amount),
+        percentage: DecimalMath.toFixed4(
+          totalExpenses.gt(DecimalMath.ZERO)
+            ? DecimalMath.percentage(data.amount, totalExpenses) ?? DecimalMath.ZERO
+            : DecimalMath.ZERO,
+        ),
+        count: data.count,
+      }));
+
     return {
       organizationId,
       currency,
@@ -941,6 +1475,19 @@ export class FinancialAnalyticsService {
         isComplete: allMissingCurrencies.length === 0,
         missingCurrencies: allMissingCurrencies,
         appliedRates: Array.from(appliedRateMap.values()),
+      },
+      charts: {
+        monthlySeries,
+        expenseBreakdown,
+        profitabilityTrend: {
+          isAvailable:
+            cogsTxs.length > 0 && totalRevenue.gt(DecimalMath.ZERO) && gmMissing.length === 0,
+          reason:
+            cogsTxs.length === 0
+              ? grossMargin.dataLimitations[0] ?? 'No classified COGS data available.'
+              : null,
+        },
+        budgetComparison: budgetComparisonChart,
       },
       metrics: {
         operatingCashFlow,

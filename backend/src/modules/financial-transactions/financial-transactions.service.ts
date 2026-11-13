@@ -21,6 +21,14 @@ import {
   UpdateTransactionDto,
 } from './dto/financial-transaction.dto.js';
 
+function isFutureTransactionDate(txDate: Date, now = new Date()): boolean {
+  const txDay = new Date(txDate.getTime());
+  txDay.setUTCHours(0, 0, 0, 0);
+  const today = new Date(now.getTime());
+  today.setUTCHours(0, 0, 0, 0);
+  return txDay.getTime() > today.getTime();
+}
+
 @Injectable()
 export class FinancialTransactionsService {
   constructor(
@@ -178,6 +186,7 @@ export class FinancialTransactionsService {
       description: sanitizedDesc,
     });
 
+    const isFuture = isFutureTransactionDate(txDate);
     const signedDelta =
       dto.type === TransactionType.INCOME
         ? amount
@@ -204,16 +213,19 @@ export class FinancialTransactionsService {
           recurrenceFrequency: dto.recurrenceFrequency,
           isCostOfGoodsSold: dto.isCostOfGoodsSold ?? false,
           duplicateHash,
+          ...(isFuture ? { metadata: { deferredFutureBalance: true } } : {}),
           createdByUserId: actorUserId,
         },
       });
 
-      await tx.financialAccount.update({
-        where: { id: account.id },
-        data: {
-          currentBalance: DecimalMath.add(account.currentBalance, signedDelta),
-        },
-      });
+      if (!isFuture && !signedDelta.isZero()) {
+        await tx.financialAccount.update({
+          where: { id: account.id },
+          data: {
+            currentBalance: DecimalMath.add(account.currentBalance, signedDelta),
+          },
+        });
+      }
 
       return created;
     });
@@ -497,6 +509,13 @@ export class FinancialTransactionsService {
     }
 
     const newType = dto.type ?? existing.type;
+    const newTxDate = dto.transactionDate ? new Date(dto.transactionDate) : existing.transactionDate;
+    const existingMeta =
+      typeof existing.metadata === 'object' && existing.metadata !== null
+        ? (existing.metadata as Record<string, unknown>)
+        : {};
+    const wasDeferred = existingMeta.deferredFutureBalance === true;
+    const isNowFuture = isFutureTransactionDate(newTxDate);
 
     const oldSigned =
       existing.type === TransactionType.INCOME
@@ -510,7 +529,9 @@ export class FinancialTransactionsService {
         : newType === TransactionType.EXPENSE
           ? newAmount.negated()
           : DecimalMath.ZERO;
-    const netAccountAdjustment = DecimalMath.sub(newSigned, oldSigned);
+    const effectiveOldSigned = wasDeferred ? DecimalMath.ZERO : oldSigned;
+    const effectiveNewSigned = isNowFuture ? DecimalMath.ZERO : newSigned;
+    const netAccountAdjustment = DecimalMath.sub(effectiveNewSigned, effectiveOldSigned);
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const record = await tx.financialTransaction.update({
@@ -518,9 +539,7 @@ export class FinancialTransactionsService {
         data: {
           type: newType,
           amount: newAmount,
-          transactionDate: dto.transactionDate
-            ? new Date(dto.transactionDate)
-            : existing.transactionDate,
+          transactionDate: newTxDate,
           description: dto.description
             ? SecurityUtil.sanitizeImportedText(dto.description).sanitized
             : existing.description,
@@ -533,6 +552,10 @@ export class FinancialTransactionsService {
           isRecurring: dto.isRecurring ?? existing.isRecurring,
           recurrenceFrequency: dto.recurrenceFrequency ?? existing.recurrenceFrequency,
           isCostOfGoodsSold: dto.isCostOfGoodsSold ?? existing.isCostOfGoodsSold,
+          metadata: {
+            ...existingMeta,
+            deferredFutureBalance: isNowFuture,
+          } as Prisma.InputJsonValue,
         },
       });
 
@@ -575,8 +598,15 @@ export class FinancialTransactionsService {
       return this.serializeTransaction(existing);
     }
 
-    const reversalDelta =
-      existing.type === TransactionType.INCOME
+    const existingMeta =
+      typeof existing.metadata === 'object' && existing.metadata !== null
+        ? (existing.metadata as Record<string, unknown>)
+        : {};
+    const wasDeferred = existingMeta.deferredFutureBalance === true;
+
+    const reversalDelta = wasDeferred
+      ? DecimalMath.ZERO
+      : existing.type === TransactionType.INCOME
         ? existing.amount.negated()
         : existing.type === TransactionType.EXPENSE
           ? existing.amount

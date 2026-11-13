@@ -1,5 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsEnum, IsIn, IsInt, IsNumberString, IsOptional } from 'class-validator';
+import {
+  IsDateString,
+  IsEnum,
+  IsIn,
+  IsInt,
+  IsOptional,
+  Matches,
+} from 'class-validator';
 import { ForecastScenarioType } from '../../../generated/prisma/client.js';
 
 export class GenerateForecastDto {
@@ -29,6 +36,8 @@ export class GenerateForecastDto {
     description: 'Minimum liquidity safety buffer below which a liquidity warning is raised',
   })
   @IsOptional()
-  @IsNumberString()
+  @Matches(/^\d+(\.\d{1,4})?$/, {
+    message: 'liquiditySafetyBuffer must be a non-negative decimal number with up to 4 decimal places',
+  })
   liquiditySafetyBuffer?: string = '5000.0000';
 }

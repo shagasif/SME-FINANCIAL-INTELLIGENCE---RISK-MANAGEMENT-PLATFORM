@@ -1,7 +1,9 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
 } from '@nestjs/common';
@@ -10,6 +12,7 @@ import {
   InvoiceStatus,
   PaymentMethod,
   Prisma,
+  RoleType,
   TransactionType,
 } from '../../generated/prisma/client.js';
 import { DecimalMath } from '../../common/utils/decimal-math.js';
@@ -17,6 +20,23 @@ import { SecurityUtil } from '../../common/utils/security.util.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { CurrencyConversionService } from '../currency/currency.service.js';
+
+export interface PostSaveOrchestratorPort {
+  orchestratePostDocumentSave(params: {
+    organizationId: string;
+    userId: string;
+    userRole?: RoleType;
+    documentType: 'INVOICE' | 'BILL';
+    documentId: string;
+    documentNumber: string;
+    counterpartyName: string;
+    currency: string;
+    totalAmount: string;
+    status: string;
+    dueDate: string;
+    triggerSource: 'MANUAL_CREATE' | 'DOCUMENT_IMPORT';
+  }): Promise<unknown>;
+}
 import {
   CreateBillDto,
   CreateInvoiceDto,
@@ -71,11 +91,61 @@ interface ComputedTotals {
 
 @Injectable()
 export class InvoicesPayablesService {
+  private readonly logger = new Logger(InvoicesPayablesService.name);
+  private postSaveOrchestrator?: PostSaveOrchestratorPort;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     @Optional() private readonly currencyService?: CurrencyConversionService,
-  ) {}
+    @Optional()
+    @Inject('POST_SAVE_ORCHESTRATOR')
+    supervisorOrchestrator?: PostSaveOrchestratorPort,
+  ) {
+    this.postSaveOrchestrator = supervisorOrchestrator;
+  }
+
+  registerPostSaveOrchestrator(orchestrator: PostSaveOrchestratorPort): void {
+    this.postSaveOrchestrator = orchestrator;
+  }
+
+  private async triggerPostSaveOrchestration(params: {
+    organizationId: string;
+    actorUserId: string;
+    actorRole?: RoleType;
+    documentType: 'INVOICE' | 'BILL';
+    documentId: string;
+    documentNumber: string;
+    counterpartyName: string;
+    currency: string;
+    totalAmount: string;
+    status: string;
+    dueDate: string;
+    triggerSource: 'MANUAL_CREATE' | 'DOCUMENT_IMPORT';
+  }): Promise<void> {
+    if (!this.postSaveOrchestrator) return;
+    try {
+      await this.postSaveOrchestrator.orchestratePostDocumentSave({
+        organizationId: params.organizationId,
+        userId: params.actorUserId,
+        userRole: params.actorRole,
+        documentType: params.documentType,
+        documentId: params.documentId,
+        documentNumber: params.documentNumber,
+        counterpartyName: params.counterpartyName,
+        currency: params.currency,
+        totalAmount: params.totalAmount,
+        status: params.status,
+        dueDate: params.dueDate,
+        triggerSource: params.triggerSource,
+      });
+    } catch (error) {
+      // Never roll back or fail an already-committed invoice/bill save if AI orchestration fails
+      this.logger.warn(
+        `Automatic post-${params.documentType.toLowerCase()} AI orchestration failed cleanly without rollback for ${params.documentId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
 
   private startOfUtcDay(date: Date): Date {
     return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0, 0));
@@ -379,7 +449,12 @@ export class InvoicesPayablesService {
     }
   }
 
-  async createInvoice(organizationId: string, dto: CreateInvoiceDto, actorUserId: string) {
+  async createInvoice(
+    organizationId: string,
+    dto: CreateInvoiceDto,
+    actorUserId: string,
+    actorRole?: RoleType,
+  ) {
     const issueDate = new Date(dto.issueDate);
     const dueDate = new Date(dto.dueDate);
     this.validateIssueAndDueDates(issueDate, dueDate);
@@ -470,6 +545,21 @@ export class InvoicesPayablesService {
           ? { sourceDocumentChecksum: dto.sourceDocumentChecksum.trim() }
           : {}),
       },
+    });
+
+    await this.triggerPostSaveOrchestration({
+      organizationId,
+      actorUserId,
+      actorRole,
+      documentType: 'INVOICE',
+      documentId: invoice.id,
+      documentNumber: invoice.invoiceNumber,
+      counterpartyName: invoice.customerName,
+      currency,
+      totalAmount: DecimalMath.toFixed4(invoice.totalAmount),
+      status,
+      dueDate: invoice.dueDate.toISOString(),
+      triggerSource: dto.sourceDocumentChecksum?.trim() ? 'DOCUMENT_IMPORT' : 'MANUAL_CREATE',
     });
 
     return this.serializeInvoice(invoice);
@@ -764,35 +854,48 @@ export class InvoicesPayablesService {
     }
 
     const paymentDate = new Date(dto.paymentDate);
-    let resolvedAccount: {
-      id: string;
-      ledgerAmount: Prisma.Decimal;
-      ledgerCurrency: string;
-      fxNote: string | null;
-      currentBalance: Prisma.Decimal;
-    } | null = null;
-
-    if (dto.accountId) {
-      const account = await this.prisma.financialAccount.findFirst({
-        where: { id: dto.accountId, organizationId, isArchived: false },
-      });
-      if (!account) {
-        throw new NotFoundException('Target financial account not found for payment posting');
-      }
-      const conversion = await this.resolveAccountSettlementAmount({
-        organizationId,
-        accountCurrency: account.currency,
-        accountName: account.name,
-        documentCurrency: invoice.currency,
-        paymentAmount,
-        paymentDate,
-      });
-      resolvedAccount = {
-        id: account.id,
-        currentBalance: account.currentBalance,
-        ...conversion,
-      };
+    if (!dto.accountId || !dto.accountId.trim()) {
+      throw new BadRequestException(
+        'A target financial account (accountId) is required to record payment cash movement',
+      );
     }
+
+    const normalizedReference = dto.reference?.trim() || null;
+    const duplicatePayment = await this.prisma.paymentRecord?.findFirst?.({
+      where: {
+        organizationId,
+        invoiceId: invoice.id,
+        amount: paymentAmount,
+        paymentDate,
+        method: dto.method ?? PaymentMethod.BANK_TRANSFER,
+        reference: normalizedReference,
+      },
+    });
+    if (duplicatePayment) {
+      throw new BadRequestException(
+        `Duplicate payment detected for invoice ${invoice.invoiceNumber}`,
+      );
+    }
+
+    const account = await this.prisma.financialAccount.findFirst({
+      where: { id: dto.accountId, organizationId, isArchived: false },
+    });
+    if (!account) {
+      throw new NotFoundException('Target financial account not found for payment posting');
+    }
+    const conversion = await this.resolveAccountSettlementAmount({
+      organizationId,
+      accountCurrency: account.currency,
+      accountName: account.name,
+      documentCurrency: invoice.currency,
+      paymentAmount,
+      paymentDate,
+    });
+    const resolvedAccount = {
+      id: account.id,
+      currentBalance: account.currentBalance,
+      ...conversion,
+    };
 
     const newPaid = DecimalMath.add(invoice.paidAmount, paymentAmount);
     const newOutstanding = DecimalMath.sub(invoice.totalAmount, newPaid);
@@ -884,7 +987,12 @@ export class InvoicesPayablesService {
     return this.serializeInvoice(updated);
   }
 
-  async createBill(organizationId: string, dto: CreateBillDto, actorUserId: string) {
+  async createBill(
+    organizationId: string,
+    dto: CreateBillDto,
+    actorUserId: string,
+    actorRole?: RoleType,
+  ) {
     const issueDate = new Date(dto.issueDate);
     const dueDate = new Date(dto.dueDate);
     this.validateIssueAndDueDates(issueDate, dueDate);
@@ -975,6 +1083,21 @@ export class InvoicesPayablesService {
           ? { sourceDocumentChecksum: dto.sourceDocumentChecksum.trim() }
           : {}),
       },
+    });
+
+    await this.triggerPostSaveOrchestration({
+      organizationId,
+      actorUserId,
+      actorRole,
+      documentType: 'BILL',
+      documentId: bill.id,
+      documentNumber: bill.billNumber,
+      counterpartyName: bill.supplierName,
+      currency,
+      totalAmount: DecimalMath.toFixed4(bill.totalAmount),
+      status,
+      dueDate: bill.dueDate.toISOString(),
+      triggerSource: dto.sourceDocumentChecksum?.trim() ? 'DOCUMENT_IMPORT' : 'MANUAL_CREATE',
     });
 
     return this.serializeBill(bill);
@@ -1269,37 +1392,48 @@ export class InvoicesPayablesService {
     }
 
     const paymentDate = new Date(dto.paymentDate);
-    let resolvedAccount: {
-      id: string;
-      ledgerAmount: Prisma.Decimal;
-      ledgerCurrency: string;
-      fxNote: string | null;
-      currentBalance: Prisma.Decimal;
-    } | null = null;
-
-    if (dto.accountId) {
-      const account = await this.prisma.financialAccount.findFirst({
-        where: { id: dto.accountId, organizationId, isArchived: false },
-      });
-      if (!account) {
-        throw new NotFoundException(
-          'Target financial account not found for bill payment posting',
-        );
-      }
-      const conversion = await this.resolveAccountSettlementAmount({
-        organizationId,
-        accountCurrency: account.currency,
-        accountName: account.name,
-        documentCurrency: bill.currency,
-        paymentAmount,
-        paymentDate,
-      });
-      resolvedAccount = {
-        id: account.id,
-        currentBalance: account.currentBalance,
-        ...conversion,
-      };
+    if (!dto.accountId || !dto.accountId.trim()) {
+      throw new BadRequestException(
+        'A target financial account (accountId) is required to record bill payment cash movement',
+      );
     }
+
+    const normalizedReference = dto.reference?.trim() || null;
+    const duplicatePayment = await this.prisma.paymentRecord?.findFirst?.({
+      where: {
+        organizationId,
+        billId: bill.id,
+        amount: paymentAmount,
+        paymentDate,
+        method: dto.method ?? PaymentMethod.BANK_TRANSFER,
+        reference: normalizedReference,
+      },
+    });
+    if (duplicatePayment) {
+      throw new BadRequestException(`Duplicate payment detected for bill ${bill.billNumber}`);
+    }
+
+    const account = await this.prisma.financialAccount.findFirst({
+      where: { id: dto.accountId, organizationId, isArchived: false },
+    });
+    if (!account) {
+      throw new NotFoundException(
+        'Target financial account not found for bill payment posting',
+      );
+    }
+    const conversion = await this.resolveAccountSettlementAmount({
+      organizationId,
+      accountCurrency: account.currency,
+      accountName: account.name,
+      documentCurrency: bill.currency,
+      paymentAmount,
+      paymentDate,
+    });
+    const resolvedAccount = {
+      id: account.id,
+      currentBalance: account.currentBalance,
+      ...conversion,
+    };
 
     const newPaid = DecimalMath.add(bill.paidAmount, paymentAmount);
     const newOutstanding = DecimalMath.sub(bill.totalAmount, newPaid);

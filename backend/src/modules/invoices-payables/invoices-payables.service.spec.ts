@@ -813,4 +813,80 @@ describe('InvoicesPayablesService & DTO (Phase 1 & Phase 2)', () => {
     expect(aging.payablesSummary.draft.totalAmount).toBe('12000.0000');
     expect(aging.payablesSummary.activeOutstandingTotal).toBe('8000.0000');
   });
+
+  it('requires accountId on customer and supplier payments and rejects duplicate payment records', async () => {
+    const baseInvoice = {
+      id: 'inv-1',
+      organizationId: 'org-1',
+      invoiceNumber: 'INV-100',
+      customerName: 'Customer A',
+      category: 'Sales Revenue',
+      department: null,
+      issueDate: new Date('2026-11-01T00:00:00.000Z'),
+      dueDate: new Date('2026-11-30T00:00:00.000Z'),
+      currency: 'PKR',
+      totalAmount: new Prisma.Decimal('10000.0000'),
+      paidAmount: new Prisma.Decimal('0.0000'),
+      outstandingBalance: new Prisma.Decimal('10000.0000'),
+      status: InvoiceStatus.ISSUED,
+    };
+    const baseBill = {
+      id: 'bill-1',
+      organizationId: 'org-1',
+      billNumber: 'BILL-100',
+      supplierName: 'Supplier A',
+      category: 'Operating Expense',
+      department: null,
+      issueDate: new Date('2026-11-01T00:00:00.000Z'),
+      dueDate: new Date('2026-11-30T00:00:00.000Z'),
+      currency: 'PKR',
+      totalAmount: new Prisma.Decimal('8000.0000'),
+      paidAmount: new Prisma.Decimal('0.0000'),
+      outstandingBalance: new Prisma.Decimal('8000.0000'),
+      status: BillStatus.OPEN,
+    };
+
+    const { service } = makeService({ invoiceRecord: baseInvoice, billRecord: baseBill });
+
+    await expect(
+      service.recordInvoicePayment(
+        'org-1',
+        'inv-1',
+        { amount: '2000.0000', paymentDate: '2026-11-12T00:00:00.000Z', method: PaymentMethod.BANK_TRANSFER },
+        'user-1',
+      ),
+    ).rejects.toThrow(/accountId.*required/i);
+
+    await expect(
+      service.recordBillPayment(
+        'org-1',
+        'bill-1',
+        { amount: '2000.0000', paymentDate: '2026-11-12T00:00:00.000Z', method: PaymentMethod.BANK_TRANSFER },
+        'user-1',
+      ),
+    ).rejects.toThrow(/accountId.*required/i);
+
+    // Duplicate payment guard
+    const dupPrisma = {
+      invoice: { findFirst: async () => baseInvoice },
+      bill: { findFirst: async () => baseBill },
+      paymentRecord: { findFirst: async () => ({ id: 'existing-pay-1' }) },
+      financialAccount: { findFirst: async () => ({ id: 'acc-1', currency: 'PKR', name: 'Bank', currentBalance: new Prisma.Decimal('50000') }) },
+    };
+    const dupService = new InvoicesPayablesService(dupPrisma as never, { record: async () => undefined } as never);
+    await expect(
+      dupService.recordInvoicePayment(
+        'org-1',
+        'inv-1',
+        {
+          amount: '2000.0000',
+          paymentDate: '2026-11-12T00:00:00.000Z',
+          accountId: 'acc-1',
+          method: PaymentMethod.BANK_TRANSFER,
+          reference: 'REF-1',
+        },
+        'user-1',
+      ),
+    ).rejects.toThrow(/Duplicate payment detected/i);
+  });
 });

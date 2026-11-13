@@ -1,10 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
-import { Prisma, TransactionType } from '../../generated/prisma/client.js';
+import { BudgetStatus, Prisma, TransactionType } from '../../generated/prisma/client.js';
 import { DecimalMath } from '../../common/utils/decimal-math.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { CurrencyConversionService } from '../currency/currency.service.js';
-import { CreateBudgetDto, ReviseBudgetDto } from './dto/budget.dto.js';
+import { BudgetLineInputDto, CreateBudgetDto, ReviseBudgetDto } from './dto/budget.dto.js';
 
 @Injectable()
 export class BudgetsService {
@@ -14,13 +14,50 @@ export class BudgetsService {
     @Optional() private readonly currencyService?: CurrencyConversionService,
   ) {}
 
+  private validateBudgetLines(lines: BudgetLineInputDto[]): void {
+    const seenPairs = new Set<string>();
+    for (const line of lines) {
+      const category = line.category?.trim() ?? '';
+      const department = (line.department ?? 'General').trim() || 'General';
+      if (category.length < 2) {
+        throw new BadRequestException('Each budget line must specify a valid category');
+      }
+
+      const allocated = DecimalMath.of(line.allocatedAmount);
+      if (allocated.lte(DecimalMath.ZERO)) {
+        throw new BadRequestException(
+          `Allocated amount for "${category}" (${department}) must be strictly greater than zero`,
+        );
+      }
+
+      const threshold = DecimalMath.of(line.alertThreshold ?? '90.0000');
+      if (threshold.lt(DecimalMath.ZERO) || threshold.gt(DecimalMath.HUNDRED)) {
+        throw new BadRequestException(
+          `Alert threshold for "${category}" (${department}) must be between 0 and 100`,
+        );
+      }
+
+      const pairKey = `${category.toLowerCase()}::${department.toLowerCase()}`;
+      if (seenPairs.has(pairKey)) {
+        throw new BadRequestException(
+          `Duplicate budget line for category "${category}" and department "${department}"`,
+        );
+      }
+      seenPairs.add(pairKey);
+    }
+  }
+
   async createBudget(organizationId: string, dto: CreateBudgetDto, actorUserId: string) {
     const startDate = new Date(dto.startDate);
     const endDate = new Date(dto.endDate);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      throw new BadRequestException('Invalid budget startDate or endDate');
+    }
     if (endDate.getTime() <= startDate.getTime()) {
       throw new BadRequestException('Budget endDate must be after startDate');
     }
 
+    this.validateBudgetLines(dto.lines);
     const totalAllocated = DecimalMath.sum(dto.lines.map((l) => l.allocatedAmount));
     if (totalAllocated.lte(DecimalMath.ZERO)) {
       throw new BadRequestException('Total allocated budget must be strictly greater than zero');
@@ -103,8 +140,15 @@ export class BudgetsService {
     if (!existing) {
       throw new NotFoundException('Budget not found in organization');
     }
+    if (existing.status === BudgetStatus.ARCHIVED) {
+      throw new BadRequestException('Archived budgets cannot be revised');
+    }
 
+    this.validateBudgetLines(dto.lines);
     const newAllocated = DecimalMath.sum(dto.lines.map((l) => l.allocatedAmount));
+    if (newAllocated.lte(DecimalMath.ZERO)) {
+      throw new BadRequestException('Revised total allocated budget must be strictly greater than zero');
+    }
     const nextVersion = existing.version + 1;
 
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -187,6 +231,9 @@ export class BudgetsService {
       throw new NotFoundException('Budget not found in organization');
     }
 
+    const endOfPeriod = new Date(budget.endDate.getTime());
+    endOfPeriod.setUTCHours(23, 59, 59, 999);
+
     const expenses = await this.prisma.financialTransaction.findMany({
       where: {
         organizationId,
@@ -194,7 +241,7 @@ export class BudgetsService {
         type: TransactionType.EXPENSE,
         transactionDate: {
           gte: budget.startDate,
-          lte: budget.endDate,
+          lte: endOfPeriod,
         },
       },
     });
@@ -205,38 +252,65 @@ export class BudgetsService {
       : [];
     const missingCurrencies = new Set<string>();
 
-    const lineVariances = budget.lines.map((line) => {
-      const matchingTxs = expenses.filter((tx) => {
-        const catMatch = tx.category.toLowerCase() === line.category.toLowerCase();
-        if (!catMatch) return false;
-        if (line.department && line.department.toLowerCase() !== 'general' && tx.department) {
-          return tx.department.toLowerCase() === line.department.toLowerCase();
+    const convertExpenseAmount = (tx: (typeof expenses)[number]): Prisma.Decimal => {
+      const txCurrency = (tx.currency || targetCurrency).trim().toUpperCase();
+      if (txCurrency === targetCurrency) {
+        return tx.amount;
+      }
+      if (this.currencyService) {
+        const conv = this.currencyService.convertAmountSync({
+          rates: preloadedRates,
+          organizationId,
+          amount: tx.amount,
+          fromCurrency: txCurrency,
+          toCurrency: targetCurrency,
+          asOfDate: tx.transactionDate,
+        });
+        if (conv.isConverted && conv.convertedAmount !== null) {
+          return conv.convertedAmount;
         }
-        return true;
+      }
+      missingCurrencies.add(txCurrency);
+      return DecimalMath.ZERO;
+    };
+
+    // Two-pass matching prevents double-counting when both department-specific and General lines share a category:
+    // Pass 1 assigns expenses to exact (category, department) lines; Pass 2 assigns remaining category expenses to General lines.
+    const matchedTxIds = new Set<string>();
+    const matchedByLineId = new Map<string, typeof expenses>();
+
+    for (const line of budget.lines) {
+      const lineDept = (line.department || 'General').trim().toLowerCase();
+      if (lineDept === 'general') continue;
+      const lineCat = line.category.trim().toLowerCase();
+      const matched = expenses.filter((tx) => {
+        if (matchedTxIds.has(tx.id)) return false;
+        const catMatch = tx.category.trim().toLowerCase() === lineCat;
+        const txDept = tx.department?.trim().toLowerCase() ?? '';
+        return catMatch && txDept === lineDept;
       });
+      for (const tx of matched) matchedTxIds.add(tx.id);
+      matchedByLineId.set(line.id, matched);
+    }
+
+    for (const line of budget.lines) {
+      const lineDept = (line.department || 'General').trim().toLowerCase();
+      if (lineDept !== 'general') continue;
+      const lineCat = line.category.trim().toLowerCase();
+      const matched = expenses.filter((tx) => {
+        if (matchedTxIds.has(tx.id)) return false;
+        return tx.category.trim().toLowerCase() === lineCat;
+      });
+      for (const tx of matched) matchedTxIds.add(tx.id);
+      matchedByLineId.set(line.id, matched);
+    }
+
+    const lineVariances = budget.lines.map((line) => {
+      const matchingTxs = matchedByLineId.get(line.id) ?? [];
 
       let actualSpent = DecimalMath.ZERO;
       for (const tx of matchingTxs) {
-        const txCurrency = (tx.currency || targetCurrency).trim().toUpperCase();
-        if (txCurrency === targetCurrency) {
-          actualSpent = DecimalMath.add(actualSpent, tx.amount);
-        } else if (this.currencyService) {
-          const conv = this.currencyService.convertAmountSync({
-            rates: preloadedRates,
-            organizationId,
-            amount: tx.amount,
-            fromCurrency: txCurrency,
-            toCurrency: targetCurrency,
-            asOfDate: tx.transactionDate,
-          });
-          if (conv.isConverted && conv.convertedAmount !== null) {
-            actualSpent = DecimalMath.add(actualSpent, conv.convertedAmount);
-          } else {
-            missingCurrencies.add(txCurrency);
-          }
-        } else {
-          missingCurrencies.add(txCurrency);
-        }
+        actualSpent = DecimalMath.add(actualSpent, convertExpenseAmount(tx));
       }
 
       const varianceAmount = DecimalMath.sub(line.allocatedAmount, actualSpent); // Positive = under budget, Negative = overrun
@@ -263,7 +337,35 @@ export class BudgetsService {
       };
     });
 
+    // Track unbudgeted expenses within the budget period so total spend is never hidden
+    const unbudgetedTxs = expenses.filter((tx) => !matchedTxIds.has(tx.id));
+    const unbudgetedBucketMap = new Map<
+      string,
+      { category: string; department: string; amount: Prisma.Decimal; transactionIds: string[] }
+    >();
+    let unbudgetedActualSpent = DecimalMath.ZERO;
+    for (const tx of unbudgetedTxs) {
+      const converted = convertExpenseAmount(tx);
+      unbudgetedActualSpent = DecimalMath.add(unbudgetedActualSpent, converted);
+      const cat = tx.category.trim();
+      const dept = tx.department?.trim() || 'General';
+      const key = `${cat.toLowerCase()}::${dept.toLowerCase()}`;
+      const existingBucket = unbudgetedBucketMap.get(key);
+      if (existingBucket) {
+        existingBucket.amount = DecimalMath.add(existingBucket.amount, converted);
+        existingBucket.transactionIds.push(tx.id);
+      } else {
+        unbudgetedBucketMap.set(key, {
+          category: cat,
+          department: dept,
+          amount: converted,
+          transactionIds: [tx.id],
+        });
+      }
+    }
+
     const totalActualSpent = DecimalMath.sum(lineVariances.map((l) => l.actualSpent));
+    const totalOrganizationExpenses = DecimalMath.add(totalActualSpent, unbudgetedActualSpent);
     const totalVarianceAmount = DecimalMath.sub(budget.totalAllocated, totalActualSpent);
     const totalUtilizationPct =
       DecimalMath.percentage(totalActualSpent, budget.totalAllocated) ?? DecimalMath.ZERO;
@@ -285,11 +387,20 @@ export class BudgetsService {
         'VarianceAmount = AllocatedAmount - ActualSpent; UtilizationPct = (ActualSpent / AllocatedAmount) * 100',
       totalAllocated: DecimalMath.toFixed4(budget.totalAllocated),
       totalActualSpent: DecimalMath.toFixed4(totalActualSpent),
+      unbudgetedActualSpent: DecimalMath.toFixed4(unbudgetedActualSpent),
+      totalOrganizationExpenses: DecimalMath.toFixed4(totalOrganizationExpenses),
       totalVarianceAmount: DecimalMath.toFixed4(totalVarianceAmount),
       totalUtilizationPct: DecimalMath.toFixed4(totalUtilizationPct),
       totalVariancePct: DecimalMath.toFixed4(totalVariancePct),
       isOverBudget: totalActualSpent.gt(budget.totalAllocated),
       lines: lineVariances,
+      unbudgetedCategories: Array.from(unbudgetedBucketMap.values()).map((u) => ({
+        category: u.category,
+        department: u.department,
+        actualSpent: DecimalMath.toFixed4(u.amount),
+        transactionIds: u.transactionIds,
+      })),
+      unbudgetedTransactionIds: unbudgetedTxs.map((t) => t.id),
       revisions: budget.revisions.map((r) => ({
         id: r.id,
         version: r.version,

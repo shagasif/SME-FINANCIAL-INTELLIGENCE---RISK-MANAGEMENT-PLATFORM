@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -46,6 +47,7 @@ export interface CsvRowError {
 
 @Injectable()
 export class CsvImportService {
+  private readonly logger = new Logger(CsvImportService.name);
   public static readonly ALLOWED_FILE_EXTENSIONS = ['.csv', '.xlsx', '.xls', '.json'] as const;
 
   public static isSupportedFileName(fileName: string): boolean {
@@ -486,6 +488,7 @@ export class CsvImportService {
     batchId: string,
     dto: ConfirmCsvImportDto,
     actorUserId: string,
+    actorRole?: RoleType,
   ) {
     const batch = await this.prisma.importBatch.findFirst({
       where: { id: batchId, organizationId },
@@ -576,6 +579,31 @@ export class CsvImportService {
         netBalanceChange: DecimalMath.toFixed4(netBalanceChange),
       },
     });
+
+    if (rowsToCommit.length > 0) {
+      const hasExpenseRows = rowsToCommit.some((r) => r.type === TransactionType.EXPENSE);
+      try {
+        await this.supervisor.orchestratePostLedgerImport({
+          organizationId,
+          userId: actorUserId,
+          userRole: actorRole,
+          batchId: batch.id,
+          fileName: batch.fileName,
+          accountId: account.id,
+          currency: account.currency,
+          committedRowsCount: rowsToCommit.length,
+          errorRowsCount: batch.errorRowsCount,
+          skippedDuplicatesCount: previewRows.length - rowsToCommit.length,
+          hasExpenseRows,
+          netBalanceChange: DecimalMath.toFixed4(netBalanceChange),
+        });
+      } catch (err) {
+        // Never roll back committed ledger transactions or ImportBatch.COMMITTED if orchestration fails
+        this.logger.warn(
+          `Automatic post-ledger import AI orchestration failed cleanly without rollback for batch ${batch.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
 
     return updatedBatch;
   }

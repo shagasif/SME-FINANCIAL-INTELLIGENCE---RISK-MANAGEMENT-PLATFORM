@@ -5,9 +5,9 @@ import {
   IsArray,
   IsDateString,
   IsEnum,
-  IsNumberString,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   MinLength,
   ValidateNested,
@@ -28,12 +28,16 @@ export class BudgetLineInputDto {
   department?: string = 'General';
 
   @ApiProperty({ example: '12000.0000' })
-  @IsNumberString()
+  @Matches(/^\d+(\.\d{1,4})?$/, {
+    message: 'allocatedAmount must be a non-negative decimal with up to 4 decimal places',
+  })
   allocatedAmount!: string;
 
   @ApiPropertyOptional({ example: '90.0000', default: '90.0000' })
   @IsOptional()
-  @IsNumberString()
+  @Matches(/^\d+(\.\d{1,4})?$/, {
+    message: 'alertThreshold must be a non-negative percentage with up to 4 decimal places',
+  })
   alertThreshold?: string = '90.0000';
 
   @ApiPropertyOptional()
@@ -62,12 +66,12 @@ export class CreateBudgetDto {
   @IsDateString()
   endDate!: string;
 
-  @ApiPropertyOptional({ example: 'USD', default: 'USD' })
+  @ApiPropertyOptional({ example: 'USD' })
   @IsOptional()
   @IsString()
   @MinLength(3)
   @MaxLength(3)
-  currency?: string = 'USD';
+  currency?: string;
 
   @ApiProperty({ type: [BudgetLineInputDto] })
   @IsArray()

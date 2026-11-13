@@ -38,7 +38,7 @@ export class InvoicesPayablesController {
     @Body() dto: CreateInvoiceDto,
     @CurrentUser() user: AuthenticatedPrincipal,
   ) {
-    return this.service.createInvoice(orgId, dto, user.userId);
+    return this.service.createInvoice(orgId, dto, user.userId, user.organizationRole);
   }
 
   @Get('invoices')
@@ -140,7 +140,7 @@ export class InvoicesPayablesController {
     @Body() dto: CreateBillDto,
     @CurrentUser() user: AuthenticatedPrincipal,
   ) {
-    return this.service.createBill(orgId, dto, user.userId);
+    return this.service.createBill(orgId, dto, user.userId, user.organizationRole);
   }
 
   @Get('bills')
