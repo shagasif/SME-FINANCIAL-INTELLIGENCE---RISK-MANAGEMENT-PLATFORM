@@ -50,7 +50,7 @@ export function Sidebar() {
 
   return (
     <aside
-      className={`hidden md:flex flex-col border-r border-[var(--border-subtle)] bg-[var(--surface-card)] transition-all duration-200 z-30 shrink-0 ${
+      className={`hidden md:flex flex-col border-r border-[var(--border-subtle)] bg-[var(--surface-sidebar)] transition-all duration-200 z-30 shrink-0 ${
         isCollapsed ? 'w-20' : 'w-64'
       }`}
     >
@@ -125,8 +125,8 @@ export function Sidebar() {
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all group ${
                   isActive
-                    ? 'bg-[var(--surface-elevated)] text-[var(--accent-primary)] font-semibold shadow-2xs border-l-3 border-[var(--accent-teal)] pl-2.5'
-                    : 'text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)]/60 hover:text-[var(--text-primary)]'
+                    ? 'bg-[var(--surface-sidebar-active)] text-[var(--surface-sidebar-active-text)] font-semibold shadow-2xs border-l-3 border-[var(--surface-sidebar-active-border)] pl-2.5'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--surface-sidebar-hover)] hover:text-[var(--text-primary)]'
                 } ${isCollapsed ? 'justify-center px-2' : ''}`
               }
               title={isCollapsed ? item.label : undefined}

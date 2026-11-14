@@ -918,7 +918,7 @@ export function InvoicesPayablesPage() {
                 onClick={() => setIsCreateMenuOpen((prev) => !prev)}
                 aria-expanded={isCreateMenuOpen}
                 aria-haspopup="menu"
-                className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium bg-emerald-800 hover:bg-emerald-700 text-white shadow-xs transition-colors whitespace-nowrap cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--accent-teal)]"
+                className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white shadow-xs transition-colors whitespace-nowrap cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--accent-teal)]"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Create New</span>
@@ -1198,7 +1198,7 @@ export function InvoicesPayablesPage() {
                     size="sm"
                     onClick={handleActivateSelectedDrafts}
                     isLoading={isBulkIssuing}
-                    className="bg-emerald-800 hover:bg-emerald-700 text-white"
+                    className="bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     {isInvTab ? 'Issue Invoice' : 'Open Bill'}
@@ -2254,7 +2254,7 @@ export function InvoicesPayablesPage() {
                 variant="primary"
                 size="sm"
                 onClick={() => handleActivateDraft(detailTarget.type, detailTarget.data.id)}
-                className="bg-emerald-800 hover:bg-emerald-700 text-white"
+                className="bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white"
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 {detailTarget.type === 'invoice' ? 'Issue Invoice' : 'Open Bill'}

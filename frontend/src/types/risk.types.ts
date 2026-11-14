@@ -9,8 +9,10 @@ export type RiskAlertSeverity = (typeof RiskAlertSeverity)[keyof typeof RiskAler
 
 export const RiskAlertStatus = {
   NEW: 'NEW',
+  OPEN: 'OPEN',
   ACKNOWLEDGED: 'ACKNOWLEDGED',
   INVESTIGATING: 'INVESTIGATING',
+  ESCALATED: 'ESCALATED',
   RESOLVED: 'RESOLVED',
   DISMISSED: 'DISMISSED',
 } as const;
@@ -35,25 +37,35 @@ export interface ReviewDecision {
   organizationId: string;
   reviewerUserId: string;
   reviewerUser?: { id: string; fullName: string; email: string };
-  action: 'ACKNOWLEDGE' | 'DISMISS' | 'INVESTIGATE' | 'ESCALATE';
-  notes: string;
+  action: 'ACKNOWLEDGE' | 'DISMISS' | 'INVESTIGATE' | 'ESCALATE' | 'APPROVE';
+  notes?: string;
+  reviewerNotes?: string;
+  resolutionEvidence?: string;
+  metadata?: Record<string, unknown>;
   createdAt: string;
 }
 
 export interface RiskAlert {
   id: string;
   organizationId: string;
+  type?: string;
   ruleCode: RiskAlertType;
   title: string;
-  description: string;
+  description?: string;
+  explanation?: string;
   severity: RiskAlertSeverity;
   status: RiskAlertStatus;
-  evidence: Record<string, unknown>;
-  supportingRecordIds: string[];
-  nonFraudDisclaimer: string;
+  evidence?: Record<string, unknown>;
+  supportingRecordIds?: string[] | Record<string, unknown>;
+  actionableRecommendation?: string;
+  detectionMethod?: string;
+  metricValue?: string | null;
+  thresholdValue?: string | null;
+  nonFraudDisclaimer?: string;
   reviewDecisions?: ReviewDecision[];
   detectedAt: string;
-  createdAt: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface AnomalyScanResponse {

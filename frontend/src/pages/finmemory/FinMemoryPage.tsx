@@ -23,6 +23,54 @@ import type {
 } from '../../types/finmemory.types';
 import { DEFAULT_DEMO_ORG } from '../../config/demo.config';
 
+function normalizeSnapshot(raw: any): FinancialMetricSnapshot {
+  if (!raw) return raw;
+  const m = raw.metrics || {};
+  const endingCash = m.endingCashBalance ?? raw.closingCashBalance;
+  const ocf = m.operatingCashFlow ?? raw.operatingCashFlow;
+  const cr = m.currentRatio ?? raw.currentRatio;
+  const qr = m.quickRatio ?? raw.quickRatio;
+  const gm = m.grossMarginPercent ?? raw.grossMarginPct;
+  const eg = m.expenseGrowthPercent ?? raw.expenseGrowthPct;
+  const wc = m.workingCapital ?? raw.workingCapital;
+  const bv = m.budgetVariancePercent ?? raw.budgetVariancePct;
+  const rev = m.totalRevenue ?? raw.totalRevenue;
+  const exp = m.totalExpenses ?? raw.totalExpenses;
+  const runwayDays =
+    m.cashRunwayDays !== undefined
+      ? m.cashRunwayDays
+      : raw.cashRunwayMonths !== undefined && raw.cashRunwayMonths !== null
+        ? Math.round(parseFloat(raw.cashRunwayMonths) * 30)
+        : undefined;
+
+  return {
+    ...raw,
+    closingCashBalance: endingCash,
+    operatingCashFlow: ocf,
+    workingCapital: wc,
+    currentRatio: cr,
+    quickRatio: qr,
+    grossMarginPct: gm,
+    expenseGrowthPct: eg,
+    cashRunwayMonths: raw.cashRunwayMonths,
+    totalRevenue: rev,
+    totalExpenses: exp,
+    metrics: {
+      endingCashBalance: endingCash,
+      operatingCashFlow: ocf,
+      cashRunwayDays: runwayDays,
+      currentRatio: cr,
+      quickRatio: qr,
+      grossMarginPercent: gm,
+      expenseGrowthPercent: eg,
+      workingCapital: wc,
+      budgetVariancePercent: bv,
+      totalRevenue: rev,
+      totalExpenses: exp,
+    },
+  };
+}
+
 const DEFAULT_SNAPSHOTS: FinancialMetricSnapshot[] = [
   {
     id: 'snap-001',
@@ -64,7 +112,7 @@ const DEFAULT_SNAPSHOTS: FinancialMetricSnapshot[] = [
     dataLimitations: [],
     createdAt: '2026-10-01T00:00:00.000Z',
   },
-];
+].map(normalizeSnapshot);
 
 export function FinMemoryPage() {
   const { activeOrg, isAuditor, canMutateLedger } = useAuth();
@@ -122,7 +170,7 @@ export function FinMemoryPage() {
         const list = Array.isArray(res)
           ? res
           : raw?.items || raw?.snapshots || (Array.isArray(raw?.data) ? raw.data : []);
-        setSnapshots(list);
+        setSnapshots(list.map(normalizeSnapshot));
         setError(null);
       })
       .catch((err) => {
@@ -339,25 +387,27 @@ export function FinMemoryPage() {
                       {formatDate(snap.periodStart)} &rarr; {formatDate(snap.periodEnd)}
                     </td>
                     <td className="py-3 px-4 text-right font-mono font-semibold text-[var(--text-primary)]">
-                      {snap.metrics.endingCashBalance
+                      {(snap.metrics?.endingCashBalance ?? snap.closingCashBalance)
                         ? formatCurrency(
-                            parseFloat(snap.metrics.endingCashBalance),
+                            parseFloat(snap.metrics?.endingCashBalance ?? snap.closingCashBalance ?? '0'),
                             snap.currency || currency,
                           )
                         : '—'}
                     </td>
                     <td className="py-3 px-4 text-right font-mono">
-                      {snap.metrics.operatingCashFlow
+                      {(snap.metrics?.operatingCashFlow ?? snap.operatingCashFlow)
                         ? formatCurrency(
-                            parseFloat(snap.metrics.operatingCashFlow),
+                            parseFloat(snap.metrics?.operatingCashFlow ?? snap.operatingCashFlow ?? '0'),
                             snap.currency || currency,
                           )
                         : '—'}
                     </td>
                     <td className="py-3 px-4 text-center font-mono">
-                      {snap.metrics.cashRunwayDays !== undefined
+                      {snap.metrics?.cashRunwayDays !== undefined
                         ? `${snap.metrics.cashRunwayDays}d`
-                        : '—'}
+                        : snap.cashRunwayMonths !== undefined && snap.cashRunwayMonths !== null
+                          ? `${Math.round(parseFloat(snap.cashRunwayMonths) * 30)}d`
+                          : '—'}
                     </td>
                     <td className="py-3 px-4 text-center">
                       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
@@ -425,9 +475,13 @@ export function FinMemoryPage() {
                     Ending Cash Balance
                   </span>
                   <span className="font-mono font-bold text-[var(--text-primary)]">
-                    {inspectSnapshot.metrics.endingCashBalance
+                    {(inspectSnapshot.metrics?.endingCashBalance ?? inspectSnapshot.closingCashBalance)
                       ? formatCurrency(
-                          parseFloat(inspectSnapshot.metrics.endingCashBalance),
+                          parseFloat(
+                            inspectSnapshot.metrics?.endingCashBalance ??
+                              inspectSnapshot.closingCashBalance ??
+                              '0',
+                          ),
                           inspectSnapshot.currency,
                         )
                       : '—'}
@@ -438,9 +492,13 @@ export function FinMemoryPage() {
                     Operating Cash Flow
                   </span>
                   <span className="font-mono font-bold text-[var(--text-primary)]">
-                    {inspectSnapshot.metrics.operatingCashFlow
+                    {(inspectSnapshot.metrics?.operatingCashFlow ?? inspectSnapshot.operatingCashFlow)
                       ? formatCurrency(
-                          parseFloat(inspectSnapshot.metrics.operatingCashFlow),
+                          parseFloat(
+                            inspectSnapshot.metrics?.operatingCashFlow ??
+                              inspectSnapshot.operatingCashFlow ??
+                              '0',
+                          ),
                           inspectSnapshot.currency,
                         )
                       : '—'}
@@ -449,32 +507,44 @@ export function FinMemoryPage() {
                 <div className="rounded-lg border border-[var(--border-subtle)] p-2.5">
                   <span className="text-[10px] text-[var(--text-muted)] block">Current Ratio</span>
                   <span className="font-mono font-bold text-[var(--text-primary)]">
-                    {inspectSnapshot.metrics.currentRatio
-                      ? `${inspectSnapshot.metrics.currentRatio}x`
+                    {(inspectSnapshot.metrics?.currentRatio ?? inspectSnapshot.currentRatio)
+                      ? `${inspectSnapshot.metrics?.currentRatio ?? inspectSnapshot.currentRatio}x`
                       : '—'}
                   </span>
                 </div>
                 <div className="rounded-lg border border-[var(--border-subtle)] p-2.5">
                   <span className="text-[10px] text-[var(--text-muted)] block">Quick Ratio</span>
                   <span className="font-mono font-bold text-[var(--text-primary)]">
-                    {inspectSnapshot.metrics.quickRatio
-                      ? `${inspectSnapshot.metrics.quickRatio}x`
+                    {(inspectSnapshot.metrics?.quickRatio ?? inspectSnapshot.quickRatio)
+                      ? `${inspectSnapshot.metrics?.quickRatio ?? inspectSnapshot.quickRatio}x`
                       : '—'}
                   </span>
                 </div>
                 <div className="rounded-lg border border-[var(--border-subtle)] p-2.5">
                   <span className="text-[10px] text-[var(--text-muted)] block">Gross Margin</span>
                   <span className="font-mono font-bold text-[var(--text-primary)]">
-                    {inspectSnapshot.metrics.grossMarginPercent
-                      ? formatPercentage(parseFloat(inspectSnapshot.metrics.grossMarginPercent))
+                    {(inspectSnapshot.metrics?.grossMarginPercent ?? inspectSnapshot.grossMarginPct)
+                      ? formatPercentage(
+                          parseFloat(
+                            inspectSnapshot.metrics?.grossMarginPercent ??
+                              inspectSnapshot.grossMarginPct ??
+                              '0',
+                          ),
+                        )
                       : '—'}
                   </span>
                 </div>
                 <div className="rounded-lg border border-[var(--border-subtle)] p-2.5">
                   <span className="text-[10px] text-[var(--text-muted)] block">Expense Growth</span>
                   <span className="font-mono font-bold text-[var(--text-primary)]">
-                    {inspectSnapshot.metrics.expenseGrowthPercent
-                      ? formatPercentage(parseFloat(inspectSnapshot.metrics.expenseGrowthPercent))
+                    {(inspectSnapshot.metrics?.expenseGrowthPercent ?? inspectSnapshot.expenseGrowthPct)
+                      ? formatPercentage(
+                          parseFloat(
+                            inspectSnapshot.metrics?.expenseGrowthPercent ??
+                              inspectSnapshot.expenseGrowthPct ??
+                              '0',
+                          ),
+                        )
                       : '—'}
                   </span>
                 </div>

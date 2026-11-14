@@ -212,7 +212,7 @@ export function ManageAccountsModal({
               }}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                 activeTab === 'LIST'
-                  ? 'bg-[var(--accent-teal)] text-white shadow-xs'
+                  ? 'bg-[var(--accent-primary)] text-white shadow-xs'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)]'
               }`}
             >
@@ -226,7 +226,7 @@ export function ManageAccountsModal({
               }}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 ${
                 activeTab === 'CREATE'
-                  ? 'bg-[var(--accent-teal)] text-white shadow-xs'
+                  ? 'bg-[var(--accent-primary)] text-white shadow-xs'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)]'
               }`}
             >

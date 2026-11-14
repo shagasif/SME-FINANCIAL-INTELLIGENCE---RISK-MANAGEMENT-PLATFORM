@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import {
   AlertCircle,
   AlertTriangle,
-  ArrowRight,
   Calculator,
+  CheckCircle2,
   History,
   Play,
+  ShieldAlert,
   TrendingDown,
   TrendingUp,
 } from 'lucide-react';
@@ -43,9 +44,13 @@ interface ScenarioSimulationRecord {
     scenarioClosingCash: string;
     netCashImpact: string;
     baselineMinCash: string;
+    baselineMinimumCash?: string;
     scenarioMinCash: string;
+    scenarioMinimumCash?: string;
     minCashDelta: string;
+    minimumCashDelta?: string;
     triggersLiquidityWarning: boolean;
+    isolationGuarantee?: string;
   };
   dailyComparisons?: Array<{
     projectionDate: string;
@@ -54,6 +59,17 @@ interface ScenarioSimulationRecord {
     balanceDelta: string;
     scenarioInflow: string;
     scenarioOutflow: string;
+  }>;
+  riskAssessment?: {
+    level: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+    summary: string;
+    vulnerabilities: string[];
+  };
+  recommendations?: Array<{
+    category: string;
+    action: string;
+    rationale: string;
+    impact: string;
   }>;
   createdAt: string;
 }
@@ -78,6 +94,7 @@ export function ScenarioPlanningPage() {
   const [activeSimulation, setActiveSimulation] = useState<ScenarioSimulationRecord | null>(null);
 
   const [isLoading, setIsLoading] = useState(false);
+  const [isInspecting, setIsInspecting] = useState(false);
   const [isInitializing, setIsInitializing] = useState<boolean>(() => Boolean(activeOrgId));
   const [error, setError] = useState<string | null>(null);
 
@@ -178,6 +195,24 @@ export function ScenarioPlanningPage() {
     }
   };
 
+  const handleInspect = async (sc: ScenarioSimulationRecord) => {
+    if (!activeOrgId) return;
+    // Optimistically show what we have from the list
+    setActiveSimulation(sc);
+    // Then fetch the full enriched record (with riskAssessment, recommendations, dailyComparisons)
+    setIsInspecting(true);
+    try {
+      const full = await apiGet<ScenarioSimulationRecord>(
+        `/v1/organizations/${activeOrgId}/scenarios/${sc.id}`,
+      );
+      setActiveSimulation(full);
+    } catch {
+      // Fallback: keep the list data already set above
+    } finally {
+      setIsInspecting(false);
+    }
+  };
+
   const handleApplyPreset = (preset: 'DOWNTURN' | 'EXPANSION' | 'STAGFLATION') => {
     switch (preset) {
       case 'DOWNTURN':
@@ -261,7 +296,8 @@ export function ScenarioPlanningPage() {
           <div>
             <span className="font-semibold block mb-0.5">No Active Organization Selected</span>
             <span className="leading-relaxed opacity-90">
-              Please select or create an organization from the workspace switcher to load baseline forecasts and execute what-if simulations.
+              Please select or create an organization from the workspace switcher to load baseline
+              forecasts and execute what-if simulations.
             </span>
           </div>
         </div>
@@ -358,7 +394,13 @@ export function ScenarioPlanningPage() {
             isLoading={isLoading || isInitializing}
             disabled={isAuditor || !activeOrgId}
             className="flex items-center gap-1.5"
-            title={!activeOrgId ? 'Please select an organization first' : isAuditor ? 'Auditors cannot run simulations' : undefined}
+            title={
+              !activeOrgId
+                ? 'Please select an organization first'
+                : isAuditor
+                  ? 'Auditors cannot run simulations'
+                  : undefined
+            }
           >
             <Play className="w-3.5 h-3.5 fill-current" />
             <span>Run What-If Simulation</span>
@@ -369,6 +411,29 @@ export function ScenarioPlanningPage() {
       {/* Simulation Results Display */}
       {activeSimulation && activeSimulation.impactSummary && (
         <div className="space-y-6">
+          {/* Scenario Name Header */}
+          <div className="flex items-center justify-between gap-3 px-1">
+            <div>
+              <h2 className="text-base font-bold text-[var(--text-primary)] flex items-center gap-2">
+                <Calculator className="w-4 h-4 text-[var(--accent-teal)]" />
+                {activeSimulation.name}
+              </h2>
+              <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                Simulated {formatDate(activeSimulation.createdAt)} ·{' '}
+                {activeSimulation.triggersLiquidityWarning ? (
+                  <span className="text-rose-600 font-semibold">Liquidity Warning</span>
+                ) : (
+                  <span className="text-emerald-600 font-semibold">Safe</span>
+                )}
+              </p>
+            </div>
+            {isInspecting && (
+              <span className="text-[11px] text-[var(--text-muted)] animate-pulse">
+                Loading full details…
+              </span>
+            )}
+          </div>
+
           {/* Liquidity Alert if Breached */}
           {activeSimulation.triggersLiquidityWarning && (
             <div className="flex items-start gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-800 dark:text-rose-200">
@@ -402,84 +467,103 @@ export function ScenarioPlanningPage() {
           {/* Comparison Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Projected Ending Cash */}
-            <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] p-5 shadow-xs space-y-3">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-muted)]">
-                Projected Ending Cash
-              </span>
-              <div className="flex items-baseline justify-between">
-                <div>
-                  <div className="text-[11px] text-[var(--text-muted)]">Baseline</div>
-                  <div className="text-xl font-bold font-mono text-[var(--text-primary)]">
-                    {formatCurrency(
-                      parseFloat(activeSimulation.impactSummary.baselineClosingCash),
-                      currency,
-                    )}
-                  </div>
-                </div>
-                <ArrowRight className="h-4 w-4 text-[var(--text-muted)]" />
-                <div className="text-right">
-                  <div className="text-[11px] text-[var(--text-muted)]">Simulated</div>
-                  <div className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
-                    {formatCurrency(
-                      parseFloat(activeSimulation.impactSummary.scenarioClosingCash),
-                      currency,
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div className="pt-2 border-t border-[var(--border-subtle)] flex items-center justify-between text-[11px]">
-                <span className="text-[var(--text-muted)]">Net Cash Impact:</span>
-                <span
-                  className={`font-mono font-bold ${
-                    parseFloat(activeSimulation.impactSummary.netCashImpact) < 0
-                      ? 'text-rose-600 dark:text-rose-400'
-                      : 'text-emerald-600 dark:text-emerald-400'
-                  }`}
-                >
-                  {formatCurrency(
-                    parseFloat(activeSimulation.impactSummary.netCashImpact),
-                    currency,
-                  )}
-                </span>
-              </div>
-            </div>
+            {(() => {
+              const baseClosing =
+                parseFloat(activeSimulation.impactSummary.baselineClosingCash) || 0;
+              const simClosing =
+                parseFloat(activeSimulation.impactSummary.scenarioClosingCash) || 0;
+              const netImpact = parseFloat(activeSimulation.impactSummary.netCashImpact) || 0;
+              const impactColor =
+                netImpact > 0
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : netImpact < 0
+                    ? 'text-rose-600 dark:text-rose-400'
+                    : 'text-[var(--text-primary)]';
 
-            {/* Minimum Projected Cash */}
-            <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] p-5 shadow-xs space-y-3">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-muted)]">
-                Minimum Cash Reserve
-              </span>
-              <div className="flex items-baseline justify-between">
-                <div>
-                  <div className="text-[11px] text-[var(--text-muted)]">Baseline Low</div>
-                  <div className="text-xl font-bold font-mono text-[var(--text-primary)]">
-                    {formatCurrency(
-                      parseFloat(activeSimulation.impactSummary.baselineMinCash),
-                      currency,
-                    )}
+              return (
+                <div className="min-w-0 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] p-5 shadow-xs space-y-3">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-muted)]">
+                    Projected Ending Cash
+                  </span>
+                  <div className="min-w-0 space-y-1">
+                    <div
+                      className={`min-w-0 max-w-full [overflow-wrap:anywhere] text-xl sm:text-2xl font-bold tabular-nums tracking-tight ${impactColor}`}
+                    >
+                      {formatCurrency(simClosing, currency)}
+                    </div>
+                    <div className="min-w-0 max-w-full [overflow-wrap:anywhere] text-xs text-[var(--text-muted)] tabular-nums tracking-tight">
+                      Baseline: {formatCurrency(baseClosing, currency)}
+                    </div>
+                  </div>
+                  <div className="min-w-0 pt-2.5 border-t border-[var(--border-subtle)] flex flex-wrap items-start justify-between gap-x-2 gap-y-1 text-xs">
+                    <span className="min-w-0 flex-1 text-[var(--text-muted)]">
+                      Net Cash Impact:
+                    </span>
+                    <span
+                      className={`min-w-0 max-w-full [overflow-wrap:anywhere] text-right font-bold tabular-nums tracking-tight ${impactColor}`}
+                    >
+                      {netImpact > 0 ? '+' : ''}
+                      {formatCurrency(netImpact, currency)}
+                    </span>
                   </div>
                 </div>
-                <ArrowRight className="h-4 w-4 text-[var(--text-muted)]" />
-                <div className="text-right">
-                  <div className="text-[11px] text-[var(--text-muted)]">Simulated Low</div>
-                  <div className="text-xl font-bold font-mono text-rose-600 dark:text-rose-400">
-                    {formatCurrency(
-                      parseFloat(activeSimulation.impactSummary.scenarioMinCash),
-                      currency,
-                    )}
+              );
+            })()}
+
+            {/* Minimum Cash Reserve */}
+            {(() => {
+              const baseMin =
+                parseFloat(
+                  activeSimulation.impactSummary.baselineMinCash ||
+                    activeSimulation.impactSummary.baselineMinimumCash ||
+                    '0',
+                ) || 0;
+              const simMin =
+                parseFloat(
+                  activeSimulation.impactSummary.scenarioMinCash ||
+                    activeSimulation.impactSummary.scenarioMinimumCash ||
+                    '0',
+                ) || 0;
+              const minDelta =
+                parseFloat(
+                  activeSimulation.impactSummary.minCashDelta ||
+                    activeSimulation.impactSummary.minimumCashDelta ||
+                    '0',
+                ) || 0;
+              const deltaColor =
+                minDelta > 0
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : minDelta < 0
+                    ? 'text-rose-600 dark:text-rose-400'
+                    : 'text-[var(--text-primary)]';
+
+              return (
+                <div className="min-w-0 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] p-5 shadow-xs space-y-3">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-muted)]">
+                    Minimum Cash Reserve
+                  </span>
+                  <div className="min-w-0 space-y-1">
+                    <div
+                      className={`min-w-0 max-w-full [overflow-wrap:anywhere] text-xl sm:text-2xl font-bold tabular-nums tracking-tight ${deltaColor}`}
+                    >
+                      {formatCurrency(simMin, currency)}
+                    </div>
+                    <div className="min-w-0 max-w-full [overflow-wrap:anywhere] text-xs text-[var(--text-muted)] tabular-nums tracking-tight">
+                      Baseline Low: {formatCurrency(baseMin, currency)}
+                    </div>
+                  </div>
+                  <div className="min-w-0 pt-2.5 border-t border-[var(--border-subtle)] flex flex-wrap items-start justify-between gap-x-2 gap-y-1 text-xs">
+                    <span className="min-w-0 flex-1 text-[var(--text-muted)]">Reserve Change:</span>
+                    <span
+                      className={`min-w-0 max-w-full [overflow-wrap:anywhere] text-right font-bold tabular-nums tracking-tight ${deltaColor}`}
+                    >
+                      {minDelta > 0 ? '+' : ''}
+                      {formatCurrency(minDelta, currency)}
+                    </span>
                   </div>
                 </div>
-              </div>
-              <div className="pt-2 border-t border-[var(--border-subtle)] flex items-center justify-between text-[11px]">
-                <span className="text-[var(--text-muted)]">Buffer Delta:</span>
-                <span className="font-mono font-bold text-[var(--text-primary)]">
-                  {formatCurrency(
-                    parseFloat(activeSimulation.impactSummary.minCashDelta),
-                    currency,
-                  )}
-                </span>
-              </div>
-            </div>
+              );
+            })()}
 
             {/* Assumptions Breakdown */}
             <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] p-5 shadow-xs space-y-3">
@@ -489,14 +573,14 @@ export function ScenarioPlanningPage() {
               <div className="space-y-1.5 text-xs">
                 <div className="flex justify-between">
                   <span className="text-[var(--text-muted)]">Sales Adjustment:</span>
-                  <span className="font-mono font-bold text-[var(--text-primary)]">
+                  <span className="font-bold tabular-nums tracking-tight text-[var(--text-primary)]">
                     {parseFloat(activeSimulation.impactSummary.salesGrowthPct) > 0 ? '+' : ''}
                     {parseFloat(activeSimulation.impactSummary.salesGrowthPct)}%
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-[var(--text-muted)]">Cost Inflation:</span>
-                  <span className="font-mono font-bold text-[var(--text-primary)]">
+                  <span className="font-bold tabular-nums tracking-tight text-[var(--text-primary)]">
                     {parseFloat(activeSimulation.impactSummary.operatingCostChangePct) > 0
                       ? '+'
                       : ''}
@@ -505,8 +589,9 @@ export function ScenarioPlanningPage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-[var(--text-muted)]">AR Collection Delay:</span>
-                  <span className="font-mono font-bold text-[var(--text-primary)]">
-                    +{activeSimulation.impactSummary.customerPaymentDelayDays} days
+                  <span className="font-bold tabular-nums tracking-tight text-[var(--text-primary)]">
+                    {activeSimulation.impactSummary.customerPaymentDelayDays > 0 ? '+' : ''}
+                    {activeSimulation.impactSummary.customerPaymentDelayDays} days
                   </span>
                 </div>
               </div>
@@ -533,7 +618,7 @@ export function ScenarioPlanningPage() {
                 </span>
               </div>
 
-              <div className="overflow-x-auto max-h-72">
+              <div className="overflow-auto max-h-80">
                 <table className="w-full text-xs text-left">
                   <thead className="bg-[var(--surface-elevated)]/60 text-[10px] uppercase font-semibold text-[var(--text-muted)] border-b border-[var(--border-subtle)] sticky top-0">
                     <tr>
@@ -546,36 +631,137 @@ export function ScenarioPlanningPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--border-subtle)] font-medium">
-                    {activeSimulation.dailyComparisons.slice(0, 15).map((row, idx) => (
-                      <tr key={idx} className="hover:bg-[var(--surface-elevated)]/30">
-                        <td className="py-2 px-4 font-mono text-[11px] text-[var(--text-primary)]">
-                          {formatDate(row.projectionDate)}
-                        </td>
-                        <td className="py-2 px-4 text-right font-mono text-[var(--text-secondary)]">
-                          {formatCurrency(parseFloat(row.baselineCumulativeBalance), currency)}
-                        </td>
-                        <td className="py-2 px-4 text-right font-mono font-bold text-[var(--text-primary)]">
-                          {formatCurrency(parseFloat(row.scenarioCumulativeBalance), currency)}
-                        </td>
-                        <td
-                          className={`py-2 px-4 text-right font-mono font-bold ${
-                            parseFloat(row.balanceDelta) < 0
-                              ? 'text-rose-600 dark:text-rose-400'
-                              : 'text-emerald-600 dark:text-emerald-400'
+                    {activeSimulation.dailyComparisons.map((row, idx) => {
+                      const deltaNum = parseFloat(row.balanceDelta);
+                      const inflowNum = parseFloat(row.scenarioInflow);
+                      const outflowNum = parseFloat(row.scenarioOutflow);
+                      const hasActivity = deltaNum !== 0 || inflowNum !== 0 || outflowNum !== 0;
+
+                      return (
+                        <tr
+                          key={idx}
+                          className={`hover:bg-[var(--surface-elevated)]/30 ${
+                            hasActivity ? 'bg-[var(--surface-elevated)]/20' : ''
                           }`}
                         >
-                          {formatCurrency(parseFloat(row.balanceDelta), currency)}
-                        </td>
-                        <td className="py-2 px-4 text-right font-mono text-emerald-600">
-                          +{formatCurrency(parseFloat(row.scenarioInflow), currency)}
-                        </td>
-                        <td className="py-2 px-4 text-right font-mono text-rose-600">
-                          -{formatCurrency(parseFloat(row.scenarioOutflow), currency)}
-                        </td>
-                      </tr>
-                    ))}
+                          <td className="py-2 px-4 font-mono text-[11px] text-[var(--text-primary)]">
+                            {formatDate(row.projectionDate)}
+                          </td>
+                          <td className="py-2 px-4 text-right font-mono text-[var(--text-secondary)]">
+                            {formatCurrency(parseFloat(row.baselineCumulativeBalance), currency)}
+                          </td>
+                          <td className="py-2 px-4 text-right font-mono font-bold text-[var(--text-primary)]">
+                            {formatCurrency(parseFloat(row.scenarioCumulativeBalance), currency)}
+                          </td>
+                          <td
+                            className={`py-2 px-4 text-right font-mono font-bold ${
+                              deltaNum < 0
+                                ? 'text-rose-600 dark:text-rose-400'
+                                : deltaNum > 0
+                                  ? 'text-emerald-600 dark:text-emerald-400'
+                                  : 'text-[var(--text-muted)]'
+                            }`}
+                          >
+                            {deltaNum > 0 ? '+' : ''}
+                            {formatCurrency(deltaNum, currency)}
+                          </td>
+                          <td
+                            className={`py-2 px-4 text-right font-mono ${
+                              inflowNum > 0
+                                ? 'font-bold text-emerald-600 dark:text-emerald-400'
+                                : 'text-[var(--text-muted)]'
+                            }`}
+                          >
+                            {inflowNum > 0 ? '+' : ''}
+                            {formatCurrency(inflowNum, currency)}
+                          </td>
+                          <td
+                            className={`py-2 px-4 text-right font-mono ${
+                              outflowNum > 0
+                                ? 'font-bold text-rose-600 dark:text-rose-400'
+                                : 'text-[var(--text-muted)]'
+                            }`}
+                          >
+                            {outflowNum > 0 ? '-' : ''}
+                            {formatCurrency(outflowNum, currency)}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {/* Risk Assessment */}
+          {activeSimulation.riskAssessment && (
+            <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] p-5 shadow-xs space-y-3">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-amber-500" />
+                <h3 className="text-sm font-bold text-[var(--text-primary)]">Risk Assessment</h3>
+                <span
+                  className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded ${
+                    activeSimulation.riskAssessment.level === 'CRITICAL'
+                      ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                      : activeSimulation.riskAssessment.level === 'HIGH'
+                        ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400'
+                        : activeSimulation.riskAssessment.level === 'MEDIUM'
+                          ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                  }`}
+                >
+                  {activeSimulation.riskAssessment.level}
+                </span>
+              </div>
+              <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                {activeSimulation.riskAssessment.summary}
+              </p>
+              {activeSimulation.riskAssessment.vulnerabilities.length > 0 && (
+                <ul className="list-disc list-inside text-xs text-[var(--text-muted)] space-y-0.5">
+                  {activeSimulation.riskAssessment.vulnerabilities.map((v, i) => (
+                    <li key={i}>{v}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {/* Corrective Recommendations */}
+          {activeSimulation.recommendations && activeSimulation.recommendations.length > 0 && (
+            <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] p-5 shadow-xs space-y-3">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                <h3 className="text-sm font-bold text-[var(--text-primary)]">
+                  Corrective Recommendations
+                </h3>
+              </div>
+              <div className="space-y-3">
+                {activeSimulation.recommendations.map((rec, i) => (
+                  <div
+                    key={i}
+                    className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-subtle)] p-3 text-xs space-y-1"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono font-bold text-[var(--brand-primary)] text-[10px]">
+                        {rec.category}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                          rec.impact === 'HIGH'
+                            ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                            : rec.impact === 'MEDIUM'
+                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                              : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                        }`}
+                      >
+                        {rec.impact}
+                      </span>
+                    </div>
+                    <p className="font-semibold text-[var(--text-primary)]">{rec.action}</p>
+                    <p className="text-[var(--text-muted)] leading-relaxed">{rec.rationale}</p>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -654,10 +840,11 @@ export function ScenarioPlanningPage() {
                     <td className="py-2.5 px-4 text-center">
                       <button
                         type="button"
-                        onClick={() => setActiveSimulation(sc)}
-                        className="text-xs font-semibold text-[var(--accent-teal)] hover:underline cursor-pointer"
+                        onClick={() => handleInspect(sc)}
+                        disabled={isInspecting}
+                        className="text-xs font-semibold text-[var(--accent-teal)] hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        Inspect
+                        {isInspecting ? 'Loading…' : 'Inspect'}
                       </button>
                     </td>
                   </tr>

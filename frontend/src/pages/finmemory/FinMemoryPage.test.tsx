@@ -133,4 +133,76 @@ describe('FinMemoryPage Component', () => {
     expect(screen.getByText('Auditor Mode Active')).toBeInTheDocument();
     expect(screen.queryByText('Capture Snapshot')).not.toBeInTheDocument();
   });
+
+  it('renders successfully with live backend Prisma snapshot records having top-level metrics and no nested metrics object', async () => {
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'usr-star',
+        email: 'owner@star.local',
+        fullName: 'Business Owner',
+        isPlatformAdmin: false,
+      },
+      activeOrg: {
+        id: 'org-star',
+        name: 'Star Enterprise',
+        slug: 'star',
+        baseCurrency: 'USD',
+        role: RoleType.BUSINESS_OWNER,
+      },
+      memberships: [],
+      activeRole: RoleType.BUSINESS_OWNER,
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      switchOrganization: vi.fn(),
+      hasRole: () => true,
+      canMutateLedger: true,
+      canManageBudgets: true,
+      canRunAiWorkflows: true,
+      canExportReports: true,
+      isAuditor: false,
+    });
+
+    const livePrismaSnapshots = [
+      {
+        id: '1c3df094-4709-4e7e-93db-d05554d5df50',
+        organizationId: 'org-star',
+        periodKey: '2026-M11',
+        periodStart: '2026-11-01T00:00:00.000Z',
+        periodEnd: '2026-11-11T00:00:00.000Z',
+        currency: 'USD',
+        completenessScore: '25.0000',
+        totalRevenue: '0.0000',
+        totalExpenses: '0.0000',
+        operatingCashFlow: '0.0000',
+        closingCashBalance: '9453.7154',
+        workingCapital: '9453.7154',
+        currentRatio: null,
+        quickRatio: null,
+        cashRunwayMonths: '999.0000',
+        metricsPayload: {},
+        sourceRecordIds: {},
+        dataLimitations: [],
+        createdAt: '2026-11-11T18:00:00.000Z',
+      },
+    ];
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => livePrismaSnapshots,
+    });
+
+    render(<FinMemoryPage />);
+
+    expect(screen.getByText('FinMemory Intelligence')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText('2026-M11')).toBeInTheDocument();
+      expect(screen.getByText(/25/)).toBeInTheDocument();
+      expect(screen.getByText(/\$9,453/)).toBeInTheDocument();
+    });
+  });
 });

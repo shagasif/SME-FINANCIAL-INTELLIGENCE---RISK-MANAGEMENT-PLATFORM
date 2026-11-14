@@ -33,12 +33,14 @@ const DEFAULT_RISK_CENTER_ALERTS: RiskAlert[] = [
     organizationId: DEFAULT_DEMO_ORG.id,
     ruleCode: RiskAlertType.CATEGORY_SHIFT,
     severity: RiskAlertSeverity.MEDIUM,
-    title: 'Cloud Infrastructure Expense +28% Above 90d Baseline',
-    description: 'Spike in LLM token usage detected across secondary financial simulation batch.',
+    title: 'Cloud Infrastructure spending is 28% higher than usual',
+    description:
+      'Spending on cloud servers increased significantly over the past 30 days. Review recent usage to ensure your cloud costs remain within expected limits.',
     status: RiskAlertStatus.NEW,
     evidence: { delta: '+28%' },
     supportingRecordIds: ['tx-002'],
-    nonFraudDisclaimer: 'Statistically detected deviation. Does not imply misconduct.',
+    actionableRecommendation:
+      'Check the latest purchases in this category with the department manager to ensure spending stays within your overall plan.',
     detectedAt: '2026-11-10T08:00:00.000Z',
     createdAt: '2026-11-10T08:00:00.000Z',
   },
@@ -47,12 +49,14 @@ const DEFAULT_RISK_CENTER_ALERTS: RiskAlert[] = [
     organizationId: DEFAULT_DEMO_ORG.id,
     ruleCode: RiskAlertType.OVERDUE_RECEIVABLE,
     severity: RiskAlertSeverity.HIGH,
-    title: 'Overdue Receivable: $35,000 Exceeded 30 Days',
-    description: 'Invoice INV-2026-842 is 34 days past due. Working capital exposure detected.',
+    title: 'Customer invoice of $35,000 is 34 days overdue',
+    description:
+      'Invoice INV-2026-842 has not been paid and is now more than a month late. Reach out to the customer to request an updated payment timeline.',
     status: RiskAlertStatus.ACKNOWLEDGED,
     evidence: { daysPastDue: 34 },
     supportingRecordIds: ['inv-842'],
-    nonFraudDisclaimer: 'Statistically detected deviation. Does not imply misconduct.',
+    actionableRecommendation:
+      'Send a friendly reminder to the customer and follow up by phone to confirm when the payment will arrive.',
     detectedAt: '2026-11-09T10:00:00.000Z',
     createdAt: '2026-11-09T10:00:00.000Z',
   },
@@ -61,12 +65,14 @@ const DEFAULT_RISK_CENTER_ALERTS: RiskAlert[] = [
     organizationId: DEFAULT_DEMO_ORG.id,
     ruleCode: RiskAlertType.CASH_SHORTFALL,
     severity: RiskAlertSeverity.LOW,
-    title: 'Quarter-end Tax Reserve Allocation Scheduled',
-    description: 'Upcoming corporate tax obligations scheduled within next 45 days.',
+    title: 'Upcoming tax payment scheduled in 45 days',
+    description:
+      'A planned tax reserve allocation is coming up soon. Ensure you have sufficient cash on hand before the payment date.',
     status: RiskAlertStatus.INVESTIGATING,
     evidence: { scheduledDate: '2026-12-15' },
     supportingRecordIds: ['tax-q4'],
-    nonFraudDisclaimer: 'Statistically detected deviation. Does not imply misconduct.',
+    actionableRecommendation:
+      'Review upcoming bills and prioritize customer collections before the tax payment date.',
     detectedAt: '2026-11-08T12:00:00.000Z',
     createdAt: '2026-11-08T12:00:00.000Z',
   },
@@ -97,7 +103,7 @@ export function RiskCenterPage() {
   // Triage Modal
   const [triageAlert, setTriageAlert] = useState<RiskAlert | null>(null);
   const [triageAction, setTriageAction] = useState<
-    'ACKNOWLEDGE' | 'DISMISS' | 'INVESTIGATE' | 'ESCALATE'
+    'ACKNOWLEDGE' | 'DISMISS' | 'INVESTIGATE' | 'ESCALATE' | 'APPROVE'
   >('ACKNOWLEDGE');
   const [triageNotes, setTriageNotes] = useState('');
   const [isSubmittingTriage, setIsSubmittingTriage] = useState(false);
@@ -186,10 +192,11 @@ export function RiskCenterPage() {
     setTriageError(null);
 
     try {
+      const notesValue = triageNotes.trim().length >= 3 ? triageNotes.trim() : 'Triaged by risk analyst.';
       await apiPost(`/v1/organizations/${activeOrgId}/risk-alerts/${triageAlert.id}/triage`, {
         action: triageAction,
-        reviewerNotes:
-          triageNotes.trim().length >= 3 ? triageNotes.trim() : 'Triaged by risk analyst.',
+        reviewerNotes: notesValue,
+        ...(triageAction === 'APPROVE' ? { resolutionEvidence: notesValue } : {}),
       });
       setTriageAlert(null);
       setTriageNotes('');
@@ -240,12 +247,18 @@ export function RiskCenterPage() {
     }
   };
 
-  const getStatusBadge = (status: RiskAlertStatus) => {
+  const getStatusBadge = (status: RiskAlertStatus | string) => {
     switch (status) {
       case RiskAlertStatus.NEW:
         return (
           <span className="rounded bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-400">
             NEW
+          </span>
+        );
+      case 'OPEN':
+        return (
+          <span className="rounded bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-400">
+            OPEN
           </span>
         );
       case RiskAlertStatus.ACKNOWLEDGED:
@@ -260,6 +273,12 @@ export function RiskCenterPage() {
             INVESTIGATING
           </span>
         );
+      case 'ESCALATED':
+        return (
+          <span className="rounded bg-purple-500/10 px-2 py-0.5 text-[10px] font-semibold text-purple-600 dark:text-purple-400">
+            ESCALATED
+          </span>
+        );
       case RiskAlertStatus.RESOLVED:
         return (
           <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
@@ -267,10 +286,15 @@ export function RiskCenterPage() {
           </span>
         );
       case RiskAlertStatus.DISMISSED:
-      default:
         return (
           <span className="rounded bg-gray-500/10 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
             DISMISSED
+          </span>
+        );
+      default:
+        return (
+          <span className="rounded bg-gray-500/10 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
+            {String(status)}
           </span>
         );
     }
@@ -281,8 +305,8 @@ export function RiskCenterPage() {
     const q = searchQuery.toLowerCase();
     return (
       alert.title.toLowerCase().includes(q) ||
-      alert.description.toLowerCase().includes(q) ||
-      alert.ruleCode.toLowerCase().includes(q)
+      (alert.description ?? '').toLowerCase().includes(q) ||
+      (alert.ruleCode ?? alert.type ?? '').toLowerCase().includes(q)
     );
   });
 
@@ -385,9 +409,11 @@ export function RiskCenterPage() {
             className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-2.5 py-1.5 text-xs text-[var(--text-primary)]"
           >
             <option value="ALL">All Statuses</option>
+            <option value="OPEN">Open</option>
             <option value="NEW">New</option>
             <option value="ACKNOWLEDGED">Acknowledged</option>
             <option value="INVESTIGATING">Investigating</option>
+            <option value="ESCALATED">Escalated</option>
             <option value="RESOLVED">Resolved</option>
             <option value="DISMISSED">Dismissed</option>
           </select>
@@ -433,14 +459,14 @@ export function RiskCenterPage() {
                   >
                     <td className="py-3 px-4">{getSeverityBadge(alert.severity)}</td>
                     <td className="py-3 px-4 font-mono font-semibold text-[var(--brand-primary)]">
-                      {alert.ruleCode}
+                      {alert.ruleCode ?? alert.type}
                     </td>
                     <td className="py-3 px-4 max-w-md">
                       <div className="font-semibold text-[var(--text-primary)]">
                         {formatEmbeddedAmountsInText(alert.title)}
                       </div>
                       <div className="text-[11px] text-[var(--text-muted)] line-clamp-1 mt-0.5">
-                        {formatEmbeddedAmountsInText(alert.description)}
+                        {formatEmbeddedAmountsInText(alert.description ?? alert.explanation ?? '')}
                       </div>
                     </td>
                     <td className="py-3 px-4 text-center">{getStatusBadge(alert.status)}</td>
@@ -516,45 +542,60 @@ export function RiskCenterPage() {
                 {formatEmbeddedAmountsInText(inspectAlert.title)}
               </span>
               <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                {formatEmbeddedAmountsInText(inspectAlert.description)}
+                {formatEmbeddedAmountsInText(inspectAlert.description ?? inspectAlert.explanation ?? '')}
               </p>
             </div>
 
-            {/* Non-Fraud Disclaimer on Record */}
-            <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-2.5 text-[11px] text-amber-800 dark:text-amber-300">
-              <span className="font-bold block mb-0.5">Disclaimer:</span>
-              {inspectAlert.nonFraudDisclaimer ||
-                'This alert represents a mathematical anomaly detection pattern and does not represent a conclusion of fraud or misconduct.'}
-            </div>
-
-            {/* Statistical Evidence Payload */}
-            <div className="space-y-1">
-              <span className="font-semibold text-[var(--text-secondary)]">
-                Recorded Evidence Payload (Deterministic JSON):
-              </span>
-              <pre className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-subtle)] p-3 font-mono text-[11px] text-[var(--text-primary)] overflow-x-auto max-h-48">
-                {JSON.stringify(inspectAlert.evidence, null, 2)}
-              </pre>
-            </div>
-
-            {/* Supporting Records */}
-            {inspectAlert.supportingRecordIds?.length > 0 && (
-              <div className="space-y-1">
-                <span className="font-semibold text-[var(--text-secondary)]">
-                  Cited Ledger Record IDs ({inspectAlert.supportingRecordIds.length}):
+            {/* Actionable Recommendation */}
+            {inspectAlert.actionableRecommendation && (
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 text-[11px] text-emerald-800 dark:text-emerald-200">
+                <span className="font-bold block mb-1 text-emerald-700 dark:text-emerald-300">
+                  ✅ Recommended Action:
                 </span>
-                <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto p-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-subtle)]">
-                  {inspectAlert.supportingRecordIds.map((id, idx) => (
-                    <span
-                      key={idx}
-                      className="rounded bg-[var(--surface-elevated)] px-2 py-0.5 font-mono text-[10px] text-[var(--brand-primary)]"
-                    >
-                      {id}
-                    </span>
-                  ))}
-                </div>
+                <p className="leading-relaxed">{inspectAlert.actionableRecommendation}</p>
               </div>
             )}
+
+            {/* Transaction Evidence Table */}
+            {(() => {
+              const ev = (inspectAlert.evidence ?? {}) as Record<string, unknown>;
+              const txns = (ev['transactions'] as Array<Record<string, string>> | undefined) ?? [];
+              return txns.length > 0 ? (
+                <div className="space-y-1">
+                  <span className="font-semibold text-[var(--text-secondary)]">
+                    Transaction Evidence ({txns.length} record{txns.length !== 1 ? 's' : ''}):
+                  </span>
+                  <div className="overflow-x-auto rounded-lg border border-[var(--border-subtle)]">
+                    <table className="w-full text-[11px] text-left">
+                      <thead className="bg-[var(--surface-elevated)]/60 text-[var(--text-muted)] uppercase text-[9px] tracking-wider border-b border-[var(--border-subtle)]">
+                        <tr>
+                          <th className="py-2 px-3 font-semibold">Reference</th>
+                          <th className="py-2 px-3 font-semibold">Date</th>
+                          <th className="py-2 px-3 font-semibold">Amount</th>
+                          <th className="py-2 px-3 font-semibold">Vendor / Category</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[var(--border-subtle)]">
+                        {txns.map((t, idx) => (
+                          <tr key={idx} className="hover:bg-[var(--surface-elevated)]/30">
+                            <td className="py-1.5 px-3 font-mono text-[var(--brand-primary)]">
+                              {t['reference'] || (t['id'] ?? '').slice(0, 10)}
+                            </td>
+                            <td className="py-1.5 px-3 text-[var(--text-muted)]">{t['date']}</td>
+                            <td className="py-1.5 px-3 font-semibold text-[var(--text-primary)]">
+                              {t['currency']} {t['amount']}
+                            </td>
+                            <td className="py-1.5 px-3 text-[var(--text-secondary)]">
+                              {t['vendor'] && t['vendor'] !== 'N/A' ? `${t['vendor']} · ` : ''}{t['category']}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : null;
+            })()}
 
             {/* Historical Review Decisions */}
             {inspectAlert.reviewDecisions && inspectAlert.reviewDecisions.length > 0 && (
@@ -572,12 +613,210 @@ export function RiskCenterPage() {
                           {formatDate(dec.createdAt)}
                         </span>
                       </div>
-                      <p className="mt-1 text-[var(--text-secondary)]">{dec.notes}</p>
+                      <div className="mt-1 whitespace-pre-wrap text-[var(--text-secondary)] leading-relaxed">
+                        {dec.reviewerNotes ?? dec.notes ?? '—'}
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
             )}
+
+            {/* Results Section */}
+            {(() => {
+              const latestDecision =
+                inspectAlert.reviewDecisions && inspectAlert.reviewDecisions.length > 0
+                  ? inspectAlert.reviewDecisions[0]
+                  : null;
+              const meta = (latestDecision?.metadata ?? {}) as Record<string, unknown>;
+
+              let aiActionText =
+                'Awaiting human review. Automated AI actions run when you select Acknowledge, Investigate, Escalate, Dismiss, or Resolve.';
+              let outcomeText =
+                'Active anomaly requiring team review and triage decision.';
+              let resolutionText =
+                'Unresolved (Open) — Awaiting initial review and triage.';
+              let isResolved = false;
+
+              if (inspectAlert.status === 'ACKNOWLEDGED') {
+                aiActionText =
+                  'Monitoring Not Started — Acknowledgement was recorded, but no automated monitoring service is configured.';
+                outcomeText =
+                  'The alert has been acknowledged. Monitor it manually until automated monitoring is available.';
+                resolutionText =
+                  'Unresolved (Monitoring Not Started) — Acknowledged by reviewer. This anomaly remains unresolved until actual resolution evidence is verified.';
+                isResolved = false;
+              } else if (inspectAlert.status === 'INVESTIGATING') {
+                const summary = (meta['summary'] as string) || '';
+                aiActionText = summary
+                  ? `Forensic Analysis Completed — ${summary}`
+                  : 'Forensic History Analysis — AI analyzed transaction history and verified category spending averages.';
+                outcomeText =
+                  'Under active investigation. Transaction baseline comparison is prepared for departmental review.';
+                resolutionText =
+                  'Unresolved (Under Investigation) — Investigation in progress. Root-cause issue has not yet been resolved.';
+                isResolved = false;
+              } else if (inspectAlert.status === 'ESCALATED') {
+                aiActionText =
+                  'Dispatch Pending — Escalation briefing is prepared, but no notification has been sent.';
+                outcomeText =
+                  'High-priority escalation is recorded. Dispatch to executive management through an approved channel is pending.';
+                resolutionText =
+                  'Unresolved (Dispatch Pending) — Management intervention is pending. Issue remains unresolved until corrective action is verified.';
+                isResolved = false;
+              } else if (inspectAlert.status === 'DISMISSED') {
+                aiActionText =
+                  'Dismissed with Business Justification — Reviewer verified this as an expected business variance.';
+                outcomeText =
+                  'This anomaly has been dismissed as an acceptable business variance and is safely archived.';
+                resolutionText =
+                  `Dismissed (Expected Variance) — Documented with justification on ${formatDate(latestDecision?.createdAt || inspectAlert.updatedAt || inspectAlert.detectedAt)}. Not marked as fixed.`;
+                isResolved = false;
+              } else if (inspectAlert.status === 'RESOLVED') {
+                const evidenceNote =
+                  (meta['resolutionEvidence'] as string) ||
+                  latestDecision?.notes ||
+                  latestDecision?.reviewerNotes ||
+                  'Resolution evidence verified by reviewer.';
+                aiActionText =
+                  'Issue Verified Fixed — Confirmed with actual resolution evidence.';
+                outcomeText =
+                  `Resolution confirmed: "${evidenceNote}". The underlying issue has been verified as fixed and closed.`;
+                resolutionText =
+                  `Resolved (Verified Fixed) — Resolution evidence verified on ${formatDate(latestDecision?.createdAt || inspectAlert.updatedAt || inspectAlert.detectedAt)}.`;
+                isResolved = true;
+              }
+
+              return (
+                <div className="space-y-2 pt-3 border-t border-[var(--border-subtle)]">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-sm text-[var(--text-primary)] flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                      Results &amp; AI Outcome
+                    </span>
+                    {getStatusBadge(inspectAlert.status)}
+                  </div>
+
+                  <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-subtle)] p-3 space-y-2.5 text-xs">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--brand-primary)] block mb-0.5">
+                        AI Action
+                      </span>
+                      <p className="text-[var(--text-primary)] leading-relaxed">
+                        {aiActionText}
+                      </p>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--text-muted)] block mb-0.5">
+                        Current Outcome
+                      </span>
+                      <p className="text-[var(--text-secondary)] leading-relaxed">
+                        {outcomeText}
+                      </p>
+                    </div>
+
+                    {Array.isArray(meta['orchestratedAgents']) &&
+                      meta['orchestratedAgents'].length > 0 && (
+                        <div>
+                          <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--brand-primary)] block mb-1">
+                            Orchestrated AI Agents
+                          </span>
+                          <div className="flex flex-wrap gap-1">
+                            {(meta['orchestratedAgents'] as string[]).map((agent) => (
+                              <span
+                                key={agent}
+                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-[var(--surface-elevated)] text-[var(--text-primary)] border border-[var(--border-subtle)]"
+                              >
+                                {agent}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                    {Array.isArray(meta['aiCompletedTasks']) &&
+                      meta['aiCompletedTasks'].length > 0 && (
+                        <div>
+                          <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-600 dark:text-emerald-400 block mb-0.5">
+                            AI Completed Tasks
+                          </span>
+                          <ul className="list-disc list-inside space-y-0.5 text-[11px] text-[var(--text-secondary)]">
+                            {(meta['aiCompletedTasks'] as string[]).map((task, idx) => (
+                              <li key={idx} className="leading-relaxed">
+                                {task}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                    {Array.isArray(meta['pendingHumanTasks']) &&
+                      meta['pendingHumanTasks'].length > 0 && (
+                        <div>
+                          <span className="text-[10px] uppercase font-bold tracking-wider text-amber-600 dark:text-amber-400 block mb-0.5">
+                            Remaining Human Tasks (Real-World Verification)
+                          </span>
+                          <ul className="list-disc list-inside space-y-0.5 text-[11px] text-[var(--text-secondary)]">
+                            {(meta['pendingHumanTasks'] as string[]).map((task, idx) => (
+                              <li key={idx} className="leading-relaxed">
+                                {task}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                    <div className="pt-2 border-t border-[var(--border-subtle)]/60 flex items-start justify-between text-[11px] gap-2">
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-[var(--text-muted)] block">
+                          Resolution Status
+                        </span>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span
+                            className={`inline-block w-2 h-2 rounded-full ${
+                              isResolved
+                                ? 'bg-emerald-500'
+                                : inspectAlert.status === 'DISMISSED'
+                                ? 'bg-gray-400'
+                                : 'bg-amber-500'
+                            }`}
+                          />
+                          <span
+                            className={`font-semibold ${
+                              isResolved
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : inspectAlert.status === 'DISMISSED'
+                                ? 'text-gray-500'
+                                : 'text-amber-600 dark:text-amber-400'
+                            }`}
+                          >
+                            {isResolved
+                              ? 'RESOLVED'
+                              : inspectAlert.status === 'DISMISSED'
+                              ? 'DISMISSED'
+                              : 'UNRESOLVED'}
+                          </span>
+                        </div>
+                        <p className="text-[var(--text-secondary)] mt-0.5 leading-relaxed">
+                          {resolutionText}
+                        </p>
+                      </div>
+                      {latestDecision && (
+                        <div className="text-right shrink-0">
+                          <span className="text-[10px] uppercase font-bold text-[var(--text-muted)] block">
+                            Last Action
+                          </span>
+                          <span className="font-mono font-semibold text-[var(--brand-primary)]">
+                            {latestDecision.action}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
       </Drawer>
@@ -604,33 +843,75 @@ export function RiskCenterPage() {
                 value={triageAction}
                 onChange={(e) =>
                   setTriageAction(
-                    e.target.value as 'ACKNOWLEDGE' | 'DISMISS' | 'INVESTIGATE' | 'ESCALATE',
+                    e.target.value as
+                      | 'ACKNOWLEDGE'
+                      | 'DISMISS'
+                      | 'INVESTIGATE'
+                      | 'ESCALATE'
+                      | 'APPROVE',
                   )
                 }
                 className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] p-2 font-semibold text-xs"
                 required
               >
-                <option value="ACKNOWLEDGE">ACKNOWLEDGE (Flag seen, monitor activity)</option>
-                <option value="INVESTIGATING">
-                  INVESTIGATE (Request transaction audit details)
+                <option value="ACKNOWLEDGE">
+                  ACKNOWLEDGE (Approve AI Monitoring — Alert remains Unresolved)
                 </option>
-                <option value="ESCALATE">ESCALATE (Notify CFO / Management immediately)</option>
-                <option value="DISMISSED">DISMISS (Known expected business variance)</option>
+                <option value="INVESTIGATE">
+                  INVESTIGATE (Approve AI History Analysis — Alert remains Unresolved)
+                </option>
+                <option value="ESCALATE">
+                  ESCALATE (Approve AI CFO Notification — Alert remains Unresolved)
+                </option>
+                <option value="DISMISS">
+                  DISMISS (Known Variance — Requires Human Justification)
+                </option>
+                <option value="APPROVE">
+                  RESOLVE (Mark as Fixed — Requires Actual Resolution Evidence)
+                </option>
               </select>
             </div>
 
             <div>
               <label className="text-[11px] font-semibold text-[var(--text-secondary)] block mb-1">
-                Triage Notes & Business Justification *
+                {triageAction === 'DISMISS'
+                  ? 'Human Business Justification * (Min. 10 characters required)'
+                  : triageAction === 'APPROVE'
+                  ? 'Verified Resolution Evidence * (Min. 15 characters detailing verified fix)'
+                  : 'Reviewer Authorization & Notes *'}
               </label>
               <textarea
                 value={triageNotes}
                 onChange={(e) => setTriageNotes(e.target.value)}
-                placeholder="Document rationale, vendor conversation notes, or invoice verification IDs..."
+                placeholder={
+                  triageAction === 'DISMISS'
+                    ? 'Enter detailed justification explaining why this anomaly is an expected variance or approved activity...'
+                    : triageAction === 'APPROVE'
+                    ? 'Document verified resolution evidence (e.g., vendor refund receipt #, credit memo ID, reversed invoice, or corrective journal entry)...'
+                    : triageAction === 'INVESTIGATE'
+                    ? 'Specify investigation scope or authorization for AI historical analysis...'
+                    : triageAction === 'ESCALATE'
+                    ? 'Enter escalation notes for CFO and Executive Management...'
+                    : 'Enter review observations and authorization for AI continuous monitoring...'
+                }
                 rows={3}
                 required
                 className="w-full rounded-lg border border-[var(--border-subtle)] bg-transparent p-2 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]"
               />
+              {triageAction === 'DISMISS' &&
+                triageNotes.trim().length > 0 &&
+                triageNotes.trim().length < 10 && (
+                  <p className="text-[10px] text-amber-500 mt-1">
+                    Justification must be at least 10 characters ({10 - triageNotes.trim().length} more needed).
+                  </p>
+                )}
+              {triageAction === 'APPROVE' &&
+                triageNotes.trim().length > 0 &&
+                triageNotes.trim().length < 15 && (
+                  <p className="text-[10px] text-amber-500 mt-1">
+                    Resolution evidence must be at least 15 characters ({15 - triageNotes.trim().length} more needed). Acknowledged or Investigating alerts must remain unresolved.
+                  </p>
+                )}
             </div>
 
             <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border-subtle)]">
@@ -641,9 +922,21 @@ export function RiskCenterPage() {
                 variant="primary"
                 type="submit"
                 isLoading={isSubmittingTriage}
-                disabled={!triageNotes.trim()}
+                disabled={
+                  !triageNotes.trim() ||
+                  (triageAction === 'DISMISS' && triageNotes.trim().length < 10) ||
+                  (triageAction === 'APPROVE' && triageNotes.trim().length < 15)
+                }
               >
-                Commit Decision
+                {triageAction === 'ACKNOWLEDGE'
+                  ? 'Approve & Start Monitoring'
+                  : triageAction === 'INVESTIGATE'
+                  ? 'Approve & Run Investigation'
+                  : triageAction === 'ESCALATE'
+                  ? 'Approve & Notify CFO'
+                  : triageAction === 'APPROVE'
+                  ? 'Submit Evidence & Resolve'
+                  : 'Submit Justification & Dismiss'}
               </Button>
             </div>
           </form>

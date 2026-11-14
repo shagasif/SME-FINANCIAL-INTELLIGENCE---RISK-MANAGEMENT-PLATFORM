@@ -6,7 +6,19 @@ export interface FinancialMetricSnapshot {
   periodEnd: string;
   completenessScore: string;
   currency: string;
-  metrics: {
+  formulaVersion?: string;
+  closingCashBalance?: string;
+  operatingCashFlow?: string;
+  workingCapital?: string;
+  currentRatio?: string | null;
+  quickRatio?: string | null;
+  grossMarginPct?: string | null;
+  expenseGrowthPct?: string | null;
+  cashRunwayMonths?: string | null;
+  budgetVariancePct?: string | null;
+  totalRevenue?: string;
+  totalExpenses?: string;
+  metrics?: {
     operatingCashFlow?: string;
     cashRunwayDays?: number;
     currentRatio?: string;
@@ -19,8 +31,9 @@ export interface FinancialMetricSnapshot {
     totalExpenses?: string;
     endingCashBalance?: string;
   };
-  sourceRecordIds: Record<string, string[]>;
-  dataLimitations: string[];
+  metricsPayload?: Record<string, unknown>;
+  sourceRecordIds?: Record<string, string[]>;
+  dataLimitations?: string[];
   createdAt: string;
 }
 

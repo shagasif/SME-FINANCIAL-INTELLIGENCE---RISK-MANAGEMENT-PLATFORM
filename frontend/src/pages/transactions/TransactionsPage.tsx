@@ -229,10 +229,62 @@ export function TransactionsPage() {
   const safeAccounts = Array.isArray(accounts) ? accounts : [];
   const accountMap = Object.fromEntries(safeAccounts.map((a) => [a.id, a]));
   const selectedAccount = safeAccounts.find((a) => a.id === selectedAccountId);
-  const selectedAccountName = selectedAccount?.name || 'Selected Account';
   const summaryCurrency = resolveReportingCurrency(effectiveOrg?.baseCurrency, summary?.currency);
-  const isSummaryIncomplete = summary?.isComplete === false;
-  const nativeBreakdowns = (summary?.byCurrency ?? []).filter((b) => b.currency !== summaryCurrency);
+
+  const activeCardCurrency = selectedAccount
+    ? resolveReportingCurrency(selectedAccount.currency)
+    : summaryCurrency;
+
+  const accountBreakdown = selectedAccount
+    ? summary?.byCurrency?.find(
+        (b) => b.currency.toUpperCase() === activeCardCurrency.toUpperCase(),
+      )
+    : null;
+
+  const isSummaryIncomplete = selectedAccount ? false : summary?.isComplete === false;
+  const nativeBreakdowns = selectedAccount
+    ? []
+    : (summary?.byCurrency ?? []).filter((b) => b.currency !== summaryCurrency);
+
+  const displayTotalTransactions = selectedAccount
+    ? (accountBreakdown?.totalTransactions ??
+      (summary?.totalTransactions === 0 ? 0 : summary?.totalTransactions ?? pagination.total))
+    : (summary ? summary.totalTransactions : pagination.total);
+
+  const displayIncomeCount = selectedAccount
+    ? (accountBreakdown?.incomeCount ?? (summary?.totalTransactions === 0 ? 0 : summary?.incomeCount ?? 0))
+    : (summary?.incomeCount ?? 0);
+
+  const displayExpenseCount = selectedAccount
+    ? (accountBreakdown?.expenseCount ?? (summary?.totalTransactions === 0 ? 0 : summary?.expenseCount ?? 0))
+    : (summary?.expenseCount ?? 0);
+
+  const displayIncome = selectedAccount
+    ? (accountBreakdown?.totalIncome ??
+      (summary?.totalTransactions === 0
+        ? '0.0000'
+        : selectedAccount.currency.toUpperCase() === summaryCurrency.toUpperCase()
+          ? summary?.totalIncome
+          : '0.0000'))
+    : summary?.totalIncome;
+
+  const displayExpenses = selectedAccount
+    ? (accountBreakdown?.totalExpenses ??
+      (summary?.totalTransactions === 0
+        ? '0.0000'
+        : selectedAccount.currency.toUpperCase() === summaryCurrency.toUpperCase()
+          ? summary?.totalExpenses
+          : '0.0000'))
+    : summary?.totalExpenses;
+
+  const displayNetCash = selectedAccount
+    ? (accountBreakdown?.netCashMovement ??
+      (summary?.totalTransactions === 0
+        ? '0.0000'
+        : selectedAccount.currency.toUpperCase() === summaryCurrency.toUpperCase()
+          ? summary?.netCashMovement
+          : '0.0000'))
+    : summary?.netCashMovement;
 
   const accountFilterOptions = [
     { value: '', label: 'All Accounts' },
@@ -286,8 +338,8 @@ export function TransactionsPage() {
   };
 
   const netCashNumeric =
-    summary?.netCashMovement !== null && summary?.netCashMovement !== undefined
-      ? Number.parseFloat(summary.netCashMovement)
+    displayNetCash !== null && displayNetCash !== undefined
+      ? Number.parseFloat(displayNetCash)
       : null;
 
   return (
@@ -435,7 +487,7 @@ export function TransactionsPage() {
                 <Skeleton className="h-8 w-24 my-1" />
               ) : (
                 <div className="text-2xl sm:text-[26px] font-bold font-mono tracking-tight text-[var(--text-primary)]">
-                  {summary ? summary.totalTransactions.toLocaleString() : pagination.total.toLocaleString()}
+                  {displayTotalTransactions.toLocaleString()}
                 </div>
               )}
             </div>
@@ -452,7 +504,9 @@ export function TransactionsPage() {
 
           <div className="flex items-center gap-2 pt-2 border-t border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]">
             <span className="font-mono text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[var(--surface-elevated)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">
-              {summary ? `${summary.incomeCount} In • ${summary.expenseCount} Out` : `${pagination.total} Records`}
+              {summary || selectedAccount
+                ? `${displayIncomeCount} In • ${displayExpenseCount} Out`
+                : `${pagination.total} Records`}
             </span>
             <span className="truncate">Active ledger records</span>
           </div>
@@ -462,7 +516,7 @@ export function TransactionsPage() {
         <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] p-4 sm:p-5 shadow-xs hover:border-[var(--border-strong)] transition-all flex flex-col justify-between min-h-[135px]">
           <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-2">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] truncate">
-              Total Income ({summaryCurrency})
+              Total Income ({activeCardCurrency})
             </span>
             <TrendingUp className="w-4 h-4 text-emerald-500 shrink-0" />
           </div>
@@ -484,8 +538,8 @@ export function TransactionsPage() {
                 </div>
               ) : (
                 <div className="text-2xl sm:text-[26px] font-bold font-mono tracking-tight text-[var(--status-ok-text)]">
-                  {summary && summary.totalIncome !== null
-                    ? formatCurrency(summary.totalIncome, summaryCurrency)
+                  {displayIncome !== null && displayIncome !== undefined
+                    ? formatCurrency(displayIncome, activeCardCurrency)
                     : '—'}
                 </div>
               )}
@@ -504,7 +558,7 @@ export function TransactionsPage() {
           <div className="flex items-center gap-2 pt-2 border-t border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]">
             <span className="inline-flex items-center gap-0.5 font-mono text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
               <TrendingUp className="w-2.5 h-2.5" />
-              +{summary?.incomeCount ?? 0} Inflows
+              +{displayIncomeCount} Inflows
             </span>
             {!isSummaryIncomplete && nativeBreakdowns.length > 0 ? (
               <span className="truncate font-mono text-[10px] opacity-85">
@@ -520,7 +574,7 @@ export function TransactionsPage() {
         <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] p-4 sm:p-5 shadow-xs hover:border-[var(--border-strong)] transition-all flex flex-col justify-between min-h-[135px]">
           <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-2">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] truncate">
-              Total Expenses ({summaryCurrency})
+              Total Expenses ({activeCardCurrency})
             </span>
             <TrendingDown className="w-4 h-4 text-rose-500 shrink-0" />
           </div>
@@ -542,8 +596,8 @@ export function TransactionsPage() {
                 </div>
               ) : (
                 <div className="text-2xl sm:text-[26px] font-bold font-mono tracking-tight text-[var(--text-primary)]">
-                  {summary && summary.totalExpenses !== null
-                    ? formatCurrency(summary.totalExpenses, summaryCurrency)
+                  {displayExpenses !== null && displayExpenses !== undefined
+                    ? formatCurrency(displayExpenses, activeCardCurrency)
                     : '—'}
                 </div>
               )}
@@ -562,7 +616,7 @@ export function TransactionsPage() {
           <div className="flex items-center gap-2 pt-2 border-t border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]">
             <span className="inline-flex items-center gap-0.5 font-mono text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20">
               <TrendingDown className="w-2.5 h-2.5" />
-              -{summary?.expenseCount ?? 0} Outflows
+              -{displayExpenseCount} Outflows
             </span>
             {!isSummaryIncomplete && nativeBreakdowns.length > 0 ? (
               <span className="truncate font-mono text-[10px] opacity-85">
@@ -578,7 +632,7 @@ export function TransactionsPage() {
         <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] p-4 sm:p-5 shadow-xs hover:border-[var(--border-strong)] transition-all flex flex-col justify-between min-h-[135px]">
           <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-2">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] truncate">
-              Net Cash Movement ({summaryCurrency})
+              Net Cash Movement ({activeCardCurrency})
             </span>
             <Wallet className="w-4 h-4 text-[var(--accent-teal)] shrink-0" />
           </div>
@@ -606,8 +660,8 @@ export function TransactionsPage() {
                       : 'text-[var(--status-ok-text)]'
                   }`}
                 >
-                  {summary && summary.netCashMovement !== null
-                    ? formatSignedCurrency(summary.netCashMovement, summaryCurrency)
+                  {displayNetCash !== null && displayNetCash !== undefined
+                    ? formatSignedCurrency(displayNetCash, activeCardCurrency)
                     : '—'}
                 </div>
               )}
@@ -660,25 +714,6 @@ export function TransactionsPage() {
           </div>
         </div>
       </div>
-
-      {/* Active Account Filter Pill */}
-      {selectedAccountId && (
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedAccountId('');
-              setPagination((p) => ({ ...p, page: 1 }));
-            }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-[var(--accent-teal)]/10 text-[var(--accent-teal)] border border-[var(--accent-teal)]/30 hover:bg-[var(--accent-teal)]/20 hover:border-[var(--accent-teal)]/50 transition-all cursor-pointer shadow-xs group"
-            title="Clear account filter and show all accounts"
-            aria-label={`Clear filter for ${selectedAccountName}`}
-          >
-            <span>Viewing: {selectedAccountName}</span>
-            <X className="w-3.5 h-3.5 ml-0.5 group-hover:text-red-500 transition-colors" />
-          </button>
-        </div>
-      )}
 
       {/* Filters Bar */}
       <div className="p-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs flex flex-col md:flex-row items-center gap-3">

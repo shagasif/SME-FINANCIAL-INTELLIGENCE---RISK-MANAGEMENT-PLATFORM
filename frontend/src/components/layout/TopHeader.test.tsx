@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as useAuthModule from '../../context/useAuth';
 import { RoleType } from '../../types/auth.types';
@@ -167,5 +167,49 @@ describe('TopHeader Component', () => {
     // Select second organization
     fireEvent.click(screen.getByText('Synergy Beta Labs'));
     expect(switchOrgMock).toHaveBeenCalledWith('org-beta');
+  });
+
+  it('navigates to the landing page after signing out', async () => {
+    const logoutMock = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'usr-signout',
+        email: 'owner@example.com',
+        fullName: 'Workspace Owner',
+        isPlatformAdmin: false,
+      },
+      activeOrg: null,
+      memberships: [],
+      activeRole: null,
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      logout: logoutMock,
+      switchOrganization: vi.fn(),
+      hasRole: () => false,
+      canMutateLedger: false,
+      canManageBudgets: false,
+      canRunAiWorkflows: false,
+      canExportReports: false,
+      isAuditor: false,
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/overview']}>
+        <Routes>
+          <Route
+            path="/overview"
+            element={<TopHeader onOpenMobileNav={vi.fn()} />}
+          />
+          <Route path="/" element={<div>Landing page</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'User profile options' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sign Out' }));
+
+    expect(logoutMock).toHaveBeenCalledOnce();
+    expect(await screen.findByText('Landing page')).toBeInTheDocument();
   });
 });

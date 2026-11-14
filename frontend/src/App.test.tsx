@@ -1,137 +1,223 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 
-describe('LandingPage & Backend API Communication', () => {
+describe('LandingPage', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     window.localStorage.clear();
+    window.history.replaceState({}, '', '/');
   });
 
-  it('renders the platform title, five core objectives, and verifies live health and database readiness', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-      const url = String(input);
-      if (url.endsWith('/health/ready')) {
-        return new Response(
-          JSON.stringify({
-            status: 'ready',
-            service: 'SME Financial Intelligence API',
-            database: {
-              status: 'connected',
-              latencyMs: 3,
-            },
-            timestamp: '2026-11-09T12:00:00.000Z',
-          }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          },
-        );
-      }
+  it('renders the remaining landing-page sections in order', () => {
+    const { container } = render(<App />);
 
-      return new Response(
-        JSON.stringify({
-          status: 'ok',
-          service: 'SME Financial Intelligence API',
-          timestamp: '2026-11-09T12:00:00.000Z',
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      );
-    });
-
-    render(<App />);
-
+    const sections = Array.from(container.querySelectorAll('main > section'));
+    expect(sections).toHaveLength(6);
+    expect(sections.map((section) => section.id)).toEqual([
+      'hero',
+      'modules',
+      'ai-risk',
+      'how-it-works',
+      'why-us',
+      'final-cta',
+    ]);
+    expect(container.querySelector('#site-footer')).toBeInTheDocument();
     expect(
       screen.getByRole('heading', {
-        name: /AI-Powered SME Financial Intelligence & Risk Management Platform/i,
+        name: 'Financial Clarity & Risk Control for Growing Businesses.',
       }),
     ).toBeInTheDocument();
-
-    // Verify all 5 required capability pillars are rendered
-    expect(screen.getByText('Financial visibility')).toBeInTheDocument();
-    expect(screen.getByText('Cash-flow awareness')).toBeInTheDocument();
-    expect(screen.getByText('Financial risk monitoring')).toBeInTheDocument();
-    expect(screen.getByText('Historical financial intelligence')).toBeInTheDocument();
-    expect(screen.getByText('Evidence-based business decisions')).toBeInTheDocument();
-
-    // Wait for API health & DB readiness state to resolve
-    await waitFor(() => {
-      expect(screen.getByText('Operational (ok)')).toBeInTheDocument();
-    });
-    expect(screen.getByText(/Connected \(3 ms\)/i)).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-
-  it('displays an accessible error alert when the backend API is unreachable', async () => {
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network connection refused'));
-
-    render(<App />);
-
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent(/Backend API Unreachable/i);
-    expect(alert).toHaveTextContent(/Network connection refused/i);
-    expect(screen.getByText('Offline / Unreachable')).toBeInTheDocument();
-  });
-
-  it('supports switching between Light Mode and Dark Mode', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          status: 'ok',
-          service: 'SME Financial Intelligence API',
-          timestamp: '2026-11-09T12:00:00.000Z',
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
+    expect(
+      screen.getByText(
+        'Unify your financial records, cash-flow forecasts, and budgets in one intelligent platform—turning daily operations into verified insights and proactive risk decisions.',
       ),
-    );
+    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'A connected toolkit for financial clarity.' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', {
+        name: 'Intelligence and risk awareness, side by side.',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'A practical path from records to decisions.' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Financial intelligence shaped around your business.' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'See the platform' })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Bring clarity to your business finances.' }),
+    )
+      .toBeInTheDocument();
+    expect(screen.queryByText('One view of your finances')).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText('Illustrative finance dashboard preview'),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('Interactive Dashboard Preview')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'SME Financial Intel home' })).toHaveLength(2);
+    expect(screen.getByText('Financial Intelligence & Risk Platform')).toBeInTheDocument();
+    expect(container.querySelectorAll('#modules a.group')).toHaveLength(9);
+    expect(container.querySelector('#modules')).not.toHaveTextContent(/\b0[1-9]\b/);
+    expect(screen.queryAllByText('Explore module')).toHaveLength(0);
+    expect(container.querySelectorAll('#site-footer h2')).toHaveLength(4);
+    expect(
+      screen.getByRole('link', { name: 'Modules' }),
+    ).toHaveAttribute('href', '#modules');
+  });
 
+  it('links all nine modules and omits the AI/risk card CTAs', () => {
+    const { container } = render(<App />);
+
+    expect(screen.getAllByRole('link', { name: /Get Started/i })[0]).toHaveAttribute('href', '/login');
+    expect(
+      screen.queryByRole('link', { name: 'Explore AI Orchestration' }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Explore Risk Center' })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: /Financial Overview & Transactions/ }),
+    ).toHaveAttribute('href', '/login');
+    expect(container.querySelectorAll('#modules a.group')).toHaveLength(9);
+    expect(container.querySelectorAll('#modules a.group[href="/login"]')).toHaveLength(9);
+    expect(screen.queryByRole('link', { name: /^AI Finance Assistant/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Privacy policy' })).toHaveAttribute(
+      'href',
+      '#legal-notice',
+    );
+  });
+
+  it('renders the requested footer columns and a disabled visual-only newsletter form', () => {
+    const { container } = render(<App />);
+    const footer = container.querySelector<HTMLElement>('#site-footer');
+
+    if (!footer) {
+      throw new Error('Landing page footer was not rendered');
+    }
+
+    expect(within(footer).getByRole('heading', { name: 'Platform' })).toBeVisible();
+    expect(within(footer).getByRole('heading', { name: 'Resources' })).toBeVisible();
+    expect(within(footer).getByRole('heading', { name: 'Company' })).toBeVisible();
+    expect(within(footer).getByRole('heading', { name: 'Newsletter' })).toBeVisible();
+
+    const platformRoutes = [
+      '/overview',
+      '/cash-flow',
+      '/invoices-payables',
+      '/budgets',
+      '/analytics',
+      '/risk-center',
+      '/finmemory',
+      '/ai-orchestration',
+      '/reports',
+    ];
+    const footerLinks = within(footer).getAllByRole('link');
+    expect(
+      footerLinks.filter((link) => link.getAttribute('href') === '/login'),
+    ).toHaveLength(platformRoutes.length);
+    expect(within(footer).getByLabelText('Email address')).toBeDisabled();
+    expect(within(footer).getByRole('button', { name: 'Subscribe' })).toBeDisabled();
+    expect(within(footer).getByText('Sign-up is not enabled yet.')).toBeVisible();
+    expect(screen.getByText('SME', { exact: true })).toBeVisible();
+    expect(screen.queryByText('SFI', { exact: true })).not.toBeInTheDocument();
+    expect(within(footer).getByText('All systems operational')).toBeVisible();
+    expect(footer.querySelector('#legal-notice')).toHaveTextContent(
+      '© 2026 SME Financial Intel. All rights reserved.',
+    );
+  });
+
+  it('requires login from Get Started and returns to the overview route', async () => {
     render(<App />);
 
-    const toggleButton = screen.getByRole('button', { name: /Switch to dark mode/i });
+    fireEvent.click(screen.getAllByRole('link', { name: /Get Started/i })[0]);
+
+    expect(await screen.findByRole('button', { name: /Sign In to Workspace/i })).toBeInTheDocument();
+    expect(window.history.state.usr).toMatchObject({ from: { pathname: '/overview' } });
+  });
+
+  it('requires login before opening a selected landing-page module', async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('link', { name: /Budgets & Expenses/ }));
+
+    expect(await screen.findByRole('button', { name: /Sign In to Workspace/i })).toBeInTheDocument();
+    expect(window.history.state.usr).toMatchObject({ from: { pathname: '/budgets' } });
+  });
+
+  it('supports switching between light and dark themes', () => {
+    const { container } = render(<App />);
+
+    const toggleButton = screen.getByRole('button', { name: 'Switch to dark mode' });
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(container.querySelector('.landing-page-theme')).toHaveAttribute('data-theme', 'light');
 
     fireEvent.click(toggleButton);
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(container.querySelector('.landing-page-theme')).toHaveAttribute('data-theme', 'dark');
 
-    await waitFor(() => {
-      expect(screen.getByText('Operational (ok)')).toBeInTheDocument();
-    });
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to light mode' }));
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(container.querySelector('.landing-page-theme')).toHaveAttribute('data-theme', 'light');
   });
 
-  it('redirects unauthenticated users to the login page when Launch App is clicked', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          status: 'ok',
-          service: 'SME Financial Intelligence API',
-          timestamp: '2026-11-09T12:00:00.000Z',
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      ),
-    );
+  it('reveals landing content as it enters the viewport', () => {
+    let updateIntersection: ((target: Element, isIntersecting: boolean) => void) | undefined;
+    const observerApi: IntersectionObserver = {
+      disconnect: vi.fn(),
+      observe: vi.fn(),
+      root: null,
+      rootMargin: '0px',
+      scrollMargin: '0px',
+      takeRecords: () => [],
+      thresholds: [0.12],
+      unobserve: vi.fn(),
+    };
 
-    render(<App />);
+    class TestIntersectionObserver {
+      constructor(private readonly callback: IntersectionObserverCallback) {
+        updateIntersection = (target, isIntersecting) => {
+          const bounds = target.getBoundingClientRect();
+          const entry: IntersectionObserverEntry = {
+            boundingClientRect: bounds,
+            intersectionRatio: isIntersecting ? 1 : 0,
+            intersectionRect: bounds,
+            isIntersecting,
+            rootBounds: null,
+            target,
+            time: Date.now(),
+          };
+          this.callback([entry], observerApi);
+        };
+      }
 
-    const launchAppLinks = screen.getAllByRole('link', { name: /Launch App/i });
-    expect(launchAppLinks.length).toBeGreaterThan(0);
-    fireEvent.click(launchAppLinks[0]);
+      observe() {}
 
-    // Verify user is redirected to the Login page
-    await waitFor(() => {
-      expect(
-        screen.getByRole('heading', { name: /Financial Intelligence & Risk Platform/i }),
-      ).toBeInTheDocument();
-    });
-    expect(screen.getByLabelText(/Work Email Address/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Sign In to Workspace/i })).toBeInTheDocument();
+      disconnect() {}
+
+      takeRecords(): IntersectionObserverEntry[] {
+        return [];
+      }
+
+    }
+
+    vi.stubGlobal('IntersectionObserver', TestIntersectionObserver);
+    const { container } = render(<App />);
+    const page = container.querySelector('.landing-page-theme');
+    const target = container.querySelector('#how-it-works [data-scroll-reveal]');
+
+    expect(page).toHaveAttribute('data-scroll-reveal', 'ready');
+    expect(target).not.toHaveClass('is-visible');
+    if (!updateIntersection || !target) {
+      throw new Error('Scroll reveal observer or target was not initialized');
+    }
+
+    act(() => updateIntersection?.(target, true));
+    expect(target).toHaveClass('is-visible');
+
+    act(() => updateIntersection?.(target, false));
+    expect(target).not.toHaveClass('is-visible');
+
+    act(() => updateIntersection?.(target, true));
+    expect(target).toHaveClass('is-visible');
   });
 });

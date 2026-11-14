@@ -72,7 +72,7 @@ export function MobileNav({ isOpen, onClose }: MobileNavProps) {
       />
 
       {/* Drawer */}
-      <div className="relative w-4/5 max-w-xs bg-[var(--surface-card)] text-[var(--text-primary)] border-r border-[var(--border-subtle)] flex flex-col justify-between z-10 shadow-2xl">
+      <div className="relative w-4/5 max-w-xs bg-[var(--surface-sidebar)] text-[var(--text-primary)] border-r border-[var(--border-subtle)] flex flex-col justify-between z-10 shadow-2xl">
         <div className="h-16 flex items-center justify-between px-4 border-b border-[var(--border-subtle)]">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-[var(--accent-primary)] text-[var(--surface-header-text)] flex items-center justify-center font-bold text-sm shadow-xs">
@@ -108,8 +108,8 @@ export function MobileNav({ isOpen, onClose }: MobileNavProps) {
                 className={({ isActive }) =>
                   `flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                     isActive
-                      ? 'bg-[var(--surface-elevated)] text-[var(--accent-teal)] font-bold border-l-4 border-[var(--accent-teal)]'
-                      : 'text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)]/60'
+                      ? 'bg-[var(--surface-sidebar-active)] text-[var(--surface-sidebar-active-text)] font-bold border-l-4 border-[var(--surface-sidebar-active-border)]'
+                      : 'text-[var(--text-secondary)] hover:bg-[var(--surface-sidebar-hover)]'
                   }`
                 }
               >

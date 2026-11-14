@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Bell,
   Building2,
@@ -21,6 +21,7 @@ export interface TopHeaderProps {
 export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
   const { user, activeOrg, memberships, switchOrganization, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const navigate = useNavigate();
 
   const [isOrgMenuOpen, setIsOrgMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -183,7 +184,7 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
                   <button
                     onClick={() => {
                       setIsUserMenuOpen(false);
-                      logout();
+                      void logout().then(() => navigate('/', { replace: true }));
                     }}
                     className="w-full flex items-center gap-2 px-4 py-2 text-xs font-semibold text-[var(--status-err-text)] hover:bg-[var(--status-err-bg)]/50 transition-colors cursor-pointer text-left"
                   >
@@ -197,7 +198,7 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
         ) : (
           <Link
             to="/login"
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[var(--accent-primary)] hover:bg-[#12372A]/90 text-white shadow-xs transition-colors"
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white shadow-xs transition-colors"
           >
             Sign In
           </Link>

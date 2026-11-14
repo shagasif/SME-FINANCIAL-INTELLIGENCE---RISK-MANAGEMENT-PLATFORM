@@ -866,7 +866,7 @@ describe('TransactionsPage Component', () => {
     });
   });
 
-  it('filters ledger and KPI summary when account is selected in Accounts modal, displays Viewing pill, and clears on ✕ click', async () => {
+  it('filters ledger and KPI summary when account is selected without displaying any Viewing pill', async () => {
     authStorage.setToken('valid-user-token');
 
     vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
@@ -967,23 +967,177 @@ describe('TransactionsPage Component', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: /Payroll Reserve Account/i }));
 
-    // Modal closes and active filter pill "Viewing: Payroll Reserve Account" appears
+    // Modal closes: account is filtered, request has accountId, but NO Viewing pill is rendered
     await waitFor(() => {
-      expect(screen.getByText(/Viewing:\s*Payroll Reserve Account/i)).toBeInTheDocument();
+      expect(screen.queryByText(/Viewing:/i)).not.toBeInTheDocument();
       expect(
         requestedUrls.some((u) => u.includes('accountId=acc-reserve')),
       ).toBe(true);
     });
 
-    // Click ✕ to clear filter and restore all-account data
-    fireEvent.click(screen.getByLabelText(/Clear filter for Payroll Reserve Account/i));
+    // Selecting 'All Accounts' in the account dropdown clears the filter
+    const accountSelect = document.getElementById('accountFilter') as HTMLSelectElement;
+    expect(accountSelect).toBeDefined();
+    expect(accountSelect.value).toBe('acc-reserve');
+
+    fireEvent.change(accountSelect, { target: { value: '' } });
 
     await waitFor(() => {
       expect(screen.queryByText(/Viewing:/i)).not.toBeInTheDocument();
-      // Last request should not have accountId query param
       const lastTxUrl = requestedUrls.filter((u) => u.includes('/transactions')).pop();
       expect(lastTxUrl).toBeDefined();
       expect(lastTxUrl?.includes('accountId=')).toBe(false);
+    });
+  });
+
+  it('dynamically switches KPI cards to USD when USD account is selected and PKR when PKR account is selected', async () => {
+    authStorage.setToken('valid-user-token');
+
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'usr-star',
+        email: 'shagasif83@gmail.com',
+        fullName: 'Shagufta Asif',
+        isPlatformAdmin: false,
+      },
+      activeOrg: {
+        id: 'org-star-1',
+        name: 'star',
+        slug: 'star',
+        baseCurrency: 'PKR',
+        role: RoleType.BUSINESS_OWNER,
+      },
+      memberships: [],
+      activeRole: RoleType.BUSINESS_OWNER,
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      switchOrganization: vi.fn(),
+      hasRole: () => true,
+      canMutateLedger: true,
+      canManageBudgets: true,
+      canRunAiWorkflows: true,
+      canExportReports: true,
+      isAuditor: false,
+    });
+
+    const accountsData = [
+      {
+        id: 'acc-usd',
+        name: 'USD Foreign Currency Account',
+        code: '1010',
+        accountType: 'BANK',
+        currency: 'USD',
+        openingBalance: '10000.0000',
+        currentBalance: '10000.0000',
+        isArchived: false,
+      },
+      {
+        id: 'acc-pkr',
+        name: 'Business Savings Reserve',
+        code: '1020',
+        accountType: 'BANK',
+        currency: 'PKR',
+        openingBalance: '50000.0000',
+        currentBalance: '50000.0000',
+        isArchived: false,
+      },
+    ];
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((req: RequestInfo | URL) => {
+      const url = req.toString();
+      const jsonHeader = { 'Content-Type': 'application/json' };
+      if (url.includes('/accounts')) {
+        return Promise.resolve(
+          new Response(JSON.stringify(accountsData), { status: 200, headers: jsonHeader }),
+        );
+      }
+      if (url.includes('accountId=acc-usd')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [],
+              pagination: { total: 0, page: 1, limit: 15, totalPages: 1 },
+              summary: {
+                totalTransactions: 0,
+                incomeCount: 0,
+                expenseCount: 0,
+                transferCount: 0,
+                currency: 'PKR',
+                isComplete: true,
+                missingCurrencies: [],
+                hasMixedCurrencies: false,
+                totalIncome: '0.0000',
+                totalExpenses: '0.0000',
+                netCashMovement: '0.0000',
+                byCurrency: [],
+              },
+            }),
+            { status: 200, headers: jsonHeader },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            items: [],
+            pagination: { total: 0, page: 1, limit: 15, totalPages: 1 },
+            summary: {
+              totalTransactions: 0,
+              incomeCount: 0,
+              expenseCount: 0,
+              transferCount: 0,
+              currency: 'PKR',
+              isComplete: true,
+              missingCurrencies: [],
+              hasMixedCurrencies: false,
+              totalIncome: '0.0000',
+              totalExpenses: '0.0000',
+              netCashMovement: '0.0000',
+              byCurrency: [],
+            },
+          }),
+          { status: 200, headers: jsonHeader },
+        ),
+      );
+    });
+
+    render(
+      <BrowserRouter>
+        <TransactionsPage />
+      </BrowserRouter>,
+    );
+
+    // Initial load with All Accounts: titles show PKR
+    await waitFor(() => {
+      expect(screen.getByText('Total Income (PKR)')).toBeInTheDocument();
+      expect(screen.getByText('Total Expenses (PKR)')).toBeInTheDocument();
+      expect(screen.getByText('Net Cash Movement (PKR)')).toBeInTheDocument();
+      expect(screen.queryByText(/Viewing:/i)).not.toBeInTheDocument();
+    });
+
+    // Select USD account
+    const accountSelect = document.getElementById('accountFilter') as HTMLSelectElement;
+    fireEvent.change(accountSelect, { target: { value: 'acc-usd' } });
+
+    // Cards must update to USD and values show USD ($0)
+    await waitFor(() => {
+      expect(screen.getByText('Total Income (USD)')).toBeInTheDocument();
+      expect(screen.getByText('Total Expenses (USD)')).toBeInTheDocument();
+      expect(screen.getByText('Net Cash Movement (USD)')).toBeInTheDocument();
+      expect(screen.queryByText(/Viewing:/i)).not.toBeInTheDocument();
+    });
+
+    // Switch to PKR account
+    fireEvent.change(accountSelect, { target: { value: 'acc-pkr' } });
+
+    // Cards must update to PKR
+    await waitFor(() => {
+      expect(screen.getByText('Total Income (PKR)')).toBeInTheDocument();
+      expect(screen.getByText('Total Expenses (PKR)')).toBeInTheDocument();
+      expect(screen.getByText('Net Cash Movement (PKR)')).toBeInTheDocument();
+      expect(screen.queryByText(/Viewing:/i)).not.toBeInTheDocument();
     });
   });
 });

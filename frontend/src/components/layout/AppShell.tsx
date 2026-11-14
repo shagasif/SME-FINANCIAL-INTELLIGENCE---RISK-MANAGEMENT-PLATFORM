@@ -15,7 +15,7 @@ export function AppShell({ children }: AppShellProps) {
       {/* Skip to Content for Accessibility */}
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-md focus:bg-[var(--accent-teal)] focus:text-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:shadow-xl"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-md focus:bg-[var(--accent-primary)] focus:text-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:shadow-xl"
       >
         Skip to main content
       </a>

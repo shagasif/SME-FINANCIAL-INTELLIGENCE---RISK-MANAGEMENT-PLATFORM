@@ -39,7 +39,7 @@ export function Tabs({ tabs, activeTabId, onTabChange, className = '' }: TabsPro
               <span
                 className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
                   isActive
-                    ? 'bg-[var(--accent-teal)] text-white'
+                    ? 'bg-[var(--accent-primary)] text-white'
                     : 'bg-[var(--surface-elevated)] text-[var(--text-muted)]'
                 }`}
               >
