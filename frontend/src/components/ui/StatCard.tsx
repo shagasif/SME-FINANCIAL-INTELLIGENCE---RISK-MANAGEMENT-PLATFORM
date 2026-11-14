@@ -39,8 +39,8 @@ export function StatCard({
   return (
     <Card
       onClick={onClick}
-      className={`relative overflow-hidden flex flex-col justify-between ${
-        isInteractive ? 'cursor-pointer hover:border-[var(--accent-teal)] hover:shadow-md' : ''
+      className={`relative overflow-hidden flex flex-col justify-between transition-all duration-250 ease-out hover:-translate-y-0.5 hover:shadow-md hover:border-[var(--accent-teal)]/50 ${
+        isInteractive ? 'cursor-pointer' : ''
       } ${className}`}
     >
       <div className="flex items-start justify-between gap-3">

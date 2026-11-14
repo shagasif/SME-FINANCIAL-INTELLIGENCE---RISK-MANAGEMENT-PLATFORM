@@ -71,12 +71,22 @@ export function NewTransactionModal({
     onClose();
   };
 
-  const selectedAccount = accounts.find((a) => a.id === accountId);
-  const accountCurrency = selectedAccount?.currency || 'PKR';
+  // Resolve the effective account on every render so the form stays in sync when
+  // accounts finish loading after mount, or when the chosen account disappears
+  // (e.g. archived). Falls back to the first available account.
+  const selectedAccount =
+    accounts.find((a) => a.id === accountId) ?? (accounts.length > 0 ? accounts[0] : undefined);
+  const effectiveAccountId = selectedAccount?.id ?? '';
+  // Currency is always derived from the selected account — never hardcoded.
+  const accountCurrency = selectedAccount?.currency?.trim().toUpperCase() || null;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!accountId || !amount || !description || !transactionDate) {
+    if (!selectedAccount || !accountCurrency) {
+      setError('Please select a financial account.');
+      return;
+    }
+    if (!amount || !description || !transactionDate) {
       setError('Please fill in all required fields.');
       return;
     }
@@ -92,7 +102,7 @@ export function NewTransactionModal({
 
     try {
       await apiPost(`/v1/organizations/${orgId}/transactions`, {
-        accountId,
+        accountId: effectiveAccountId,
         type,
         amount: numAmount.toFixed(4),
         currency: accountCurrency,
@@ -139,9 +149,10 @@ export function NewTransactionModal({
           <Select
             id="modalAccount"
             label="Financial Account *"
-            value={accountId}
+            value={effectiveAccountId}
             onChange={(e) => setAccountId(e.target.value)}
             options={accountOptions}
+            disabled={accountOptions.length === 0}
           />
 
           <Select
@@ -156,7 +167,7 @@ export function NewTransactionModal({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input
             id="modalAmount"
-            label={selectedAccount ? `Amount (${accountCurrency}) *` : 'Amount (Positive Decimal) *'}
+            label={accountCurrency ? `Amount (${accountCurrency}) *` : 'Amount (Positive Decimal) *'}
             type="number"
             step="0.01"
             min="0.01"
@@ -164,7 +175,11 @@ export function NewTransactionModal({
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="0.00"
-            helperText={`Monetary value denominated in ${accountCurrency}`}
+            helperText={
+              accountCurrency
+                ? `Monetary value denominated in ${accountCurrency}`
+                : 'Select a financial account to determine currency'
+            }
           />
 
           <Input

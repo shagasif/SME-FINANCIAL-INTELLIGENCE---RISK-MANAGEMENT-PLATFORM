@@ -150,7 +150,7 @@ export class ReportsController {
     return this.service.listFollowUpTasks(orgId, status);
   }
 
-  @Patch('tasks/:taskId/status')
+  @Patch(['tasks/:taskId/status', 'tasks/:taskId'])
   @Roles(
     RoleType.PLATFORM_ADMIN,
     RoleType.BUSINESS_OWNER,

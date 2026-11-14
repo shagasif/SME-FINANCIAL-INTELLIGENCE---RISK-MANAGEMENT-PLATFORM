@@ -77,22 +77,6 @@ export const MAIN_NAVIGATION_ITEMS: readonly NavigationItem[] = [
     category: 'intelligence',
   },
   {
-    id: 'ai-assistant',
-    label: 'AI Finance Assistant',
-    path: '/ai-assistant',
-    iconName: 'Bot',
-    allowedRoles: [
-      RoleType.PLATFORM_ADMIN,
-      RoleType.BUSINESS_OWNER,
-      RoleType.FINANCE_MANAGER,
-      RoleType.ACCOUNTANT,
-      RoleType.OPERATIONS_MANAGER,
-      RoleType.FINANCIAL_ANALYST,
-    ],
-    badge: 'Gemini',
-    category: 'ai',
-  },
-  {
     id: 'ai-orchestration',
     label: 'AI Orchestrator',
     path: '/ai-orchestration',

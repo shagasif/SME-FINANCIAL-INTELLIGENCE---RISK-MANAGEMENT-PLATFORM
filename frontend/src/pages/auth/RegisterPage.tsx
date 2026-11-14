@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { AlertCircle, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { apiPost, authStorage, ApiClientError } from '../../services/apiClient';
 import { type AuthSessionPayload } from '../../types/auth.types';
+import { AuthPageBackground } from '../../components/auth/AuthPageBackground';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
@@ -116,21 +117,33 @@ export function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--surface-canvas)] flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
+    <div
+      data-theme="dark"
+      className="auth-glass-page relative isolate min-h-screen overflow-hidden bg-[#080611] flex flex-col justify-center py-12 sm:px-6 lg:px-8"
+    >
+      <AuthPageBackground />
+
+      <Link
+        to="/"
+        className="absolute left-4 top-4 z-20 text-xs text-white/60 transition-colors hover:text-white sm:left-6 sm:top-6"
+      >
+        ← Back to Home
+      </Link>
+
+      <div className="relative z-10 text-center sm:mx-auto sm:w-full sm:max-w-md">
         <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-[var(--accent-primary)] text-white font-bold text-xl shadow-lg mb-4">
           SME
         </div>
-        <h1 className="text-2xl font-bold tracking-tight text-[var(--text-primary)]">
-          Create SME Workspace
+        <h1 className="text-2xl font-bold tracking-tight text-white">
+          Get Started with SME Financial Intel
         </h1>
-        <p className="mt-1.5 text-xs text-[var(--text-muted)]">
-          Autonomous multi-agent financial risk monitoring & intelligence engine
+        <p className="mt-1.5 text-xs text-white/60">
+          Set up your company workspace to manage cash flow, budgets, and financial risks.
         </p>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-xl px-4 sm:px-0">
-        <div className="bg-[var(--surface-card)] py-8 px-6 sm:px-10 shadow-lg rounded-2xl border border-[var(--border-subtle)]">
+      <div className="relative z-10 mt-8 px-4 sm:mx-auto sm:w-full sm:max-w-xl sm:px-0">
+        <div className="rounded-2xl border border-white/15 bg-white/[0.04] px-6 py-8 shadow-2xl backdrop-blur-2xl sm:px-10">
           <form className="space-y-4" onSubmit={handleSubmit}>
             {error && (
               <div
@@ -148,6 +161,7 @@ export function RegisterPage() {
                 label="Full Name"
                 type="text"
                 required
+                className="auth-glass-input"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="Jane Doe"
@@ -159,6 +173,7 @@ export function RegisterPage() {
                 type="email"
                 autoComplete="email"
                 required
+                className="auth-glass-input"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="jane@company.com"
@@ -173,6 +188,7 @@ export function RegisterPage() {
                 autoComplete="new-password"
                 required
                 minLength={8}
+                className="auth-glass-input"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••••••"
@@ -197,6 +213,7 @@ export function RegisterPage() {
                 autoComplete="new-password"
                 required
                 minLength={8}
+                className="auth-glass-input"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="••••••••••••"
@@ -225,6 +242,7 @@ export function RegisterPage() {
                 label="Company / Legal Entity Name"
                 type="text"
                 required
+                className="auth-glass-input"
                 value={organizationName}
                 onChange={(e) => setOrganizationName(e.target.value)}
                 placeholder="Apex Manufacturing Ltd."
@@ -234,6 +252,7 @@ export function RegisterPage() {
                 <Select
                   id="country"
                   label="Country / Jurisdiction"
+                  className="auth-glass-select"
                   value={country}
                   onChange={(e) => handleCountryChange(e.target.value)}
                   options={COUNTRIES}
@@ -243,6 +262,7 @@ export function RegisterPage() {
                 <Select
                   id="currency"
                   label="Base Reporting Currency"
+                  className="auth-glass-select"
                   value={baseCurrency}
                   onChange={(e) => setBaseCurrency(e.target.value)}
                   options={CURRENCIES}

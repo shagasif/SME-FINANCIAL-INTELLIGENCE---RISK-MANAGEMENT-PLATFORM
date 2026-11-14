@@ -223,17 +223,15 @@ export interface BuildBriefInput {
 
 function fmtMoney(val: string | number | null | undefined, currency: string): string {
   if (val === null || val === undefined) return 'Unavailable';
-  const num = typeof val === 'number' ? val : Number.parseFloat(String(val));
-  if (Number.isNaN(num)) return String(val);
   try {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(num);
+    const normalized = typeof val === 'string' ? val.replace(/,/g, '') : val;
+    const fixed = DecimalMath.toFixed2(normalized);
+    const [integer, fraction] = fixed.split('.');
+    const negative = integer.startsWith('-');
+    const whole = (negative ? integer.slice(1) : integer).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return `${currency.trim().toUpperCase()} ${negative ? '-' : ''}${whole}.${fraction}`;
   } catch {
-    return `${currency} ${num.toFixed(2)}`;
+    return String(val);
   }
 }
 
@@ -283,7 +281,132 @@ function normalizeSeverity(sev: string): ExecutiveRiskItem['severity'] {
 }
 
 function dedupeStrings(items: string[]): string[] {
-  return Array.from(new Set(items.map((i) => i.trim()).filter(Boolean)));
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const value = item.trim();
+    const key = value.toLocaleLowerCase();
+    if (!value || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function toBusinessLanguage(text: string, currency: string): string {
+  return text
+    .replace(
+      /(?:statistical or rule-based anomaly signal for human review; not a determination of confirmed fraud\.?|this alert represents a statistical anomaly pattern and does not represent a conclusion of fraud or misconduct\.?)/gi,
+      '',
+    )
+    .replace(
+      /\bcategory[_ ]?baseline[_ ]?mean\s+std[_ ]?dev\b/gi,
+      'spending pattern for this category',
+    )
+    .replace(
+      /\bcategory[_ ]?baseline[_ ]?mean\s*[:=]\s*(-?\d[\d,]*(?:\.\d+)?)\b/gi,
+      (_match, amount: string) =>
+        `average spending for this category: ${fmtMoney(amount, currency)}`,
+    )
+    .replace(/\bcategory[_ ]?baseline[_ ]?mean\b/gi, 'average spending for this category')
+    .replace(/\bcreatedAt\b/gi, 'creation date')
+    .replace(/\bupdatedAt\b/gi, 'last updated')
+    .replace(/\borganizationId\b/gi, 'organization reference')
+    .replace(/\b([A-Za-z][A-Za-z0-9]*?)Ids\b/g, '$1 references')
+    .replace(/\b([A-Za-z][A-Za-z0-9]*?)Id\b/g, '$1 reference')
+    .replace(
+      /\b(?:std[_ ]?dev|standard deviation)\s*[:=]\s*-?\d+(?:\.\d+)?/gi,
+      'spending variation',
+    )
+    .replace(
+      /\b(?:a\s+)?transaction\s+(?:has|shows)\s+z[-_ ]?score\s*[:=]\s*-?\d+(?:\.\d+)?/gi,
+      'unusual transaction activity was identified',
+    )
+    .replace(/\bz[-_ ]?score\s*[:=]\s*-?\d+(?:\.\d+)?/gi, 'unusual activity indicator')
+    .replace(
+      /([a-z0-9])([A-Z])/g,
+      (_match, lower: string, upper: string) => `${lower} ${upper.toLowerCase()}`,
+    )
+    .replace(/_+/g, ' ')
+    .replace(/\b([a-z]+)\s+ids?\b/gi, '$1 reference')
+    .replace(/\b(?:std[_ ]?dev|standard deviation)\b/gi, 'spending variation')
+    .replace(/\bz[-_ ]?score\b/gi, 'unusual activity indicator')
+    .replace(
+      /\boutlier\s+(expense|transaction|payment|amount)\s+detected\b/gi,
+      'The $1 was unusually high',
+    )
+    .replace(/\boutlier\b/gi, 'unexpectedly high')
+    .replace(/\bmean\b/gi, 'average')
+    .replace(/\bmedian\b/gi, 'typical')
+    .replace(/\bstatistical\b/gi, 'unusual')
+    .replace(
+      /\bAI[- ](?:generated|synthesized|assisted|advisory|powered|driven|based|analysis)\b/gi,
+      '',
+    )
+    .replace(/\bartificial intelligence\b/gi, '')
+    .replace(/\bAI\b/gi, '')
+    .replace(
+      /\ban\s+unusual activity indicator note requires review\b/gi,
+      'unusual transaction activity requires review',
+    )
+    .replace(/\bAR\b/g, 'receivables')
+    .replace(/\bAP\b/g, 'payables')
+    .replace(/\bFX\b/g, 'foreign-exchange')
+    .replace(
+      /\b([A-Z]{3}\s+)(-?(?:\d[\d,]*\.\d+|\d{1,3}(?:,\d{3})+))(?!\d|[%x])/g,
+      (_match, code: string, amount: string) => fmtMoney(amount, code.trim()),
+    )
+    .replace(
+      /\b([A-Z]{3}\s+)?(-?\d[\d,]*\.\d{2,4})(?!\d|\.\d|[%x])/g,
+      (match, code: string | undefined, amount: string) =>
+        code ? match : fmtMoney(amount, currency),
+    )
+    .replace(/\s*=\s*/g, ': ')
+    .replace(/\s+([,.;:])/g, '$1')
+    .replace(/([.;])\s*\1+/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function riskRepeatsTableOrKpi(
+  risk: ExecutiveRiskItem,
+  tables: ExecutiveTable[],
+  kpis: ExecutiveKpiCard[],
+): boolean {
+  const tableTitles = tables.map((table) => table.title.toLowerCase());
+  const kpiLabels = kpis.map((kpi) => kpi.label.toLowerCase());
+  const hasTable = (phrase: string) => tableTitles.some((title) => title.includes(phrase));
+  const hasKpi = (phrase: string) => kpiLabels.some((label) => label.includes(phrase));
+  const matchingCell = tables.some((table) =>
+    table.rows.some((row) =>
+      row.cells.some((cell) => cell.trim().toLowerCase() === risk.title.trim().toLowerCase()),
+    ),
+  );
+  if (matchingCell) return true;
+
+  switch (risk.sourceTag.toLowerCase()) {
+    case 'risk alert':
+      return hasTable('recent anomaly signals') || hasTable('recent alerts');
+    case 'ar aging':
+      return (hasTable('receivables') && hasTable('aging')) || hasKpi('overdue receivables');
+    case 'ap aging':
+      return (hasTable('payables') && hasTable('aging')) || hasKpi('overdue payables');
+    case 'cash flow':
+      return (
+        hasTable('financial performance') || hasTable('cash flow') || hasKpi('operating cash flow')
+      );
+    case 'liquidity':
+      return hasTable('financial performance') || hasKpi('working capital');
+    case 'forecast':
+      return (
+        hasTable('forecast') ||
+        hasTable('cash flow') ||
+        hasKpi('projected cash') ||
+        hasKpi('min projected cash')
+      );
+    case 'budget variance':
+      return hasTable('budget') || hasKpi('net variance');
+    default:
+      return false;
+  }
 }
 
 function buildAgingTable(
@@ -387,7 +510,9 @@ function collectCommonRisks(input: BuildBriefInput): ExecutiveRiskItem[] {
     risks.push({
       severity: normalizeSeverity(alert.severity),
       title: alert.title,
-      detail: alert.explanation.replace(/\s*Statistical or rule-based anomaly signal.*$/i, '').trim(),
+      detail: alert.explanation
+        .replace(/\s*Statistical or rule-based anomaly signal.*$/i, '')
+        .trim(),
       sourceTag: 'Risk Alert',
     });
   }
@@ -466,7 +591,10 @@ function collectCommonRisks(input: BuildBriefInput): ExecutiveRiskItem[] {
   return risks.slice(0, 6);
 }
 
-function buildActionPlan(input: BuildBriefInput, risks: ExecutiveRiskItem[]): ExecutiveActionItem[] {
+function buildActionPlan(
+  input: BuildBriefInput,
+  risks: ExecutiveRiskItem[],
+): ExecutiveActionItem[] {
   const { metricsBundle, forecast, expensesByCategory, budgetVariances = [] } = input;
   const m = metricsBundle.metrics;
   const currency = metricsBundle.currency;
@@ -479,8 +607,8 @@ function buildActionPlan(input: BuildBriefInput, risks: ExecutiveRiskItem[]): Ex
 
   if (metricsBundle.conversionContext.missingCurrencies.length > 0) {
     pushAction({
-      title: `Configure ${metricsBundle.conversionContext.missingCurrencies.join('/')} to ${currency} FX Rates`,
-      rationale: `Add verified exchange rates in Organization Currency Settings so consolidated KPIs include all foreign-currency balances.`,
+      title: `Add verified exchange rates in ${currency} settings`,
+      rationale: `Confirm the applicable rates so foreign-currency balances are included in consolidated reporting.`,
       targetArea: 'FX Governance',
       impact: 'HIGH',
     });
@@ -498,7 +626,7 @@ function buildActionPlan(input: BuildBriefInput, risks: ExecutiveRiskItem[]): Ex
   const overdueAr = toNum(m.receivableAging.value?.totalOverdue);
   if (overdueAr > 0) {
     pushAction({
-      title: `Accelerate Collection of ${fmtMoney(overdueAr, currency)} Overdue AR`,
+      title: 'Accelerate collection of overdue customer receivables',
       rationale: `Prioritize customer outreach on past-due invoices to convert open receivables into liquid bank cash.`,
       targetArea: 'Receivables',
       impact: 'HIGH',
@@ -508,8 +636,8 @@ function buildActionPlan(input: BuildBriefInput, risks: ExecutiveRiskItem[]): Ex
   const arDraftCount = Number(m.receivableAging.components?.draftCount ?? 0);
   if (arDraftCount > 0) {
     pushAction({
-      title: `Review & Issue ${arDraftCount} Pending Draft Invoice(s)`,
-      rationale: `Draft invoices totaling ${fmtMoney(m.receivableAging.components?.draftTotal ?? '0', currency)} remain excluded from receivables until formally issued.`,
+      title: 'Review and issue pending draft invoices',
+      rationale: `Pending drafts remain excluded from receivables until they are formally issued.`,
       targetArea: 'Billing Workflow',
       impact: 'MEDIUM',
     });
@@ -518,19 +646,22 @@ function buildActionPlan(input: BuildBriefInput, risks: ExecutiveRiskItem[]): Ex
   const openAlerts = risks.filter((r) => r.sourceTag === 'Risk Alert');
   if (openAlerts.length > 0) {
     pushAction({
-      title: `Triage ${openAlerts.length} Flagged Anomaly Alert(s) in Risk Center`,
-      rationale: `Assign finance review for "${openAlerts[0].title}" to verify supporting vouchers and rule out duplicate charges.`,
+      title: 'Triage open risk alerts',
+      rationale: `Assign finance review to verify supporting records and resolve the flagged activity.`,
       targetArea: 'Risk Controls',
-      impact: openAlerts[0].severity === 'CRITICAL' || openAlerts[0].severity === 'HIGH' ? 'HIGH' : 'MEDIUM',
+      impact:
+        openAlerts[0].severity === 'CRITICAL' || openAlerts[0].severity === 'HIGH'
+          ? 'HIGH'
+          : 'MEDIUM',
     });
   }
 
   if (expensesByCategory && Object.keys(expensesByCategory).length > 0) {
     const sorted = Object.entries(expensesByCategory).sort((a, b) => toNum(b[1]) - toNum(a[1]));
-    const [topCat, topVal] = sorted[0];
+    const [topCat] = sorted[0];
     pushAction({
-      title: `Audit Top Spend Category: ${topCat}`,
-      rationale: `${topCat} accounts for ${fmtMoney(topVal, currency)} in period outflows; review recurring vendor terms for savings.`,
+      title: `Review the ${topCat} spend category`,
+      rationale: `Review recurring vendor terms and purchasing patterns for savings.`,
       targetArea: 'Cost Control',
       impact: 'MEDIUM',
     });
@@ -539,8 +670,8 @@ function buildActionPlan(input: BuildBriefInput, risks: ExecutiveRiskItem[]): Ex
   const overrunBudget = budgetVariances.find((b) => toNum(b.totalVarianceAmount) < 0);
   if (overrunBudget) {
     pushAction({
-      title: `Rebalance Over-Budget Plan (${overrunBudget.budgetName ?? 'Active Budget'})`,
-      rationale: `Utilization reached ${fmtPct(overrunBudget.totalUtilizationPct)}; reallocate unused line items or approve a formal revision.`,
+      title: 'Review the over-budget plan',
+      rationale: `Reallocate unused line items or approve a formal budget revision.`,
       targetArea: 'Budget Governance',
       impact: 'HIGH',
     });
@@ -549,7 +680,7 @@ function buildActionPlan(input: BuildBriefInput, risks: ExecutiveRiskItem[]): Ex
   if (m.operatingCashFlow.status === 'COMPUTED' && toNum(m.operatingCashFlow.value) < 0) {
     pushAction({
       title: 'Close Operating Cash Deficit Through Margin & Spend Review',
-      rationale: `Outflows exceeded inflows by ${fmtMoney(Math.abs(toNum(m.operatingCashFlow.value)), currency)} in the reporting window.`,
+      rationale: `Review operating margin and spending to address the period's negative cash contribution.`,
       targetArea: 'Operating Margin',
       impact: 'HIGH',
     });
@@ -558,40 +689,24 @@ function buildActionPlan(input: BuildBriefInput, risks: ExecutiveRiskItem[]): Ex
   const overdueAp = toNum(m.payableAging.value?.totalOverdue);
   if (overdueAp > 0) {
     pushAction({
-      title: `Schedule Settlement for ${fmtMoney(overdueAp, currency)} Overdue Payables`,
+      title: 'Schedule settlement of overdue supplier payables',
       rationale: `Align supplier bill settlements with incoming AR collections to protect vendor credit terms.`,
       targetArea: 'Payables',
       impact: 'MEDIUM',
     });
   }
 
-  // Ensure at least 3 concrete, grounded management actions without inventing fake issues
-  if (actions.length < 3) {
-    pushAction({
-      title: 'Maintain Monthly Ledger & Bank Reconciliation Cadence',
-      rationale: `Keep bank accounts, receipts, and supplier bills reconciled in ${currency} to sustain continuous audit readiness.`,
-      targetArea: 'Financial Hygiene',
-      impact: 'MEDIUM',
-    });
-  }
-  if (actions.length < 3 && input.recordCounts.budgets === 0) {
-    pushAction({
-      title: 'Establish an Active Operating Budget for Variance Tracking',
-      rationale: `No active budget overlapped this reporting period; creating category caps will enable automated overrun alerts.`,
-      targetArea: 'Planning & Budgets',
-      impact: 'MEDIUM',
-    });
-  }
-  if (actions.length < 3) {
-    pushAction({
-      title: 'Run Periodic 30-to-90 Day Cash-Flow Stress Scenarios',
-      rationale: `Simulate revenue slowdowns or supplier cost increases in Scenario Planning before committing new fixed overhead.`,
-      targetArea: 'Treasury Planning',
-      impact: 'LOW',
-    });
-  }
-
-  return actions.slice(0, 4);
+  const impactRank = { HIGH: 0, MEDIUM: 1, LOW: 2 } as const;
+  return actions
+    .sort((a, b) => impactRank[a.impact] - impactRank[b.impact])
+    .slice(0, 3)
+    .map((action, index) => ({
+      ...action,
+      priority: index + 1,
+      title: toBusinessLanguage(action.title, currency),
+      rationale: toBusinessLanguage(action.rationale, currency),
+      targetArea: toBusinessLanguage(action.targetArea, currency),
+    }));
 }
 
 export function buildExecutiveBrief(input: BuildBriefInput): ExecutiveBrief {
@@ -601,7 +716,6 @@ export function buildExecutiveBrief(input: BuildBriefInput): ExecutiveBrief {
     periodEnd,
     metricsBundle,
     liquidCashBalance,
-    liquidAccountsCount,
     recordCounts,
     alerts = [],
     forecast,
@@ -634,13 +748,13 @@ export function buildExecutiveBrief(input: BuildBriefInput): ExecutiveBrief {
   ]).slice(0, 6);
 
   const dataSources = dedupeStrings([
-    recordCounts.accounts > 0 ? `Financial Accounts (${recordCounts.accounts})` : '',
-    recordCounts.transactions > 0 ? `Ledger Transactions (${recordCounts.transactions})` : '',
-    recordCounts.invoices > 0 ? `Open AR Invoices (${recordCounts.invoices})` : '',
-    recordCounts.bills > 0 ? `Open AP Bills (${recordCounts.bills})` : '',
-    recordCounts.budgets > 0 ? `Active Budgets (${recordCounts.budgets})` : '',
-    recordCounts.riskAlerts > 0 ? `Risk Surveillance (${recordCounts.riskAlerts})` : '',
-    recordCounts.forecasts > 0 ? `Cash-Flow Forecast (${recordCounts.forecasts})` : '',
+    recordCounts.accounts > 0 ? 'Financial accounts' : '',
+    recordCounts.transactions > 0 ? 'Ledger transactions' : '',
+    recordCounts.invoices > 0 ? 'Customer invoices' : '',
+    recordCounts.bills > 0 ? 'Supplier bills' : '',
+    recordCounts.budgets > 0 ? 'Operating budgets' : '',
+    recordCounts.riskAlerts > 0 ? 'Risk alerts' : '',
+    recordCounts.forecasts > 0 ? 'Cash-flow forecasts' : '',
   ]);
 
   let executiveSummary: string[] = [];
@@ -648,76 +762,43 @@ export function buildExecutiveBrief(input: BuildBriefInput): ExecutiveBrief {
   const tables: ExecutiveTable[] = [];
 
   if (reportType === ReportType.BUSINESS_HEALTH) {
-    const arTotal = m.receivableAging.value?.totalOutstanding ?? '0.0000';
-    const arOverdue = m.receivableAging.value?.totalOverdue ?? '0.0000';
-    const apTotal = m.payableAging.value?.totalOutstanding ?? '0.0000';
-    const apOverdue = m.payableAging.value?.totalOverdue ?? '0.0000';
-
     const runwayText =
       m.cashRunway.status === 'COMPUTED'
         ? toNum(m.cashRunway.value) >= 999
-          ? 'cash-flow self-sustaining'
+          ? 'Self-sustaining'
           : `${Number(m.cashRunway.value).toFixed(1)} months of runway`
         : 'runway pending baseline transactions';
 
-    executiveSummary = [
-      liquidCashBalance !== null
-        ? `As of ${fmtShortDate(periodEnd)}, consolidated liquid cash stands at ${fmtMoney(liquidCashBalance, currency)} across ${liquidAccountsCount} account(s) (${runwayText}).`
-        : `Consolidated cash position for ${periodLabel} is incomplete due to missing account data or FX rates in ${currency}.`,
-      m.operatingCashFlow.status === 'COMPUTED'
-        ? `Operating cash flow in the period totaled ${fmtMoney(m.operatingCashFlow.value, currency)} from ${fmtMoney(m.operatingCashFlow.components?.cashInflows ?? '0', currency)} in inflows against ${fmtMoney(m.operatingCashFlow.components?.cashOutflows ?? '0', currency)} in outflows.`
-        : `No verified income or expense transactions were posted during ${periodLabel} to establish period operating cash flow.`,
-      m.workingCapital.status === 'COMPUTED'
-        ? `Net working capital is ${fmtMoney(m.workingCapital.value, currency)}, supported by ${fmtMoney(arTotal, currency)} in open receivables and ${fmtMoney(apTotal, currency)} in open payables.`
-        : `Open receivables total ${fmtMoney(arTotal, currency)} against ${fmtMoney(apTotal, currency)} in open supplier payables.`,
-      risks.length > 0
-        ? `Key concerns include ${risks.length} active signal(s), led by ${risks[0].title.toLowerCase()}.`
-        : `No critical anomalies or FX consolidation gaps were detected in the current reporting snapshot.`,
-    ];
+    executiveSummary = risks.some(
+      (risk) => risk.severity === 'CRITICAL' || risk.severity === 'HIGH',
+    )
+      ? ['High-priority financial findings are listed below for review.']
+      : ['No high-priority financial findings were identified for this reporting period.'];
 
     kpis = [
       {
         label: 'Cash Balance',
         value: fmtMoney(liquidCashBalance, currency),
         status: liquidCashBalance !== null ? 'VERIFIED' : 'MISSING_DATA',
-        subtext:
-          liquidAccountsCount > 0
-            ? `Across ${liquidAccountsCount} liquid account(s)`
-            : 'No liquid accounts configured',
       },
       {
-        label: 'Operating Cash Flow',
-        value: fmtMoney(m.operatingCashFlow.value, currency),
-        status: m.operatingCashFlow.status === 'COMPUTED' ? 'VERIFIED' : 'MISSING_DATA',
-        subtext:
-          m.operatingCashFlow.components?.cashInflows !== undefined
-            ? `In ${fmtMoney(m.operatingCashFlow.components.cashInflows, currency)} · Out ${fmtMoney(m.operatingCashFlow.components.cashOutflows ?? '0', currency)}`
-            : 'No transactions in period',
+        label: 'Cash Runway',
+        value: m.cashRunway.status === 'COMPUTED' ? runwayText : 'Unavailable',
+        status: m.cashRunway.status === 'COMPUTED' ? 'VERIFIED' : 'MISSING_DATA',
       },
       {
-        label: 'Working Capital',
-        value: fmtMoney(m.workingCapital.value, currency),
-        status: m.workingCapital.status === 'COMPUTED' ? 'VERIFIED' : 'MISSING_DATA',
-        subtext:
-          m.currentRatio.status === 'COMPUTED'
-            ? `Current Ratio ${fmtRatio(m.currentRatio.value)}`
-            : 'Assets minus current liabilities',
-      },
-      {
-        label: 'Outstanding AR / AP',
-        value: `AR ${fmtMoney(arTotal, currency)}`,
-        secondaryLabel: 'AP',
-        secondaryValue: fmtMoney(apTotal, currency),
-        status:
-          m.receivableAging.status === 'COMPUTED' && m.payableAging.status === 'COMPUTED'
-            ? 'VERIFIED'
-            : 'MISSING_DATA',
-        subtext:
-          toNum(arOverdue) > 0 || toNum(apOverdue) > 0
-            ? `Overdue: AR ${fmtMoney(arOverdue, currency)} · AP ${fmtMoney(apOverdue, currency)}`
-            : 'All open balances current',
+        label: 'Current Ratio',
+        value: fmtRatio(m.currentRatio.value),
+        status: m.currentRatio.status === 'COMPUTED' ? 'VERIFIED' : 'MISSING_DATA',
       },
     ];
+    if (m.operatingCashFlow.status !== 'COMPUTED') {
+      kpis.push({
+        label: 'Operating Cash Flow',
+        value: 'Unavailable',
+        status: 'MISSING_DATA',
+      });
+    }
 
     const perfRows: ExecutiveTableRow[] = [];
     if (m.operatingCashFlow.status === 'COMPUTED') {
@@ -725,8 +806,16 @@ export function buildExecutiveBrief(input: BuildBriefInput): ExecutiveBrief {
       const outflows = m.operatingCashFlow.components?.cashOutflows ?? '0';
       const ocf = toNum(m.operatingCashFlow.value);
       perfRows.push(
-        { cells: ['Revenue (Cash Inflows)', fmtMoney(inflows, currency), 'Verified period inflows'] },
-        { cells: ['Operating Expenses (Outflows)', fmtMoney(outflows, currency), 'Verified period outflows'] },
+        {
+          cells: ['Revenue (Cash Inflows)', fmtMoney(inflows, currency), 'Verified period inflows'],
+        },
+        {
+          cells: [
+            'Operating Expenses (Outflows)',
+            fmtMoney(outflows, currency),
+            'Verified period outflows',
+          ],
+        },
         {
           cells: [
             'Net Operating Cash Flow',
@@ -786,25 +875,13 @@ export function buildExecutiveBrief(input: BuildBriefInput): ExecutiveBrief {
     const closing = forecast ? String(forecast.projectedClosingCash ?? '0') : null;
     const minCash = forecast ? String(forecast.minimumProjectedCash ?? '0') : null;
 
-    executiveSummary = [
-      `This 30-day liquidity brief opens with ${fmtMoney(opening, currency)} in verified liquid cash across ${liquidAccountsCount} account(s).`,
-      closing !== null
-        ? `Under baseline assumptions, projected 30-day closing cash reaches ${fmtMoney(closing, currency)} with a minimum projected balance of ${fmtMoney(minCash, currency)}.`
-        : `Projected 30-day closing trajectory is unavailable until forecast points are generated.`,
-      m.operatingCashFlow.status === 'COMPUTED'
-        ? `Recent period operating cash flow registered ${fmtMoney(m.operatingCashFlow.value, currency)} (${fmtMoney(m.operatingCashFlow.components?.cashInflows ?? '0', currency)} in vs ${fmtMoney(m.operatingCashFlow.components?.cashOutflows ?? '0', currency)} out).`
-        : `Recent period operating cash flow has insufficient transactions to establish a historical burn baseline.`,
-      forecast?.hasLiquidityWarning
-        ? `Attention required: projected cash drops below the minimum safety threshold during the 30-day horizon.`
-        : `No liquidity shortfall threshold breach is projected within the next 30 days.`,
-    ];
+    executiveSummary = [];
 
     kpis = [
       {
         label: 'Opening Cash Balance',
         value: fmtMoney(opening, currency),
         status: opening !== null ? 'VERIFIED' : 'MISSING_DATA',
-        subtext: `${liquidAccountsCount} liquid account(s)`,
       },
       {
         label: '30-Day Projected Cash',
@@ -816,7 +893,9 @@ export function buildExecutiveBrief(input: BuildBriefInput): ExecutiveBrief {
         label: 'Min Projected Cash',
         value: fmtMoney(minCash, currency),
         status: minCash !== null ? 'VERIFIED' : 'MISSING_DATA',
-        subtext: forecast?.hasLiquidityWarning ? 'Shortfall alert active' : 'Above safety threshold',
+        subtext: forecast?.hasLiquidityWarning
+          ? 'Shortfall alert active'
+          : 'Above safety threshold',
       },
       {
         label: 'Operating Cash Flow',
@@ -826,104 +905,92 @@ export function buildExecutiveBrief(input: BuildBriefInput): ExecutiveBrief {
       },
     ];
 
-    const driverRows: ExecutiveTableRow[] = [
-      { cells: ['Opening Liquid Cash', fmtMoney(opening, currency), 'Verified current cash'] },
-    ];
+    const driverRows: ExecutiveTableRow[] = [];
     if (m.operatingCashFlow.status === 'COMPUTED') {
       driverRows.push(
-        { cells: ['Period Inflows', fmtMoney(m.operatingCashFlow.components?.cashInflows ?? '0', currency), 'Recorded revenue'] },
-        { cells: ['Period Outflows', fmtMoney(m.operatingCashFlow.components?.cashOutflows ?? '0', currency), 'Recorded expenses'] },
+        {
+          cells: [
+            'Period Inflows',
+            fmtMoney(m.operatingCashFlow.components?.cashInflows ?? '0', currency),
+            'Recorded revenue',
+          ],
+        },
+        {
+          cells: [
+            'Period Outflows',
+            fmtMoney(m.operatingCashFlow.components?.cashOutflows ?? '0', currency),
+            'Recorded expenses',
+          ],
+        },
       );
     }
-    if (closing !== null) {
-      driverRows.push({
-        cells: ['30-Day Projected Closing', fmtMoney(closing, currency), forecast?.hasLiquidityWarning ? 'Watch liquidity' : 'Positive buffer'],
-        tone: forecast?.hasLiquidityWarning ? 'warning' : 'positive',
-        isTotal: true,
+    if (driverRows.length > 0) {
+      tables.push({
+        title: 'Cash Flow & Horizon Drivers',
+        columns: [
+          { label: 'Driver', align: 'left' },
+          { label: 'Amount', align: 'right', isNumeric: true },
+          { label: 'Status', align: 'left' },
+        ],
+        rows: driverRows,
       });
     }
-    tables.push({
-      title: 'Cash Flow & Horizon Drivers',
-      columns: [
-        { label: 'Driver', align: 'left' },
-        { label: 'Amount', align: 'right', isNumeric: true },
-        { label: 'Status', align: 'left' },
-      ],
-      rows: driverRows,
-    });
 
     const pts = forecast?.forecastPoints ?? [];
     if (pts.length > 0) {
       const indices = Array.from(
         new Set([0, Math.floor(pts.length / 3), Math.floor((pts.length * 2) / 3), pts.length - 1]),
-      ).filter((i) => i >= 0 && i < pts.length);
-      tables.push({
-        title: 'Forecast Checkpoints',
-        columns: [
-          { label: 'Date', align: 'left' },
-          { label: 'Projected Inflow', align: 'right', isNumeric: true },
-          { label: 'Projected Outflow', align: 'right', isNumeric: true },
-          { label: 'Ending Cash', align: 'right', isNumeric: true },
-        ],
-        rows: indices.map((idx) => {
-          const p = pts[idx];
-          return {
-            cells: [
-              String(p.date ?? `Day ${idx + 1}`).slice(0, 10),
-              fmtMoney(p.projectedInflows ?? '0', currency),
-              fmtMoney(p.projectedOutflows ?? '0', currency),
-              fmtMoney(p.projectedBalance ?? '0', currency),
-            ],
-            tone: toNum(p.projectedBalance) < 0 ? 'danger' : 'normal',
-          };
-        }),
-      });
+      ).filter((i) => i >= 0 && i < pts.length - 1);
+      if (indices.length > 0) {
+        tables.push({
+          title: 'Forecast Checkpoints',
+          columns: [
+            { label: 'Date', align: 'left' },
+            { label: 'Projected Inflow', align: 'right', isNumeric: true },
+            { label: 'Projected Outflow', align: 'right', isNumeric: true },
+            { label: 'Ending Cash', align: 'right', isNumeric: true },
+          ],
+          rows: indices.map((idx) => {
+            const p = pts[idx];
+            return {
+              cells: [
+                String(p.date ?? `Day ${idx + 1}`).slice(0, 10),
+                fmtMoney(p.projectedInflows ?? '0', currency),
+                fmtMoney(p.projectedOutflows ?? '0', currency),
+                fmtMoney(p.projectedBalance ?? '0', currency),
+              ],
+              tone: toNum(p.projectedBalance) < 0 ? 'danger' : 'normal',
+            };
+          }),
+        });
+      }
     }
   } else if (reportType === ReportType.EXPENSE) {
     const sortedCats = Object.entries(expensesByCategory).sort((a, b) => toNum(b[1]) - toNum(a[1]));
-    const totalNum = totalExpenses !== null ? toNum(totalExpenses) : sortedCats.reduce((s, [, v]) => s + toNum(v), 0);
-    const avgTx = expenseCount > 0 && totalExpenses !== null ? totalNum / expenseCount : null;
-    const topCategory = sortedCats[0];
-
-    executiveSummary = [
+    const totalNum =
       totalExpenses !== null
-        ? `Verified operating expenses for ${periodLabel} totaled ${fmtMoney(totalExpenses, currency)} across ${expenseCount} transaction(s) and ${sortedCats.length} category(ies).`
-        : `Period operating expenses span ${expenseCount} transaction(s), though consolidated totals are incomplete pending missing FX conversion.`,
-      topCategory && totalNum > 0
-        ? `Spend concentration is led by ${topCategory[0]} at ${fmtMoney(topCategory[1], currency)} (${((toNum(topCategory[1]) / totalNum) * 100).toFixed(1)}% of total outflows).`
-        : `No categorized expense transactions were posted during this period.`,
-      m.expenseGrowth.status === 'COMPUTED'
-        ? `Compared with the preceding period, operating expenses changed by ${fmtPct(m.expenseGrowth.value)}.`
-        : `Period-over-period expense growth cannot be benchmarked because the prior window contains no recorded expenses.`,
-      risks.length > 0
-        ? `${risks.length} risk or anomaly signal(s) require management review.`
-        : `No statistical expense anomalies or FX conversion issues were flagged in this period.`,
-    ];
+        ? toNum(totalExpenses)
+        : sortedCats.reduce((s, [, v]) => s + toNum(v), 0);
+    const avgTx = expenseCount > 0 && totalExpenses !== null ? totalNum / expenseCount : null;
+    executiveSummary = [];
 
     kpis = [
       {
         label: 'Total Period Expenses',
         value: fmtMoney(totalExpenses, currency),
         status: totalExpenses !== null ? 'VERIFIED' : 'MISSING_DATA',
-        subtext: `${expenseCount} expense transaction(s)`,
       },
       {
         label: 'Period Expense Growth',
         value: fmtPct(m.expenseGrowth.value),
         status: m.expenseGrowth.status === 'COMPUTED' ? 'VERIFIED' : 'MISSING_DATA',
-        subtext: m.expenseGrowth.status === 'COMPUTED' ? 'vs prior period' : 'No prior period baseline',
-      },
-      {
-        label: 'Expense Categories',
-        value: String(sortedCats.length),
-        status: 'VERIFIED',
-        subtext: topCategory ? `Top: ${topCategory[0]}` : 'No expenses recorded',
+        subtext:
+          m.expenseGrowth.status === 'COMPUTED' ? 'vs prior period' : 'No prior period baseline',
       },
       {
         label: 'Avg per Transaction',
         value: avgTx !== null ? fmtMoney(avgTx, currency) : 'Unavailable',
         status: avgTx !== null ? 'VERIFIED' : 'MISSING_DATA',
-        subtext: periodLabel,
       },
     ];
 
@@ -935,19 +1002,13 @@ export function buildExecutiveBrief(input: BuildBriefInput): ExecutiveBrief {
           { label: 'Amount', align: 'right', isNumeric: true },
           { label: 'Share of Total', align: 'right', isNumeric: true },
         ],
-        rows: [
-          ...sortedCats.slice(0, 8).map(([cat, amt]) => ({
-            cells: [
-              cat,
-              fmtMoney(amt, currency),
-              totalNum > 0 ? `${((toNum(amt) / totalNum) * 100).toFixed(1)}%` : '—',
-            ],
-          })),
-          {
-            cells: ['Total Expenses', fmtMoney(totalExpenses ?? totalNum, currency), '100.0%'],
-            isTotal: true,
-          },
-        ],
+        rows: sortedCats.slice(0, 8).map(([cat, amt]) => ({
+          cells: [
+            cat,
+            fmtMoney(amt, currency),
+            totalNum > 0 ? `${((toNum(amt) / totalNum) * 100).toFixed(1)}%` : '—',
+          ],
+        })),
       });
     }
   } else if (reportType === ReportType.BUDGET) {
@@ -959,44 +1020,10 @@ export function buildExecutiveBrief(input: BuildBriefInput): ExecutiveBrief {
     }
     const netVar = DecimalMath.sub(totalAlloc, totalSpent);
     const utilPct = DecimalMath.percentage(totalSpent, totalAlloc);
-    const hasBudgets = budgetVariances.length > 0;
 
-    executiveSummary = [
-      hasBudgets
-        ? `This review covers ${budgetVariances.length} active budget plan(s) with ${fmtMoney(DecimalMath.toFixed4(totalAlloc), currency)} allocated against ${fmtMoney(DecimalMath.toFixed4(totalSpent), currency)} spent.`
-        : `No active operating budgets were found for ${periodLabel}.`,
-      hasBudgets
-        ? `Aggregate budget variance stands at ${fmtMoney(DecimalMath.toFixed4(netVar), currency)} (${fmtPct(utilPct ? DecimalMath.toFixed4(utilPct) : null)} overall utilization).`
-        : `Establish category allocations in Budgets & Variance to track utilization and overrun alerts automatically.`,
-      risks.length > 0
-        ? `${risks.length} variance warning(s) or FX limitations were identified across active plans.`
-        : `All reviewed budget allocations remain within configured limits.`,
-    ];
+    executiveSummary = [];
 
-    kpis = [
-      {
-        label: 'Active Budgets',
-        value: String(recordCounts.budgets),
-        status: 'VERIFIED',
-        subtext: `${budgetVariances.length} reviewed in detail`,
-      },
-      {
-        label: 'Total Allocated',
-        value: hasBudgets ? fmtMoney(DecimalMath.toFixed4(totalAlloc), currency) : 'Unavailable',
-        status: hasBudgets ? 'VERIFIED' : 'MISSING_DATA',
-      },
-      {
-        label: 'Actual Spent',
-        value: hasBudgets ? fmtMoney(DecimalMath.toFixed4(totalSpent), currency) : 'Unavailable',
-        status: hasBudgets ? 'VERIFIED' : 'MISSING_DATA',
-      },
-      {
-        label: 'Net Variance',
-        value: hasBudgets ? fmtMoney(DecimalMath.toFixed4(netVar), currency) : 'Unavailable',
-        status: hasBudgets ? 'VERIFIED' : 'MISSING_DATA',
-        subtext: utilPct ? `Utilization ${fmtPct(DecimalMath.toFixed4(utilPct))}` : undefined,
-      },
-    ];
+    kpis = [];
 
     if (budgetVariances.length > 0) {
       tables.push({
@@ -1008,16 +1035,33 @@ export function buildExecutiveBrief(input: BuildBriefInput): ExecutiveBrief {
           { label: 'Variance', align: 'right', isNumeric: true },
           { label: 'Used', align: 'right', isNumeric: true },
         ],
-        rows: budgetVariances.map((bv, idx) => ({
-          cells: [
-            bv.budgetName || `Budget Plan ${idx + 1}`,
-            fmtMoney(bv.totalAllocated, currency),
-            fmtMoney(bv.totalActualSpent, currency),
-            fmtMoney(bv.totalVarianceAmount, currency),
-            fmtPct(bv.totalUtilizationPct),
-          ],
-          tone: toNum(bv.totalVarianceAmount) < 0 ? 'danger' : 'normal',
-        })),
+        rows: [
+          ...(budgetVariances.length > 1
+            ? [
+                {
+                  cells: [
+                    'Combined budget plans',
+                    fmtMoney(DecimalMath.toFixed4(totalAlloc), currency),
+                    fmtMoney(DecimalMath.toFixed4(totalSpent), currency),
+                    fmtMoney(DecimalMath.toFixed4(netVar), currency),
+                    fmtPct(utilPct ? DecimalMath.toFixed4(utilPct) : null),
+                  ],
+                  tone: toNum(netVar) < 0 ? ('danger' as const) : ('normal' as const),
+                  isTotal: true,
+                },
+              ]
+            : []),
+          ...budgetVariances.map((bv, idx) => ({
+            cells: [
+              bv.budgetName || `Budget Plan ${idx + 1}`,
+              fmtMoney(bv.totalAllocated, currency),
+              fmtMoney(bv.totalActualSpent, currency),
+              fmtMoney(bv.totalVarianceAmount, currency),
+              fmtPct(bv.totalUtilizationPct),
+            ],
+            tone: toNum(bv.totalVarianceAmount) < 0 ? ('danger' as const) : ('normal' as const),
+          })),
+        ],
       });
 
       const primaryLines = budgetVariances[0].lines ?? [];
@@ -1049,31 +1093,12 @@ export function buildExecutiveBrief(input: BuildBriefInput): ExecutiveBrief {
     }
   } else if (reportType === ReportType.RISK) {
     const openAlerts = alerts.filter((a) => a.status !== 'RESOLVED' && a.status !== 'DISMISSED');
-    const critHighCount = openAlerts.filter(
-      (a) => a.severity === 'CRITICAL' || a.severity === 'HIGH',
-    ).length;
     const overdueAr = m.receivableAging.value?.totalOverdue ?? '0.0000';
     const overdueAp = m.payableAging.value?.totalOverdue ?? '0.0000';
 
-    executiveSummary = [
-      `Risk surveillance reflects ${alerts.length} recorded alert(s), of which ${openAlerts.length} remain open for review (${critHighCount} critical or high priority).`,
-      `Overdue receivables total ${fmtMoney(overdueAr, currency)} alongside ${fmtMoney(overdueAp, currency)} in past-due supplier payables.`,
-      `All anomaly detections represent statistical or rule-based review signals and are never classified as confirmed fraud without human investigation.`,
-    ];
+    executiveSummary = [];
 
     kpis = [
-      {
-        label: 'Open Risk Alerts',
-        value: String(openAlerts.length),
-        status: 'VERIFIED',
-        subtext: `${alerts.length} total recorded`,
-      },
-      {
-        label: 'Critical & High',
-        value: String(critHighCount),
-        status: 'VERIFIED',
-        subtext: critHighCount > 0 ? 'Immediate triage advised' : 'Zero high-severity open',
-      },
       {
         label: 'Overdue Receivables',
         value: fmtMoney(overdueAr, currency),
@@ -1109,38 +1134,61 @@ export function buildExecutiveBrief(input: BuildBriefInput): ExecutiveBrief {
                 : 'normal',
         })),
       });
-
-      tables.push({
-        title: 'Recent Anomaly Signals',
-        columns: [
-          { label: 'Severity', align: 'left' },
-          { label: 'Signal Title', align: 'left' },
-          { label: 'Status', align: 'center' },
-        ],
-        rows: [...openAlerts, ...alerts.filter((a) => a.status === 'RESOLVED' || a.status === 'DISMISSED')]
-          .slice(0, 6)
-          .map((a) => ({
-            cells: [a.severity, a.title, a.status],
-            tone:
-              a.severity === 'CRITICAL' || a.severity === 'HIGH'
-                ? 'danger'
-                : a.severity === 'MEDIUM'
-                  ? 'warning'
-                  : 'normal',
-          })),
-      });
     }
   }
 
   const prioritizedActionPlan = buildActionPlan(input, risks);
+  const reportTables = tables.map((table) => ({
+    ...table,
+    title: toBusinessLanguage(table.title, currency),
+    note: table.note ? toBusinessLanguage(table.note, currency) : table.note,
+    columns: table.columns.map((column) => ({
+      ...column,
+      label: toBusinessLanguage(column.label, currency),
+    })),
+    rows: table.rows.map((row) => ({
+      ...row,
+      cells: row.cells.map((cell) => toBusinessLanguage(cell, currency)),
+    })),
+  }));
+  const reportKpis = kpis.map((kpi) => ({
+    ...kpi,
+    label: toBusinessLanguage(kpi.label, currency),
+    value: toBusinessLanguage(kpi.value, currency),
+    secondaryLabel: kpi.secondaryLabel
+      ? toBusinessLanguage(kpi.secondaryLabel, currency)
+      : undefined,
+    secondaryValue: kpi.secondaryValue
+      ? toBusinessLanguage(kpi.secondaryValue, currency)
+      : undefined,
+    subtext: kpi.subtext ? toBusinessLanguage(kpi.subtext, currency) : undefined,
+  }));
+  const reportRisks = risks
+    .filter((risk) => !riskRepeatsTableOrKpi(risk, tables, kpis))
+    .map((risk) => ({
+      ...risk,
+      title: toBusinessLanguage(risk.title, currency),
+      detail: toBusinessLanguage(risk.detail, currency),
+      sourceTag: toBusinessLanguage(risk.sourceTag, currency),
+    }));
+  const reportSummary = dedupeStrings(
+    executiveSummary.map((sentence) => toBusinessLanguage(sentence, currency)),
+  ).slice(0, 4);
+  const reportMissingInputs = dedupeStrings(
+    missingInputs.map((input) => toBusinessLanguage(input, currency)),
+  );
+  const hasGrounding =
+    dataSources.length > 0 ||
+    reportMissingInputs.length > 0 ||
+    Object.values(recordCounts).some((count) => count > 0);
 
   return {
     schemaVersion: '2.0',
     reportType,
-    executiveSummary,
-    kpis,
-    tables,
-    risksAndAnomalies: risks,
+    executiveSummary: reportSummary,
+    kpis: reportKpis,
+    tables: reportTables,
+    risksAndAnomalies: reportRisks,
     prioritizedActionPlan,
     dataGrounding: {
       reportingPeriodStart: periodStart.toISOString(),
@@ -1148,9 +1196,10 @@ export function buildExecutiveBrief(input: BuildBriefInput): ExecutiveBrief {
       currency,
       recordCounts,
       dataSources,
-      missingInputs,
-      methodologyNote:
-        'KPIs and tables use deterministic decimal arithmetic over verified organization records. Prioritized actions are AI-synthesized management recommendations grounded in those figures.',
+      missingInputs: reportMissingInputs,
+      methodologyNote: hasGrounding
+        ? 'Figures are based on verified organization records. Source references are retained for audit review.'
+        : '',
     },
   };
 }

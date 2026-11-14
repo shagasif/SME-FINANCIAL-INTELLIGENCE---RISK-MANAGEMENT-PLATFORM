@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { AppShell } from './components/layout/AppShell';
+import { FloatingAiAssistant } from './components/layout/FloatingAiAssistant';
 import { LandingPage } from './pages/LandingPage';
 import { LoginPage } from './pages/auth/LoginPage';
 import { RegisterPage } from './pages/auth/RegisterPage';
@@ -155,6 +156,7 @@ export function App() {
           {/* Catch-all redirect */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        <FloatingAiAssistant />
       </BrowserRouter>
     </AuthProvider>
   );

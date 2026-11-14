@@ -27,7 +27,7 @@ export function Tabs({ tabs, activeTabId, onTabChange, className = '' }: TabsPro
             onClick={() => onTabChange(tab.id)}
             role="tab"
             aria-selected={isActive}
-            className={`flex items-center gap-2 py-3 px-4 text-sm font-semibold transition-all border-b-2 cursor-pointer whitespace-nowrap -mb-[1px] ${
+            className={`flex items-center gap-2 py-3 px-4 text-sm font-semibold transition-all duration-250 ease-out border-b-2 cursor-pointer whitespace-nowrap -mb-[1px] hover:-translate-y-0.5 active:translate-y-0 ${
               isActive
                 ? 'border-[var(--accent-teal)] text-[var(--text-primary)]'
                 : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--border-strong)]'

@@ -1,9 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, Bot, RefreshCw, Send, ShieldCheck, User } from 'lucide-react';
+import {
+  AlertCircle,
+  Bot,
+  Maximize2,
+  Minimize2,
+  Plus,
+  RefreshCw,
+  Send,
+  User,
+  X,
+} from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
 import { apiPost, ApiClientError } from '../../services/apiClient';
 import { Button } from '../../components/ui/Button';
 import { DEFAULT_DEMO_ORG } from '../../config/demo.config';
+import {
+  formatAssistantResponse,
+  type AssistantExecutionDetails,
+} from '../../utils/aiAssistantResponse';
 
 interface ChatMessage {
   id: string;
@@ -11,8 +25,7 @@ interface ChatMessage {
   text: string;
   timestamp: string;
   citations?: string[];
-  formulaVersion?: string;
-  latencyMs?: number;
+  execution?: AssistantExecutionDetails;
 }
 
 const DEFAULT_SUGGESTIONS = [
@@ -22,7 +35,19 @@ const DEFAULT_SUGGESTIONS = [
   'What is our projected ending cash balance for next month?',
 ];
 
-export function AiAssistantPage() {
+export interface AiAssistantPageProps {
+  compact?: boolean;
+  onClose?: () => void;
+  isExpanded?: boolean;
+  onToggleExpand?: () => void;
+}
+
+export function AiAssistantPage({
+  compact = false,
+  onClose,
+  isExpanded = false,
+  onToggleExpand,
+}: AiAssistantPageProps) {
   const { activeOrg } = useAuth();
   const effectiveOrg = activeOrg || DEFAULT_DEMO_ORG;
   const activeOrgId = effectiveOrg.id;
@@ -53,6 +78,21 @@ export function AiAssistantPage() {
     scrollToBottom();
   }, [messages]);
 
+  const startNewConversation = () => {
+    if (isSending) return;
+    setMessages([
+      {
+        id: 'welcome',
+        sender: 'ASSISTANT',
+        text: 'Hello! I am your AI Finance Assistant. Ask me about your cash runway, margins, overdue invoices, or risk alerts.',
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+    setInputQuery('');
+    setError(null);
+    messageSeqRef.current = 1;
+  };
+
   const handleSendQuery = async (queryToSend?: string) => {
     const q = (queryToSend || inputQuery).trim();
     if (!q || !activeOrgId || isSending) return;
@@ -73,46 +113,20 @@ export function AiAssistantPage() {
     setError(null);
 
     try {
-      let raw: {
-        id?: string;
-        taskClassification?: string;
-        selectedAgents?: string[];
-        synthesizedResult?: {
-          executiveSummary?: string;
-          verifierAudit?: {
-            summary?: string;
-            arithmeticVerified?: boolean;
-            citationsVerified?: boolean;
-          };
-          sourceRecordIds?: Record<string, string[]>;
-        };
-        verifierReport?: {
-          summary?: string;
-          arithmeticVerified?: boolean;
-        };
-        durationMs?: number;
-        modelUsageSummary?: {
-          totalTokens?: number;
-        };
-        answer?: string;
-        citations?: string[];
-        formulaVersion?: string;
-        latencyMs?: number;
-        data?: {
-          answer?: string;
-          citations?: string[];
-          formulaVersion?: string;
-          latencyMs?: number;
-        };
-      };
+      let raw: unknown;
 
       try {
-        raw = await apiPost(`/v1/organizations/${activeOrgId}/ai/workflows/execute`, {
+        raw = await apiPost<unknown>(`/v1/organizations/${activeOrgId}/ai/workflows/execute`, {
           prompt: q,
         });
-      } catch {
-        // Fallback for legacy query mock compatibility
-        raw = await apiPost(`/v1/organizations/${activeOrgId}/ai-assistant/query`, {
+      } catch (workflowError) {
+        if (
+          !(workflowError instanceof ApiClientError) ||
+          (workflowError.statusCode !== 404 && workflowError.statusCode !== 405)
+        ) {
+          throw workflowError;
+        }
+        raw = await apiPost<unknown>(`/v1/organizations/${activeOrgId}/ai-assistant/query`, {
           query: q,
         });
       }
@@ -120,45 +134,15 @@ export function AiAssistantPage() {
       messageSeqRef.current += 1;
       const asstSeq = messageSeqRef.current;
 
-      const synthesized = raw?.synthesizedResult;
-      const answerText =
-        synthesized?.executiveSummary ||
-        raw?.verifierReport?.summary ||
-        raw?.answer ||
-        raw?.data?.answer ||
-        (raw?.taskClassification
-          ? `Classified as ${raw.taskClassification}. Selected specialist agents: ${raw.selectedAgents?.join(', ') || 'Finance Data Analyst'}. Analysis verified.`
-          : 'Analysis verified and executed across multi-agent sandboxes.');
-
-      const citations: string[] = [];
-      if (raw?.data?.citations) {
-        citations.push(...raw.data.citations);
-      } else if (raw?.citations) {
-        citations.push(...raw.citations);
-      } else {
-        if (synthesized?.sourceRecordIds) {
-          for (const [key, ids] of Object.entries(synthesized.sourceRecordIds)) {
-            if (Array.isArray(ids) && ids.length > 0) {
-              citations.push(`${key}: ${ids.length} records`);
-            }
-          }
-        }
-        if (raw?.selectedAgents && raw.selectedAgents.length > 0) {
-          citations.push(`Agents: ${raw.selectedAgents.join(', ')}`);
-        }
-      }
-
-      const formulaVer = raw?.formulaVersion || raw?.data?.formulaVersion || 'v1.0.0-decimal';
-      const latency = raw?.durationMs ?? raw?.latencyMs ?? raw?.data?.latencyMs;
+      const assistantReply = formatAssistantResponse(raw);
 
       const assistantMessage: ChatMessage = {
         id: `asst-${asstSeq}`,
         sender: 'ASSISTANT',
-        text: answerText,
+        text: assistantReply.answer,
         timestamp: new Date().toISOString(),
-        citations: citations.length > 0 ? citations : undefined,
-        formulaVersion: formulaVer,
-        latencyMs: latency,
+        citations: assistantReply.citations,
+        execution: assistantReply.execution,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -174,23 +158,75 @@ export function AiAssistantPage() {
   };
 
   return (
-    <div className="space-y-4 max-w-4xl mx-auto flex flex-col h-[calc(100vh-140px)]">
+    <div
+      className={
+        compact
+          ? 'flex h-full min-h-0 flex-col gap-3 p-3 sm:p-4'
+          : 'space-y-4 max-w-4xl mx-auto flex flex-col h-[calc(100vh-140px)]'
+      }
+    >
       {/* Header */}
-      <div className="pb-2 border-b border-[var(--border-subtle)] flex items-center justify-between">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border-subtle)] pb-2">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-[var(--text-primary)] flex items-center gap-2">
-            <Bot className="w-5 h-5 text-[var(--brand-primary)]" />
+          <h1
+            id="ai-assistant-title"
+            className={`flex items-center gap-2 font-bold tracking-tight text-[var(--text-primary)] ${
+              compact ? 'text-base' : 'text-xl'
+            }`}
+          >
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden="true">
+              <span
+                data-testid="assistant-heading-dot"
+                className="h-2.5 w-2.5 animate-pulse rounded-full bg-[var(--brand-primary)] shadow-[0_0_10px_var(--brand-primary)]"
+              />
+            </span>
             AI Finance Assistant
           </h1>
-          <p className="text-xs text-[var(--text-muted)] mt-0.5">
+          <p
+            className={`mt-0.5 text-xs text-[var(--text-muted)] ${compact ? 'hidden sm:block' : ''}`}
+          >
             Ask questions about your cash flow, invoices, margins, and alerts.
           </p>
         </div>
 
-        <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
-          <ShieldCheck className="h-4 w-4" />
-          <span>Grounded Reasoning</span>
-        </div>
+        {(compact || onToggleExpand || onClose) && (
+          <div className="flex shrink-0 items-center gap-1">
+            {compact && (
+              <button
+                type="button"
+                onClick={startNewConversation}
+                disabled={isSending}
+                className="rounded-lg p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)] disabled:opacity-50"
+                aria-label="New conversation"
+                title="New conversation"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            )}
+            {onToggleExpand && (
+              <button
+                type="button"
+                onClick={onToggleExpand}
+                className="rounded-lg p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
+                aria-label={isExpanded ? 'Restore chat size' : 'Expand chat to full screen'}
+                title={isExpanded ? 'Restore chat size' : 'Expand chat to full screen'}
+              >
+                {isExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+              </button>
+            )}
+            {onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text-primary)]"
+                aria-label="Close AI Finance Assistant"
+                title="Close chat"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {error && (
@@ -201,10 +237,11 @@ export function AiAssistantPage() {
       )}
 
       {/* Chat Messages Log */}
-      <div className="flex-1 overflow-y-auto space-y-3 p-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)]">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] p-4">
         {messages.map((msg) => (
           <div
             key={msg.id}
+            data-testid="chat-message"
             className={`flex items-start gap-3 ${
               msg.sender === 'USER' ? 'flex-row-reverse' : 'flex-row'
             }`}
@@ -220,36 +257,59 @@ export function AiAssistantPage() {
             </div>
 
             <div
-              className={`max-w-[75%] rounded-2xl p-3 text-xs leading-relaxed ${
+              className={`max-w-[75%] overflow-hidden break-words [overflow-wrap:anywhere] rounded-2xl p-3 text-xs leading-relaxed ${
                 msg.sender === 'USER'
                   ? 'bg-[var(--brand-primary)] text-white'
                   : 'bg-[var(--surface-canvas)] border border-[var(--border-subtle)] text-[var(--text-primary)]'
               }`}
             >
-              <p className="whitespace-pre-line">{msg.text}</p>
+              <p className="whitespace-pre-line break-words [overflow-wrap:anywhere]">{msg.text}</p>
 
-              {msg.citations && msg.citations.length > 0 && (
-                <div className="mt-2 pt-2 border-t border-[var(--border-subtle)] text-[10px] text-[var(--text-muted)] space-y-0.5">
-                  <span className="font-semibold block text-[var(--text-secondary)]">
-                    Audit Citations:
-                  </span>
-                  <div className="flex flex-wrap gap-1">
-                    {msg.citations.map((c, i) => (
-                      <span
-                        key={i}
-                        className="font-mono bg-[var(--surface-elevated)] px-1.5 py-0.5 rounded"
-                      >
-                        {c}
-                      </span>
+              {msg.execution && (
+                <details className="mt-2 border-t border-[var(--border-subtle)] pt-2">
+                  <summary
+                    className={`inline-flex max-w-full cursor-pointer list-none rounded-full border px-2 py-1 text-[10px] font-medium ${
+                      msg.execution.tone === 'success'
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                        : msg.execution.tone === 'warning'
+                          ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                          : msg.execution.tone === 'error'
+                            ? 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300'
+                            : 'border-[var(--border-subtle)] bg-[var(--surface-elevated)] text-[var(--text-secondary)]'
+                    }`}
+                  >
+                    <span className="truncate">{msg.execution.label}</span>
+                  </summary>
+                  <div className="mt-2 space-y-1 text-[10px] text-[var(--text-muted)]">
+                    {msg.execution.workflowId && (
+                      <p className="break-all">
+                        Workflow reference:{' '}
+                        <span className="font-mono">{msg.execution.workflowId}</span>
+                      </p>
+                    )}
+                    {msg.execution.details.map((detail) => (
+                      <p key={detail}>{detail}</p>
                     ))}
+                    {msg.execution.latencyMs !== undefined && (
+                      <p>Response time: {msg.execution.latencyMs} ms</p>
+                    )}
+                    {msg.execution.formulaVersion && (
+                      <p>Calculation version: {msg.execution.formulaVersion}</p>
+                    )}
+                    {msg.citations && msg.citations.length > 0 && (
+                      <div className="border-t border-[var(--border-subtle)] pt-1.5">
+                        <span className="font-semibold text-[var(--text-secondary)]">
+                          Audit references
+                        </span>
+                        {msg.citations.map((citation) => (
+                          <p key={citation} className="break-words [overflow-wrap:anywhere]">
+                            {citation}
+                          </p>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
-
-              {msg.latencyMs !== undefined && (
-                <div className="mt-1 text-[9px] text-[var(--text-muted)] text-right">
-                  Response time: {msg.latencyMs}ms
-                </div>
+                </details>
               )}
             </div>
           </div>
@@ -264,13 +324,19 @@ export function AiAssistantPage() {
       </div>
 
       {/* Suggested Prompts */}
-      <div className="flex flex-wrap gap-1.5">
+      <div
+        className={`flex gap-1.5 pb-1 ${
+          compact ? 'shrink-0 flex-nowrap overflow-x-auto' : 'flex-wrap'
+        }`}
+      >
         {DEFAULT_SUGGESTIONS.map((sug, i) => (
           <button
             key={i}
             onClick={() => handleSendQuery(sug)}
             disabled={isSending}
-            className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-2.5 py-1 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] disabled:opacity-50 transition-colors"
+            className={`rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-2.5 py-1 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-hover)] disabled:opacity-50 ${
+              compact ? 'max-w-[18rem] shrink-0 truncate' : ''
+            }`}
           >
             {sug}
           </button>

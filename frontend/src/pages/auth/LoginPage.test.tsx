@@ -48,9 +48,16 @@ describe('LoginPage Component', () => {
       </BrowserRouter>,
     );
 
+    expect(
+      screen.getByRole('heading', { name: 'Financial Intelligence & Risk Platform' }),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText(/Work Email Address/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Password$/i, { selector: 'input' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Sign In to Workspace/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '← Back to Home' })).toHaveAttribute('href', '/');
+    expect(
+      screen.getByText('Sign in to your financial intelligence & risk workspace.'),
+    ).toBeInTheDocument();
     expect(screen.getByText(/Forgot password\?/i)).toBeInTheDocument();
     expect(screen.getByText(/Register organization/i)).toBeInTheDocument();
   });

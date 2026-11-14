@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as useAuthModule from '../../context/useAuth';
@@ -203,7 +203,7 @@ describe('OverviewDashboardPage Component', () => {
       expect(screen.getByText('Cash Runway')).toBeInTheDocument();
       expect(screen.getByText('8.4 mos')).toBeInTheDocument();
       expect(screen.getByText('Q4 Enterprise License Renewal')).toBeInTheDocument();
-      expect(screen.getByText('Unusual expense amount detected')).toBeInTheDocument();
+      expect(screen.getByText('View All Anomalies')).toBeInTheDocument();
     });
   });
 
@@ -579,5 +579,332 @@ describe('OverviewDashboardPage Component', () => {
       expect(screen.getAllByText(/12,000/).length).toBeGreaterThanOrEqual(2);
     });
     expect(screen.getByText(/Drafts excluded from AR \(1\):/i)).toBeInTheDocument();
+  });
+
+  it('renders top KPI sparkline cards, interactive cash flow chart date filters, and right-side summary panels from backend transactions', async () => {
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'usr-star',
+        email: 'owner@apex.local',
+        fullName: 'Apex Business Owner',
+        isPlatformAdmin: false,
+      },
+      activeOrg: {
+        id: 'org-star',
+        name: 'star',
+        slug: 'star',
+        baseCurrency: 'PKR',
+        role: RoleType.BUSINESS_OWNER,
+      },
+      memberships: [],
+      activeRole: RoleType.BUSINESS_OWNER,
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      switchOrganization: vi.fn(),
+      hasRole: () => true,
+      canMutateLedger: true,
+      canManageBudgets: true,
+      canRunAiWorkflows: true,
+      canExportReports: true,
+      isAuditor: false,
+    });
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((req: RequestInfo | URL) => {
+      const url = req.toString();
+      const jsonHeader = { 'Content-Type': 'application/json' };
+      if (url.includes('/analytics/metrics')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              organizationId: 'org-star',
+              currency: 'PKR',
+              metrics: {
+                operatingCashFlow: {
+                  metricKey: 'operatingCashFlow',
+                  status: 'COMPUTED',
+                  value: '612200.0000',
+                  unit: 'CURRENCY',
+                  currency: 'PKR',
+                  dataLimitations: [],
+                },
+                cashRunway: {
+                  metricKey: 'cashRunway',
+                  status: 'COMPUTED',
+                  value: '14.2',
+                  unit: 'MONTHS',
+                  currency: 'PKR',
+                  components: { liquidCashBalance: '2615100.0000' },
+                  dataLimitations: [],
+                },
+                workingCapital: {
+                  metricKey: 'workingCapital',
+                  status: 'COMPUTED',
+                  value: '2615400.0000',
+                  unit: 'CURRENCY',
+                  currency: 'PKR',
+                  dataLimitations: [],
+                },
+              },
+            }),
+            { status: 200, headers: jsonHeader },
+          ),
+        );
+      }
+      if (url.includes('/transactions')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: 'tx-1',
+                  type: 'INCOME',
+                  amount: '275000.0000',
+                  currency: 'PKR',
+                  transactionDate: '2026-10-28T00:00:00.000Z',
+                  category: 'Sales Revenue',
+                  description: 'Wholesale order WH-260',
+                },
+                {
+                  id: 'tx-2',
+                  type: 'EXPENSE',
+                  amount: '82500.0000',
+                  currency: 'PKR',
+                  transactionDate: '2026-10-10T00:00:00.000Z',
+                  category: 'Raw Materials',
+                  description: 'Raw materials batch',
+                },
+              ],
+            }),
+            { status: 200, headers: jsonHeader },
+          ),
+        );
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200, headers: jsonHeader }));
+    });
+
+    render(
+      <BrowserRouter>
+        <OverviewDashboardPage />
+      </BrowserRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('kpi-card-liquid-cash')).toBeInTheDocument();
+      expect(screen.getByTestId('kpi-card-operating-cash-flow')).toBeInTheDocument();
+      expect(screen.getByTestId('kpi-card-working-capital')).toBeInTheDocument();
+      expect(screen.getByTestId('overview-cashflow-chart-card')).toBeInTheDocument();
+      expect(screen.getByTestId('overview-liquidity-health-card')).toBeInTheDocument();
+      expect(screen.getByTestId('overview-risk-summary-card')).toBeInTheDocument();
+    });
+
+    // Switch date-range filter to 7D and verify period summary updates from actual transactions
+    fireEvent.click(screen.getByRole('button', { name: '7D' }));
+    expect(screen.getByText('Cash Flow Performance')).toBeInTheDocument();
+  });
+
+  it('renders data-driven visual charts: Quick Ratio gauge, Risk donut, AR/AP horizontal bar charts, and Recent Transactions table', async () => {
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'usr-star',
+        email: 'owner@apex.local',
+        fullName: 'Apex Business Owner',
+        isPlatformAdmin: false,
+      },
+      activeOrg: {
+        id: 'org-star',
+        name: 'star',
+        slug: 'star',
+        baseCurrency: 'PKR',
+        role: RoleType.BUSINESS_OWNER,
+      },
+      memberships: [],
+      activeRole: RoleType.BUSINESS_OWNER,
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      switchOrganization: vi.fn(),
+      hasRole: () => true,
+      canMutateLedger: true,
+      canManageBudgets: true,
+      canRunAiWorkflows: true,
+      canExportReports: true,
+      isAuditor: false,
+    });
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((req: RequestInfo | URL) => {
+      const url = req.toString();
+      const jsonHeader = { 'Content-Type': 'application/json' };
+      if (url.includes('/analytics/metrics')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              organizationId: 'org-star',
+              currency: 'PKR',
+              metrics: {
+                operatingCashFlow: {
+                  metricKey: 'operatingCashFlow',
+                  status: 'COMPUTED',
+                  value: '612200.0000',
+                  unit: 'CURRENCY',
+                  currency: 'PKR',
+                  dataLimitations: [],
+                },
+                cashRunway: {
+                  metricKey: 'cashRunway',
+                  status: 'COMPUTED',
+                  value: '14.2',
+                  unit: 'MONTHS',
+                  currency: 'PKR',
+                  components: { liquidCashBalance: '2615100.0000' },
+                  dataLimitations: [],
+                },
+                quickRatio: {
+                  metricKey: 'quickRatio',
+                  status: 'COMPUTED',
+                  value: '1.4500',
+                  unit: 'RATIO',
+                  currency: 'PKR',
+                  components: {
+                    liquidCash: '2615100.0000',
+                    accountsReceivable: '40000.0000',
+                    currentLiabilities: '1830000.0000',
+                  },
+                  dataLimitations: [],
+                },
+                workingCapital: {
+                  metricKey: 'workingCapital',
+                  status: 'COMPUTED',
+                  value: '2615400.0000',
+                  unit: 'CURRENCY',
+                  currency: 'PKR',
+                  dataLimitations: [],
+                },
+                receivableAging: {
+                  metricKey: 'receivableAging',
+                  status: 'COMPUTED',
+                  value: {
+                    totalOutstanding: '45000.0000',
+                    isComplete: true,
+                    buckets: [
+                      { bucket: 'CURRENT', count: 2, amount: '35000.0000' },
+                      { bucket: '1_TO_30_DAYS', count: 1, amount: '10000.0000' },
+                      { bucket: '31_TO_60_DAYS', count: 0, amount: '0.0000' },
+                      { bucket: '61_TO_90_DAYS', count: 0, amount: '0.0000' },
+                      { bucket: 'OVER_90_DAYS', count: 0, amount: '0.0000' },
+                    ],
+                  },
+                  unit: 'SCHEDULE',
+                  dataLimitations: [],
+                },
+                payableAging: {
+                  metricKey: 'payableAging',
+                  status: 'COMPUTED',
+                  value: {
+                    totalOutstanding: '20000.0000',
+                    isComplete: true,
+                    buckets: [
+                      { bucket: 'CURRENT', count: 1, amount: '20000.0000' },
+                      { bucket: '1_TO_30_DAYS', count: 0, amount: '0.0000' },
+                      { bucket: '31_TO_60_DAYS', count: 0, amount: '0.0000' },
+                      { bucket: '61_TO_90_DAYS', count: 0, amount: '0.0000' },
+                      { bucket: 'OVER_90_DAYS', count: 0, amount: '0.0000' },
+                    ],
+                  },
+                  unit: 'SCHEDULE',
+                  dataLimitations: [],
+                },
+              },
+            }),
+            { status: 200, headers: jsonHeader },
+          ),
+        );
+      }
+      if (url.includes('/risk-alerts')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify([
+              {
+                id: 'alt-high-1',
+                severity: 'HIGH',
+                status: 'NEW',
+                title: 'High overdue balance detected',
+                description: 'Customer balance > 90 days.',
+              },
+              {
+                id: 'alt-med-1',
+                severity: 'MEDIUM',
+                status: 'NEW',
+                title: 'Unusual raw material purchase',
+                description: 'Expense exceeds 2x baseline.',
+              },
+              {
+                id: 'alt-low-1',
+                severity: 'LOW',
+                status: 'NEW',
+                title: 'Minor category variance',
+                description: 'Category variance below threshold.',
+              },
+            ]),
+            { status: 200, headers: jsonHeader },
+          ),
+        );
+      }
+      if (url.includes('/transactions')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [
+                {
+                  id: 'tx-test-999',
+                  type: 'INCOME',
+                  amount: '45000.0000',
+                  currency: 'PKR',
+                  transactionDate: '2026-10-28T00:00:00.000Z',
+                  category: 'Sales Revenue',
+                  description: 'Wholesale order invoice #999',
+                },
+              ],
+            }),
+            { status: 200, headers: jsonHeader },
+          ),
+        );
+      }
+      return Promise.resolve(new Response(JSON.stringify([]), { status: 200, headers: jsonHeader }));
+    });
+
+    render(
+      <BrowserRouter>
+        <OverviewDashboardPage />
+      </BrowserRouter>,
+    );
+
+    await waitFor(() => {
+      // 1. Cash Runway Gauge & Status
+      expect(screen.getByTestId('cash-runway-gauge-container')).toBeInTheDocument();
+      expect(screen.getByText('14.2 mos')).toBeInTheDocument();
+      expect(screen.getByText('Quick Ratio')).toBeInTheDocument();
+
+      // 2. Risk Anomaly Severity Donut
+      expect(screen.getByTestId('risk-severity-donut')).toBeInTheDocument();
+      expect(screen.getByText('3 Total Anomalies Detected')).toBeInTheDocument();
+      expect(screen.getByText('High')).toBeInTheDocument();
+      expect(screen.getByText('Med')).toBeInTheDocument();
+      expect(screen.getByText('Low')).toBeInTheDocument();
+      expect(screen.getByText('View All Anomalies')).toBeInTheDocument();
+
+      // 3. AR / AP Aging Cards & Charts
+      expect(screen.getByTestId('overview-ar-aging-card')).toBeInTheDocument();
+      expect(screen.getByTestId('overview-ap-aging-card')).toBeInTheDocument();
+      expect(screen.getAllByTestId('aging-horizontal-bar-chart').length).toBe(2);
+
+      // 4. Recent Transactions Table with Transaction ID column
+      expect(screen.getByTestId('overview-recent-transactions')).toBeInTheDocument();
+      expect(screen.getByText('Transaction ID')).toBeInTheDocument();
+      expect(screen.getByText('tx-test-999')).toBeInTheDocument();
+      expect(screen.getByText('Wholesale order invoice #999')).toBeInTheDocument();
+    });
   });
 });

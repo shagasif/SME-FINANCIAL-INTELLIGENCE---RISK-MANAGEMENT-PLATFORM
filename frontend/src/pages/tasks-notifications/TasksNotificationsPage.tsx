@@ -87,6 +87,8 @@ export function TasksNotificationsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [updatingTaskId, setUpdatingTaskId] = useState<string | null>(null);
+  const [updatingAction, setUpdatingAction] = useState<TaskStatus | null>(null);
 
   // Create Task Modal
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -189,13 +191,20 @@ export function TasksNotificationsPage() {
   };
 
   const handleUpdateTaskStatus = async (taskId: string, status: TaskStatus) => {
-    if (isAuditor || !activeOrgId) return;
+    if (isAuditor || !activeOrgId || updatingTaskId) return;
+
+    setUpdatingTaskId(taskId);
+    setUpdatingAction(status);
+    setError(null);
 
     try {
-      await apiPatch(`/v1/organizations/${activeOrgId}/tasks/${taskId}`, {
+      await apiPatch(`/v1/organizations/${activeOrgId}/tasks/${taskId}/status`, {
         status,
       });
-      setIsLoading(true);
+      // Optimistically update status in local state, then refresh from server
+      setTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? { ...t, status } : t)),
+      );
       setReloadKey((k) => k + 1);
     } catch (err) {
       if (err instanceof ApiClientError) {
@@ -203,6 +212,9 @@ export function TasksNotificationsPage() {
       } else {
         setError('Failed to update task status.');
       }
+    } finally {
+      setUpdatingTaskId(null);
+      setUpdatingAction(null);
     }
   };
 
@@ -395,6 +407,13 @@ export function TasksNotificationsPage() {
                                 handleUpdateTaskStatus(task.id, TaskStatus.IN_PROGRESS)
                               }
                               className="h-6 px-2 text-[10px]"
+                              isLoading={
+                                updatingTaskId === task.id &&
+                                updatingAction === TaskStatus.IN_PROGRESS
+                              }
+                              disabled={
+                                Boolean(updatingTaskId) || task.status === TaskStatus.IN_PROGRESS
+                              }
                             >
                               In Progress
                             </Button>
@@ -403,6 +422,11 @@ export function TasksNotificationsPage() {
                               size="sm"
                               onClick={() => handleUpdateTaskStatus(task.id, TaskStatus.COMPLETED)}
                               className="h-6 px-2 text-[10px] text-emerald-600"
+                              isLoading={
+                                updatingTaskId === task.id &&
+                                updatingAction === TaskStatus.COMPLETED
+                              }
+                              disabled={Boolean(updatingTaskId)}
                             >
                               Complete
                             </Button>

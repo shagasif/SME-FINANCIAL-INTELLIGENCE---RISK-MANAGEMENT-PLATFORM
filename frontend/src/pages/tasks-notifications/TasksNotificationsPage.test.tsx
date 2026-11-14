@@ -148,4 +148,102 @@ describe('TasksNotificationsPage Component', () => {
     expect(screen.getByText('Auditor Mode Active')).toBeInTheDocument();
     expect(screen.queryByText('New Task')).not.toBeInTheDocument();
   });
+
+  it('updates task status to IN_PROGRESS and COMPLETED via PATCH /status', async () => {
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'usr-2',
+        email: 'finance@apex.local',
+        fullName: 'Finance Manager',
+        isPlatformAdmin: false,
+      },
+      activeOrg: {
+        id: 'org-1',
+        name: 'Apex Manufacturing',
+        slug: 'apex-mfg',
+        baseCurrency: 'USD',
+        role: RoleType.FINANCE_MANAGER,
+      },
+      memberships: [],
+      activeRole: RoleType.FINANCE_MANAGER,
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      switchOrganization: vi.fn(),
+      hasRole: () => true,
+      canMutateLedger: true,
+      canManageBudgets: true,
+      canRunAiWorkflows: true,
+      canExportReports: true,
+      isAuditor: false,
+    });
+
+    const mockTasks = [
+      {
+        id: 'tsk-open-1',
+        organizationId: 'org-1',
+        createdById: 'usr-1',
+        title: 'Review supplier invoice anomalies',
+        description: 'Verify raw material supplier bills',
+        priority: TaskPriority.HIGH,
+        status: TaskStatus.PENDING,
+        dueDate: '2026-03-20',
+        createdAt: '2026-03-01T00:00:00.000Z',
+        updatedAt: '2026-03-01T00:00:00.000Z',
+      },
+    ];
+
+    const patchCalls: Array<{ url: string; body: unknown }> = [];
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (options?.method === 'PATCH') {
+        const parsedBody = options.body ? JSON.parse(options.body as string) : {};
+        patchCalls.push({ url, body: parsedBody });
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: async () => ({
+            success: true,
+            data: { ...mockTasks[0], status: parsedBody.status },
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ success: true, data: mockTasks }),
+      });
+    });
+
+    render(<TasksNotificationsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Review supplier invoice anomalies')).toBeInTheDocument();
+      expect(screen.getByText('In Progress')).toBeInTheDocument();
+      expect(screen.getByText('Complete')).toBeInTheDocument();
+    });
+
+    // 1. Click "In Progress"
+    const inProgressBtn = screen.getByText('In Progress');
+    fireEvent.click(inProgressBtn);
+
+    await waitFor(() => {
+      expect(patchCalls.length).toBe(1);
+      expect(patchCalls[0].url).toContain('/v1/organizations/org-1/tasks/tsk-open-1/status');
+      expect(patchCalls[0].body).toEqual({ status: TaskStatus.IN_PROGRESS });
+    });
+
+    // 2. Click "Complete"
+    const completeBtn = screen.getByText('Complete');
+    fireEvent.click(completeBtn);
+
+    await waitFor(() => {
+      expect(patchCalls.length).toBe(2);
+      expect(patchCalls[1].url).toContain('/v1/organizations/org-1/tasks/tsk-open-1/status');
+      expect(patchCalls[1].body).toEqual({ status: TaskStatus.COMPLETED });
+    });
+  });
 });

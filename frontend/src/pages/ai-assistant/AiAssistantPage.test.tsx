@@ -58,7 +58,8 @@ describe('AiAssistantPage Component', () => {
     render(<AiAssistantPage />);
 
     expect(screen.getByText('AI Finance Assistant')).toBeInTheDocument();
-    expect(screen.getByText('Grounded Reasoning')).toBeInTheDocument();
+    expect(screen.getByTestId('assistant-heading-dot')).toHaveClass('animate-pulse');
+    expect(screen.queryByText('Grounded Reasoning')).not.toBeInTheDocument();
     expect(screen.getByText('What is our current cash runway in months?')).toBeInTheDocument();
 
     const input = screen.getByPlaceholderText(/Ask a question about your cash flow/i);

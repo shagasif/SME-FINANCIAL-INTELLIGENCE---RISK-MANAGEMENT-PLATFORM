@@ -12,7 +12,7 @@ export function Card({ as: Component = 'div', className = '', children, ...rest 
         backgroundColor: 'var(--surface-card)',
         borderColor: 'var(--border-subtle)',
       }}
-      className={`rounded-xl border p-6 shadow-xs transition-colors ${className}`}
+      className={`rounded-xl border p-6 shadow-xs transition-all duration-250 ease-out ${className}`}
       {...rest}
     >
       {children}

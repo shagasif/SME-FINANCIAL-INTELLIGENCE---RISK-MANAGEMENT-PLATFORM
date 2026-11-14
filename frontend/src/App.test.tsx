@@ -46,6 +46,17 @@ describe('LandingPage', () => {
     expect(
       screen.getByRole('heading', { name: 'Financial intelligence shaped around your business.' }),
     ).toBeInTheDocument();
+    expect(container.querySelectorAll('#why-us [data-feature-panel]')).toHaveLength(4);
+    expect(screen.getAllByText('Platform capability')).toHaveLength(4);
+    const featureCards = Array.from(
+      container.querySelectorAll<HTMLElement>('#why-us .landing-feature-card'),
+    );
+    expect(featureCards.map((card) => card.dataset.accent)).toEqual([
+      'violet',
+      'blue',
+      'teal',
+      'violet',
+    ]);
     expect(screen.queryByRole('link', { name: 'See the platform' })).not.toBeInTheDocument();
     expect(
       screen.getByRole('heading', { name: 'Bring clarity to your business finances.' }),
@@ -87,7 +98,7 @@ describe('LandingPage', () => {
     );
   });
 
-  it('renders the requested footer columns and a disabled visual-only newsletter form', () => {
+  it('renders the footer columns and brand watermark without a newsletter form', () => {
     const { container } = render(<App />);
     const footer = container.querySelector<HTMLElement>('#site-footer');
 
@@ -98,7 +109,15 @@ describe('LandingPage', () => {
     expect(within(footer).getByRole('heading', { name: 'Platform' })).toBeVisible();
     expect(within(footer).getByRole('heading', { name: 'Resources' })).toBeVisible();
     expect(within(footer).getByRole('heading', { name: 'Company' })).toBeVisible();
-    expect(within(footer).getByRole('heading', { name: 'Newsletter' })).toBeVisible();
+    expect(within(footer).queryByRole('heading', { name: 'Newsletter' })).not.toBeInTheDocument();
+    expect(
+      within(footer).getByRole('heading', {
+        name: 'Financial clarity for growing businesses.',
+      }),
+    ).toBeVisible();
+    expect(footer.querySelector('.landing-footer-watermark')).toHaveTextContent(
+      'SME FINANCIAL INTEL',
+    );
 
     const platformRoutes = [
       '/overview',
@@ -115,10 +134,9 @@ describe('LandingPage', () => {
     expect(
       footerLinks.filter((link) => link.getAttribute('href') === '/login'),
     ).toHaveLength(platformRoutes.length);
-    expect(within(footer).getByLabelText('Email address')).toBeDisabled();
-    expect(within(footer).getByRole('button', { name: 'Subscribe' })).toBeDisabled();
-    expect(within(footer).getByText('Sign-up is not enabled yet.')).toBeVisible();
-    expect(screen.getByText('SME', { exact: true })).toBeVisible();
+    expect(within(footer).queryByLabelText('Email address')).not.toBeInTheDocument();
+    expect(within(footer).queryByRole('button', { name: 'Subscribe' })).not.toBeInTheDocument();
+    expect(within(footer).getByText('SME', { exact: true })).toBeVisible();
     expect(screen.queryByText('SFI', { exact: true })).not.toBeInTheDocument();
     expect(within(footer).getByText('All systems operational')).toBeVisible();
     expect(footer.querySelector('#legal-notice')).toHaveTextContent(

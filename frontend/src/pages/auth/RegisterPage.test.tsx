@@ -28,6 +28,15 @@ describe('RegisterPage Component', () => {
       </BrowserRouter>,
     );
 
+    expect(
+      screen.getByRole('heading', { name: 'Get Started with SME Financial Intel' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Set up your company workspace to manage cash flow, budgets, and financial risks.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '← Back to Home' })).toHaveAttribute('href', '/');
     expect(screen.getByLabelText(/Full Name/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Work Email Address/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Password/i, { selector: 'input' })).toBeInTheDocument();

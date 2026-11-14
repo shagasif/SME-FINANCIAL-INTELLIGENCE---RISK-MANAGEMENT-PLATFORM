@@ -24,7 +24,8 @@ export function formatNumber(
     return '—';
   }
 
-  const num = typeof value === 'number' ? value : Number.parseFloat(String(value).replace(/,/g, ''));
+  const num =
+    typeof value === 'number' ? value : Number.parseFloat(String(value).replace(/,/g, ''));
   if (Number.isNaN(num)) {
     return String(value);
   }
@@ -56,7 +57,8 @@ export function formatCurrency(
     return '—';
   }
 
-  const num = typeof amount === 'number' ? amount : Number.parseFloat(String(amount).replace(/,/g, ''));
+  const num =
+    typeof amount === 'number' ? amount : Number.parseFloat(String(amount).replace(/,/g, ''));
   if (Number.isNaN(num)) {
     return String(amount);
   }
@@ -99,7 +101,8 @@ export function formatSignedCurrency(
   if (amount === null || amount === undefined || amount === '') {
     return '—';
   }
-  const num = typeof amount === 'number' ? amount : Number.parseFloat(String(amount).replace(/,/g, ''));
+  const num =
+    typeof amount === 'number' ? amount : Number.parseFloat(String(amount).replace(/,/g, ''));
   if (Number.isNaN(num)) {
     return String(amount);
   }
@@ -123,6 +126,149 @@ export function formatEmbeddedAmountsInText(text: string): string {
       return formatNumber(parsed, 2);
     },
   );
+}
+
+export function formatReportCurrency(
+  amount: string | number | null | undefined,
+  currency = 'USD',
+): string {
+  if (amount === null || amount === undefined || amount === '') {
+    return '—';
+  }
+
+  const num =
+    typeof amount === 'number' ? amount : Number.parseFloat(String(amount).replace(/,/g, ''));
+  if (!Number.isFinite(num)) {
+    return String(amount);
+  }
+
+  const code = currency.trim().toUpperCase();
+  const formatted = new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num);
+  return `${code} ${formatted}`;
+}
+
+export function formatReportText(text: string, fallbackCurrency = 'USD'): string {
+  if (!text) return text;
+
+  const plainText = text
+    .replace(
+      /\bcategory[_ ]?baseline[_ ]?mean\s+std[_ ]?dev\b/gi,
+      'spending pattern for this category',
+    )
+    .replace(
+      /\bcategory[_ ]?baseline[_ ]?mean\s*[:=]\s*(-?\d[\d,]*(?:\.\d+)?)\b/gi,
+      (_match, amount: string) =>
+        `average spending for this category: ${formatReportCurrency(amount, fallbackCurrency)}`,
+    )
+    .replace(/\bcategory[_ ]?baseline[_ ]?mean\b/gi, 'average spending for this category')
+    .replace(/\bcreatedAt\b/gi, 'creation date')
+    .replace(/\bupdatedAt\b/gi, 'last updated')
+    .replace(/\borganizationId\b/gi, 'organization reference')
+    .replace(/\b([A-Za-z][A-Za-z0-9]*?)Ids\b/g, '$1 references')
+    .replace(/\b([A-Za-z][A-Za-z0-9]*?)Id\b/g, '$1 reference')
+    .replace(
+      /\b(?:std[_ ]?dev|standard deviation)\s*[:=]\s*-?\d+(?:\.\d+)?/gi,
+      'spending variation',
+    )
+    .replace(
+      /\b(?:a\s+)?transaction\s+(?:has|shows)\s+z[-_ ]?score\s*[:=]\s*-?\d+(?:\.\d+)?/gi,
+      'unusual transaction activity was identified',
+    )
+    .replace(/\bz[-_ ]?score\s*[:=]\s*-?\d+(?:\.\d+)?/gi, 'unusual activity indicator')
+    .replace(/\boutlier\b/gi, 'unexpectedly high')
+    .replace(
+      /([a-z0-9])([A-Z])/g,
+      (_match, lower: string, upper: string) => `${lower} ${upper.toLowerCase()}`,
+    )
+    .replace(/_+/g, ' ')
+    .replace(/\b([a-z]+)\s+ids?\b/gi, '$1 reference')
+    .replace(
+      /\boutlier\s+(expense|transaction|payment|amount)\s+detected\b/gi,
+      'The $1 was unusually high',
+    )
+    .replace(/\boutlier\b/gi, 'unexpectedly high')
+    .replace(
+      /\b(?:std[_ ]?dev|standard deviation)\s*[:=]\s*-?\d+(?:\.\d+)?/gi,
+      'spending variation',
+    )
+    .replace(/\bz[-_ ]?score\s*[:=]\s*-?\d+(?:\.\d+)?/gi, 'unusual activity indicator');
+  const protectedAmounts: string[] = [];
+  const protectCurrency = (_match: string, code: string, amount: string, suffix?: string) => {
+    const marker = `\uE000${protectedAmounts.length}\uE001`;
+    protectedAmounts.push(formatAmountWithSuffix(amount, code, suffix));
+    return marker;
+  };
+  const protectSymbol = (_match: string, symbol: string, amount: string, suffix?: string) => {
+    const dollarCurrencies = new Set(['USD', 'CAD', 'AUD', 'NZD', 'SGD', 'HKD']);
+    const code =
+      symbol === '$'
+        ? dollarCurrencies.has(fallbackCurrency.toUpperCase())
+          ? fallbackCurrency
+          : 'USD'
+        : symbol === '€'
+          ? 'EUR'
+          : symbol === '£'
+            ? 'GBP'
+            : 'INR';
+    const marker = `\uE000${protectedAmounts.length}\uE001`;
+    protectedAmounts.push(formatAmountWithSuffix(amount, code, suffix));
+    return marker;
+  };
+  const protectBareCurrency = (_match: string, amount: string) => {
+    const marker = `\uE000${protectedAmounts.length}\uE001`;
+    protectedAmounts.push(formatReportCurrency(amount, fallbackCurrency));
+    return marker;
+  };
+
+  const protectedText = plainText
+    .replace(/\b([A-Z]{3})\s*(-?\d[\d,]*(?:\.\d+)?)([kKmMbB])?\b/g, protectCurrency)
+    .replace(/([$€£₹])\s*(-?\d[\d,]*(?:\.\d+)?)([kKmMbB])?\b/g, protectSymbol)
+    .replace(
+      /\b([A-Z]{3}\s+)?(-?\d[\d,]*\.\d{2,4})(?!\d|\.\d|[%x])/g,
+      (match, code: string | undefined, amount: string) =>
+        code ? match : protectBareCurrency(match, amount),
+    );
+  const formatted = formatEmbeddedAmountsInText(protectedText)
+    .replace(
+      /\bAI[- ](?:generated|synthesized|assisted|advisory|powered|driven|based|analysis)\b/gi,
+      '',
+    )
+    .replace(/\bartificial intelligence\b/gi, '')
+    .replace(/\bAI\b/gi, '')
+    .replace(/\b(?:std[_ ]?dev|standard deviation)\b/gi, 'spending variation')
+    .replace(/\bz[-_ ]?score\b/gi, 'unusual activity indicator')
+    .replace(
+      /\ban\s+unusual activity indicator note requires review\b/gi,
+      'unusual transaction activity requires review',
+    )
+    .replace(/\bmean\b/gi, 'average')
+    .replace(/\bmedian\b/gi, 'typical')
+    .replace(/\bstatistical\b/gi, 'unusual')
+    .replace(/\bAR\b/g, 'receivables')
+    .replace(/\bAP\b/g, 'payables')
+    .replace(/\bFX\b/g, 'foreign-exchange')
+    .replace(/\s*=\s*/g, ': ')
+    .replace(/\s+([,.;:])/g, '$1')
+    .replace(/([.;])\s*\1+/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return formatted.replace(
+    /\uE000(\d+)\uE001/g,
+    (_match, index: string) => protectedAmounts[Number(index)] ?? '',
+  );
+}
+
+function formatAmountWithSuffix(amount: string, currency: string, suffix?: string): string {
+  if (!suffix) return formatReportCurrency(amount, currency);
+  const multiplier = { k: 1_000, m: 1_000_000, b: 1_000_000_000 }[
+    suffix.toLowerCase() as 'k' | 'm' | 'b'
+  ];
+  const value = Number.parseFloat(amount.replace(/,/g, ''));
+  return formatReportCurrency(value * multiplier, currency);
 }
 
 /**

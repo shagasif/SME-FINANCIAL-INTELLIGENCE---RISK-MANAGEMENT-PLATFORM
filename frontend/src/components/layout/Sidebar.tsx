@@ -4,7 +4,6 @@ import {
   Activity,
   BarChart3,
   Bell,
-  Bot,
   ChevronLeft,
   ChevronRight,
   Cpu,
@@ -32,7 +31,6 @@ const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   Activity,
   Database,
   ShieldAlert,
-  Bot,
   Cpu,
   Sliders,
   BarChart3,
@@ -78,7 +76,7 @@ export function Sidebar() {
 
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
-          className="p-1 rounded-md text-[var(--text-muted)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+          className="p-1 rounded-md text-[var(--text-muted)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer"
           title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
@@ -123,10 +121,10 @@ export function Sidebar() {
               key={item.id}
               to={item.path}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all group ${
+                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ease-out group ${
                   isActive
                     ? 'bg-[var(--surface-sidebar-active)] text-[var(--surface-sidebar-active-text)] font-semibold shadow-2xs border-l-3 border-[var(--surface-sidebar-active-border)] pl-2.5'
-                    : 'text-[var(--text-secondary)] hover:bg-[var(--surface-sidebar-hover)] hover:text-[var(--text-primary)]'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--surface-sidebar-hover)] hover:text-[var(--text-primary)] hover:translate-x-0.5'
                 } ${isCollapsed ? 'justify-center px-2' : ''}`
               }
               title={isCollapsed ? item.label : undefined}

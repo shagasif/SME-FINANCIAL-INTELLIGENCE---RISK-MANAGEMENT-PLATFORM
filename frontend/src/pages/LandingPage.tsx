@@ -1,5 +1,15 @@
-import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { Link } from 'react-router-dom';
+import gsap from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import {
   Activity,
   ArrowDownRight,
@@ -129,24 +139,28 @@ const benefits = [
     description:
       'Move between records, budgets, forecasts, reports, and risk insights in one application.',
     icon: Layers3,
+    accent: 'violet',
   },
   {
     title: 'See the context behind performance',
     description:
       'Explore financial analytics and historical snapshots alongside day-to-day operations.',
     icon: ScanSearch,
+    accent: 'blue',
   },
   {
     title: 'Plan with scenarios and forecasts',
     description:
       'Compare forecasting assumptions and review saved versions to inform planning.',
     icon: Activity,
+    accent: 'teal',
   },
   {
     title: 'Keep decisions grounded in your workflow',
     description:
       'Use AI orchestration and assistant tools to analyze financial information and support decisions.',
     icon: BrainCircuit,
+    accent: 'violet',
   },
 ];
 
@@ -227,18 +241,20 @@ function PrimaryLink({
   to,
   state,
   children,
+  compact = false,
   className = '',
 }: {
   to: string;
   state?: LoginRedirectState;
   children: ReactNode;
+  compact?: boolean;
   className?: string;
 }) {
   return (
     <Link
       to={to}
       state={state}
-      className={`group inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[var(--landing-accent)] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-900/20 transition hover:-translate-y-0.5 hover:bg-[var(--landing-accent-hover)] focus-visible:outline-offset-4 ${className}`}
+      className={`group inline-flex items-center justify-center gap-2 ${compact ? 'min-h-8 rounded-md px-1.5 py-1 text-[10px] sm:min-h-10 sm:rounded-lg sm:px-4 sm:py-2 sm:text-sm' : 'min-h-12 rounded-xl px-5 py-3 text-sm'} bg-[var(--landing-accent)] font-semibold text-white shadow-lg shadow-indigo-900/20 transition hover:-translate-y-0.5 hover:bg-[var(--landing-accent-hover)] focus-visible:outline-offset-4 ${className}`}
     >
       {children}
       <ArrowRight
@@ -344,6 +360,143 @@ function RiskAlertsPreview() {
   );
 }
 
+function PinnedFeaturesSection() {
+  const sectionRef = useRef<HTMLElement>(null);
+
+  useLayoutEffect(() => {
+    const section = sectionRef.current;
+    if (
+      !section ||
+      typeof window.matchMedia !== 'function' ||
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      return;
+    }
+
+    const panels = gsap.utils.toArray<HTMLElement>('[data-feature-panel]', section);
+    const stage = section.querySelector<HTMLElement>('[data-feature-stage]');
+    if (!stage || panels.length < 2) return;
+
+    gsap.registerPlugin(ScrollTrigger);
+    section.classList.add('is-scroll-enhanced');
+    const stackOffset = 20;
+    const stackScaleStep = 0.04;
+    const context = gsap.context(() => {
+      gsap.set(panels, {
+        autoAlpha: 0,
+        transformOrigin: '50% 50%',
+        y: 88,
+        scale: 0.92,
+      });
+      panels.forEach((panel, index) => {
+        gsap.set(panel, { zIndex: index + 1 });
+      });
+      gsap.set(panels[0], { autoAlpha: 1, y: 0, scale: 1 });
+
+      const timeline = gsap.timeline({
+        scrollTrigger: {
+          trigger: section,
+          pin: stage,
+          start: 'top top+=72px',
+          end: () => {
+            const isMobile = window.matchMedia('(max-width: 640px)').matches;
+            const scrollFactor = isMobile ? 0.82 : 1;
+            return `+=${window.innerHeight * panels.length * scrollFactor}`;
+          },
+          scrub: 0.5,
+          anticipatePin: 1,
+          invalidateOnRefresh: true,
+        },
+      });
+
+      panels.forEach((panel, index) => {
+        if (index === 0) return;
+
+        panels.slice(0, index).forEach((stackedPanel, stackedIndex) => {
+          const depth = index - stackedIndex;
+          timeline.to(
+            stackedPanel,
+            {
+              y: -stackOffset * depth,
+              scale: 1 - stackScaleStep * depth,
+              duration: 0.48,
+              ease: 'power1.inOut',
+            },
+            index,
+          );
+        });
+
+        timeline.set(panel, { autoAlpha: 1 }, index + 0.08);
+        timeline.to(
+          panel,
+          { y: 0, scale: 1, duration: 0.62, ease: 'power2.out' },
+          index + 0.08,
+        );
+      });
+    }, section);
+
+    return () => {
+      context.revert();
+      section.classList.remove('is-scroll-enhanced');
+    };
+  }, []);
+
+  return (
+    <section
+      ref={sectionRef}
+      id="why-us"
+      aria-labelledby="why-heading"
+      className="landing-feature-scroll scroll-mt-24 px-4 sm:px-6 lg:px-8"
+    >
+      <div
+        data-feature-stage
+        className="landing-feature-stage relative left-1/2 isolate -ml-[50vw] w-screen max-w-none overflow-hidden px-4 py-12 sm:px-8 sm:py-16 lg:px-12"
+      >
+        <Suspense fallback={null}>
+          <ParticleSwarmVisual />
+        </Suspense>
+        <div className="landing-feature-glass pointer-events-none absolute inset-0 z-[1]" />
+        <div className="relative z-10 mx-auto flex w-full max-w-5xl flex-col items-center">
+          <SectionHeading
+            centered
+            id="why-heading"
+            eyebrow="Why Us"
+            title="Financial intelligence shaped around your business."
+            description="SME Financial Intel brings essential financial operations into one environment—so businesses can make sense of activity, understand change, and plan with more context."
+          />
+          <div
+            data-feature-track
+            className="landing-feature-track mt-8 grid w-full gap-4 sm:grid-cols-2"
+          >
+            {benefits.map(({ title, description, icon: Icon, accent }) => (
+              <article
+                key={title}
+                data-feature-panel
+                data-accent={accent}
+                className="landing-feature-card flex min-h-[17rem] w-full flex-col items-center justify-center rounded-2xl border p-6 text-center sm:p-8"
+              >
+                <span className="landing-feature-card-icon flex h-10 w-10 items-center justify-center rounded-xl">
+                  <Icon aria-hidden="true" className="h-5 w-5" />
+                </span>
+                <h3 className="mt-5 text-base font-semibold leading-6 text-white">
+                  {title}
+                </h3>
+                <p className="mt-2 max-w-xl text-sm leading-6 text-[#c7c1d3]">
+                  {description}
+                </p>
+                <span className="landing-feature-card-label mt-5 flex items-center justify-center gap-1 text-[10px] font-semibold uppercase tracking-wide">
+                  Platform capability
+                  <Check aria-hidden="true" className="h-3 w-3" />
+                </span>
+              </article>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function LandingPage() {
   const { isAuthenticated } = useAuth();
   const { theme, toggleTheme } = useTheme();
@@ -389,17 +542,17 @@ export function LandingPage() {
       className="landing-page-theme min-h-screen overflow-hidden bg-[var(--landing-page-bg)] text-slate-900 selection:bg-blue-200 selection:text-slate-950 dark:bg-[var(--landing-page-bg)]"
     >
       <header className="sticky top-0 z-50 bg-[var(--landing-header-bg)] backdrop-blur-xl">
-        <div className="mx-auto flex min-h-[4.5rem] max-w-7xl items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex min-h-14 max-w-7xl items-center justify-between gap-1 px-2.5 sm:min-h-[4.5rem] sm:gap-3 sm:px-6 lg:px-8">
           <Link
             aria-label="SME Financial Intel home"
             to="/"
-            className="flex min-w-0 items-center gap-2.5 rounded-lg"
+            className="flex min-w-0 items-center gap-1.5 rounded-lg sm:gap-2.5"
           >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-sky-500 text-[10px] font-black tracking-wide text-white shadow-md shadow-blue-900/15">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-sky-500 text-[8px] font-black tracking-wide text-white shadow-md shadow-blue-900/15 sm:h-10 sm:w-10 sm:text-[10px]">
               SME
             </span>
             <span className="min-w-0 leading-tight">
-              <span className="block whitespace-normal text-lg font-bold tracking-tight text-slate-950 dark:text-white sm:text-xl">
+              <span className="block whitespace-normal text-sm font-bold tracking-tight text-slate-950 dark:text-white sm:text-xl">
                 SME Financial Intel
               </span>
               <span className="hidden text-[10px] font-medium text-slate-500 dark:text-slate-400 sm:block">
@@ -416,7 +569,7 @@ export function LandingPage() {
             ))}
           </nav>
 
-          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+          <div className="flex shrink-0 items-center gap-1 sm:gap-3">
             <button
               type="button"
               onClick={toggleTheme}
@@ -438,7 +591,8 @@ export function LandingPage() {
             <PrimaryLink
               to={getStartedPath}
               state={getStartedState}
-              className="min-h-10 rounded-lg px-2.5 py-2 text-xs [&>svg]:hidden sm:px-4 sm:text-sm sm:[&>svg]:inline-flex"
+              compact
+              className="[&>svg]:hidden sm:[&>svg]:inline-flex"
             >
               Get Started
             </PrimaryLink>
@@ -448,7 +602,7 @@ export function LandingPage() {
               aria-expanded={isMenuOpen}
               aria-controls="mobile-navigation"
               onClick={() => setIsMenuOpen((open) => !open)}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--landing-border)] bg-[var(--landing-card-bg)] text-slate-600 xl:hidden dark:border-slate-800 dark:bg-[var(--landing-card-bg)] dark:text-slate-300"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-[var(--landing-border)] bg-[var(--landing-card-bg)] text-slate-600 sm:h-10 sm:w-10 xl:hidden dark:border-slate-800 dark:bg-[var(--landing-card-bg)] dark:text-slate-300"
             >
               {isMenuOpen ? (
                 <X aria-hidden="true" className="h-4 w-4" />
@@ -507,21 +661,17 @@ export function LandingPage() {
         <section
           id="hero"
           aria-labelledby="hero-heading"
-          className="relative scroll-mt-24 overflow-hidden bg-transparent px-4 pb-12 pt-8 sm:px-6 sm:pb-16 sm:pt-10 lg:px-8 lg:pb-20"
+          className="relative scroll-mt-24 overflow-hidden bg-transparent px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10"
         >
           <Suspense fallback={null}>
             <ParticleSwarmVisual />
           </Suspense>
           <div className="landing-hero-glow" aria-hidden="true" />
-          <div data-scroll-reveal className="relative z-10 mx-auto flex max-w-7xl flex-col items-center gap-8 px-6 py-10 text-center sm:gap-10 sm:px-10 sm:py-14 lg:px-14 lg:py-16">
+          <div data-scroll-reveal className="relative z-10 mx-auto flex max-w-7xl flex-col items-center gap-8 px-6 py-8 text-center sm:gap-10 sm:px-10 sm:py-10 lg:px-14 lg:py-12">
             <div className="w-full max-w-3xl">
-              <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-[var(--landing-border)] bg-[var(--landing-card-bg)] px-3.5 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-blue-700 dark:text-blue-300 sm:text-xs">
-                <Sparkles aria-hidden="true" className="h-3.5 w-3.5 text-blue-500 dark:text-blue-400" />
-                Financial Intelligence &amp; Risk Management Platform
-              </p>
               <h1
                 id="hero-heading"
-                className="mx-auto max-w-3xl text-4xl font-semibold leading-[1.08] tracking-[-0.045em] text-slate-950 dark:text-white sm:text-5xl lg:text-[3.75rem]"
+                className="mx-auto max-w-3xl text-[2rem] font-semibold leading-[1.08] tracking-[-0.045em] text-slate-950 dark:text-white sm:text-[2.75rem] lg:text-[3.5rem]"
               >
                 Financial Clarity &amp; Risk Control for Growing Businesses.
               </h1>
@@ -542,9 +692,6 @@ export function LandingPage() {
                   <ChevronDown aria-hidden="true" className="h-4 w-4" />
                 </a>
               </div>
-              <p className="mt-6 text-sm font-medium text-slate-400">
-                Financial clarity. Intelligent insights. Better business decisions.
-              </p>
             </div>
           </div>
         </section>
@@ -552,7 +699,7 @@ export function LandingPage() {
         <section
           id="modules"
           aria-labelledby="modules-heading"
-          className="scroll-mt-24 px-4 py-16 sm:px-6 sm:py-20 lg:px-8"
+          className="scroll-mt-24 px-4 py-12 sm:px-6 sm:py-14 lg:px-8 lg:py-16"
         >
           <div className="mx-auto max-w-7xl">
             <div className="flex flex-col items-center gap-4 text-center">
@@ -599,7 +746,7 @@ export function LandingPage() {
         <section
           id="ai-risk"
           aria-labelledby="ai-risk-heading"
-          className="scroll-mt-24 bg-transparent px-4 py-16 sm:px-6 sm:py-20 lg:px-8"
+          className="scroll-mt-24 bg-transparent px-4 py-12 sm:px-6 sm:py-14 lg:px-8 lg:py-16"
         >
           <div className="mx-auto max-w-7xl">
             <SectionHeading
@@ -655,7 +802,7 @@ export function LandingPage() {
         <section
           id="how-it-works"
           aria-labelledby="how-heading"
-          className="scroll-mt-24 px-4 py-16 sm:px-6 sm:py-20 lg:px-8"
+          className="scroll-mt-24 px-4 py-12 sm:px-6 sm:py-14 lg:px-8 lg:py-16"
         >
           <div className="mx-auto max-w-7xl">
             <SectionHeading
@@ -689,49 +836,12 @@ export function LandingPage() {
           </div>
         </section>
 
-        <section
-          id="why-us"
-          aria-labelledby="why-heading"
-          className="scroll-mt-24 bg-transparent px-4 py-16 sm:px-6 sm:py-20 lg:px-8"
-        >
-          <div className="mx-auto max-w-7xl">
-            <SectionHeading
-              centered
-              id="why-heading"
-              eyebrow="Why Us"
-              title="Financial intelligence shaped around your business."
-              description="SME Financial Intel brings essential financial operations into one environment—so businesses can make sense of activity, understand change, and plan with more context."
-            />
-            <div className="mt-9 grid w-full gap-4 sm:grid-cols-2">
-              {benefits.map(({ title, description, icon: Icon }) => (
-                <article
-                  key={title}
-                  data-scroll-reveal
-                  className="flex w-full flex-col items-center rounded-2xl border border-[var(--landing-border)] bg-[var(--landing-card-bg)] p-5 text-center shadow-lg shadow-blue-950/20 backdrop-blur-xl transition hover:border-blue-400 hover:bg-[var(--landing-card-hover)] sm:p-6"
-                >
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                    <Icon aria-hidden="true" className="h-5 w-5" />
-                  </span>
-                  <h3 className="mt-5 text-sm font-semibold leading-6 text-slate-900 dark:text-white">
-                    {title}
-                  </h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">
-                    {description}
-                  </p>
-                  <span className="mt-5 flex items-center justify-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
-                    Platform capability
-                    <Check aria-hidden="true" className="h-3 w-3" />
-                  </span>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
+        <PinnedFeaturesSection />
 
         <section
           id="final-cta"
           aria-labelledby="final-cta-heading"
-          className="scroll-mt-24 px-4 pb-16 sm:px-6 sm:pb-20 lg:px-8"
+          className="scroll-mt-24 px-4 py-12 sm:px-6 sm:py-14 lg:px-8 lg:py-16"
         >
           <div className="relative mx-auto max-w-7xl overflow-hidden rounded-[1.75rem] border border-[var(--landing-border)] bg-[var(--landing-card-bg)] px-6 py-12 text-slate-900 shadow-xl shadow-blue-950/20 backdrop-blur-2xl dark:text-white sm:px-10 sm:py-16 lg:px-14">
             <div
@@ -781,31 +891,46 @@ export function LandingPage() {
 
       <footer
         id="site-footer"
-        className="bg-transparent px-4 py-8 text-left sm:px-6 lg:px-8"
+        className="landing-site-footer relative z-10 overflow-hidden px-4 pb-6 pt-12 text-left sm:px-6 sm:pt-14 lg:px-8 lg:pt-16"
       >
-        <div className="relative z-10 mx-auto max-w-7xl">
-          <div data-scroll-reveal className="pb-4">
-            <Link
-              to="/"
-              aria-label="SME Financial Intel home"
-              className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white sm:text-3xl"
-            >
-              SME Financial Intel
-            </Link>
-            <p className="mt-1 text-sm text-slate-400">
-              Financial Intelligence &amp; Risk Platform
-            </p>
-          </div>
+        <div className="landing-footer-content relative z-10 mx-auto max-w-7xl">
+          <div className="grid grid-cols-1 gap-x-8 gap-y-10 sm:grid-cols-2 sm:gap-x-10 sm:gap-y-12 xl:grid-cols-[minmax(0,2.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] xl:gap-x-8">
+            <div data-scroll-reveal className="min-w-0 sm:col-span-2 xl:col-span-1">
+              <Link
+                to="/"
+                aria-label="SME Financial Intel home"
+                className="inline-flex items-center gap-2.5"
+              >
+                <span
+                  aria-hidden="true"
+                  className="landing-footer-brand-mark rounded-md px-2 py-1 text-sm font-bold tracking-tight"
+                >
+                  SME
+                </span>
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-white">
+                  SME Financial Intel
+                </span>
+              </Link>
+              <p className="mt-2 text-sm text-[#817b8f]">
+                Financial Intelligence &amp; Risk Platform
+              </p>
+              <h2 className="mt-6 max-w-md text-2xl font-medium leading-[1.05] tracking-[-0.045em] text-white sm:text-3xl">
+                Financial clarity for growing businesses.
+              </h2>
+              <p className="mt-5 max-w-md text-sm leading-6 text-[#a49db4] sm:text-base sm:leading-7">
+                Bring records, cash-flow forecasts, and risk insights together for clearer
+                financial decisions.
+              </p>
+            </div>
 
-          <div className="grid gap-6 py-6 sm:grid-cols-2 lg:grid-cols-4 lg:gap-8">
-            <div data-scroll-reveal>
-              <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-900 dark:text-white">
+            <div data-scroll-reveal className="min-w-0 xl:col-span-2">
+              <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-white">
                 Platform
               </h2>
-              <ul className="mt-3 space-y-2">
+              <ul className="mt-4 grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2 xl:gap-x-8">
                 {footerModules.map(({ label, path }) => (
                   <li key={label}>
-                    <Link {...appRouteLink(path)} className={linkStyle}>
+                    <Link {...appRouteLink(path)} className="landing-footer-link">
                       {label}
                     </Link>
                   </li>
@@ -813,14 +938,14 @@ export function LandingPage() {
               </ul>
             </div>
 
-            <div data-scroll-reveal>
-              <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-900 dark:text-white">
+            <div data-scroll-reveal className="min-w-0">
+              <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-white">
                 Resources
               </h2>
-              <ul className="mt-3 space-y-2">
+              <ul className="mt-4 space-y-2">
                 {footerResources.map(({ label, path }) => (
                   <li key={label}>
-                    <a href={path} className={linkStyle}>
+                    <a href={path} className="landing-footer-link">
                       {label}
                     </a>
                   </li>
@@ -828,68 +953,40 @@ export function LandingPage() {
               </ul>
             </div>
 
-            <div data-scroll-reveal>
-              <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-900 dark:text-white">
+            <div data-scroll-reveal className="min-w-0">
+              <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-white">
                 Company
               </h2>
-              <ul className="mt-3 space-y-2">
+              <ul className="mt-4 space-y-2">
                 {footerCompany.map(({ label, path }) => (
                   <li key={label}>
-                    <a href={path} className={linkStyle}>
+                    <a href={path} className="landing-footer-link">
                       {label}
                     </a>
                   </li>
                 ))}
               </ul>
             </div>
+          </div>
 
-            <div data-scroll-reveal>
-              <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-900 dark:text-white">
-                Newsletter
-              </h2>
-              <p className="mt-3 max-w-xs text-sm leading-5 text-slate-400">
-                Sign up for financial &amp; product updates
-              </p>
-              <form className="mt-3 flex w-full items-center rounded-lg border border-[var(--landing-border)] bg-[var(--landing-preview-bg)] p-1">
-                <label className="sr-only" htmlFor="footer-newsletter-email">
-                  Email address
-                </label>
-                <input
-                  id="footer-newsletter-email"
-                  type="email"
-                  placeholder="Your email address"
-                  disabled
-                  aria-describedby="footer-newsletter-note"
-                  className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 disabled:cursor-not-allowed"
-                />
-                <button
-                  type="button"
-                  disabled
-                  className="shrink-0 rounded-md bg-white px-4 py-2 text-sm font-semibold text-[#07090E] disabled:cursor-not-allowed"
-                >
-                  Subscribe
-                </button>
-              </form>
-              <p id="footer-newsletter-note" className="mt-1 text-xs text-slate-500">
-                Sign-up is not enabled yet.
-              </p>
-            </div>
+          <div aria-hidden="true" className="landing-footer-watermark select-none">
+            SME FINANCIAL INTEL
           </div>
 
           <div
             id="legal-notice"
-            className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 pt-4 text-xs text-slate-400"
+            className="flex flex-col items-start justify-between gap-3 pt-5 text-xs text-[#a49db4] sm:flex-row sm:items-center"
           >
-            <div className="flex items-center gap-2 whitespace-nowrap">
+            <div className="flex items-center gap-2">
               <span aria-hidden="true" className="h-2 w-2 rounded-full bg-[#00CBA8]" />
               <span>All systems operational</span>
             </div>
-            <p className="whitespace-nowrap">© 2026 SME Financial Intel. All rights reserved.</p>
-            <div className="flex items-center gap-5 whitespace-nowrap">
-              <a href="#legal-notice" className={linkStyle}>
+            <p>© 2026 SME Financial Intel. All rights reserved.</p>
+            <div className="flex items-center gap-5">
+              <a href="#legal-notice" className="landing-footer-link">
                 Privacy policy
               </a>
-              <a href="#legal-notice" className={linkStyle}>
+              <a href="#legal-notice" className="landing-footer-link">
                 Terms of service
               </a>
             </div>

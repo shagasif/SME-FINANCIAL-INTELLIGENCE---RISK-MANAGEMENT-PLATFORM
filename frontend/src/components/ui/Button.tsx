@@ -14,13 +14,13 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   primary:
-    'bg-[var(--accent-primary)] text-[var(--surface-header-text)] hover:bg-[var(--accent-primary-hover)] border border-transparent shadow-xs',
+    'bg-[var(--accent-primary)] text-[var(--surface-header-text)] hover:bg-[var(--accent-primary-hover)] hover:shadow-md border border-transparent shadow-xs',
   secondary:
-    'bg-[var(--surface-elevated)] text-[var(--text-primary)] hover:bg-[var(--border-subtle)] border border-[var(--border-subtle)]',
+    'bg-[var(--surface-elevated)] text-[var(--text-primary)] hover:bg-[var(--border-subtle)] hover:shadow-xs border border-[var(--border-subtle)]',
   outline:
-    'bg-transparent text-[var(--text-primary)] hover:bg-[var(--surface-elevated)] border border-[var(--border-strong)]',
+    'bg-transparent text-[var(--text-primary)] hover:bg-[var(--surface-elevated)] hover:shadow-xs border border-[var(--border-strong)]',
   danger:
-    'bg-[var(--status-err-bg)] text-[var(--status-err-text)] hover:opacity-90 border border-[var(--status-err-text)]',
+    'bg-[var(--status-err-bg)] text-[var(--status-err-text)] hover:opacity-90 hover:shadow-xs border border-[var(--status-err-text)]',
   ghost:
     'bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] border border-transparent',
 };
@@ -49,7 +49,7 @@ export function Button({
   return (
     <button
       disabled={isDisabled}
-      className={`inline-flex items-center justify-center transition-all duration-150 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 select-none focus-visible:outline-2 focus-visible:outline-[var(--accent-teal)] ${variantClass} ${sizeClass} ${className}`}
+      className={`inline-flex items-center justify-center transition-all duration-200 ease-out cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 select-none focus-visible:outline-2 focus-visible:outline-[var(--accent-teal)] hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99] disabled:hover:translate-y-0 disabled:active:scale-100 ${variantClass} ${sizeClass} ${className}`}
       {...rest}
     >
       {isLoading ? (

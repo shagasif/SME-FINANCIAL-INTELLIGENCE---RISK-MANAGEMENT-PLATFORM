@@ -3,6 +3,8 @@ import {
   formatCurrency,
   formatEmbeddedAmountsInText,
   formatNumber,
+  formatReportCurrency,
+  formatReportText,
   formatSignedCurrency,
 } from './formatters';
 
@@ -48,6 +50,44 @@ describe('formatters', () => {
     });
   });
 
+  describe('report formatting', () => {
+    it('uses currency codes, grouping, and two decimals without changing other currencies', () => {
+      expect(formatReportCurrency('55000', 'PKR')).toBe('PKR 55,000.00');
+      expect(formatReportCurrency('1250.5', 'USD')).toBe('USD 1,250.50');
+    });
+
+    it('formats currency prose and translates technical report language', () => {
+      expect(
+        formatReportText(
+          'Spend was PKR 250,000.00; stdDev=1.2000, z-score=2.1, and categoryBaselineMean=1250.0000. AI-synthesized.',
+          'PKR',
+        ),
+      ).toBe(
+        'Spend was PKR 250,000.00; spending variation, unusual activity indicator, and average spending for this category: PKR 1,250.00.',
+      );
+    });
+
+    it('humanizes common database-derived names and technical expense terms', () => {
+      expect(
+        formatReportText('categoryBaselineMean=1250; outlierExpenseDetected; invoiceIds', 'PKR'),
+      ).toBe(
+        'average spending for this category: PKR 1,250.00; The expense was unusually high; invoice references',
+      );
+    });
+
+    it('normalizes abbreviated currency amounts without losing the currency code', () => {
+      expect(formatReportText('Cash reserves are $385k.', 'USD')).toBe(
+        'Cash reserves are USD 385,000.00.',
+      );
+    });
+
+    it('does not mistake ordinary words ending in "id" for identifier suffixes', () => {
+      expect(formatReportText('Liquid cash reserves are $1,248,500.', 'USD')).toBe(
+        'Liquid cash reserves are USD 1,248,500.00.',
+      );
+    });
+  });
+
   describe('formatSignedCurrency', () => {
     it('prefixes strictly positive amounts with + and omits .00 on whole numbers', () => {
       expect(formatSignedCurrency('1500.0000', 'USD')).toBe('+$1,500');
@@ -63,7 +103,9 @@ describe('formatters', () => {
         formatEmbeddedAmountsInText(
           'Cash balance is PKR 2615400.0000 with overdue AR 0.0000 and fee 1250.5000 on 2026-11-12 (v1.0.0).',
         ),
-      ).toBe('Cash balance is PKR 2,615,400 with overdue AR 0 and fee 1,250.50 on 2026-11-12 (v1.0.0).');
+      ).toBe(
+        'Cash balance is PKR 2,615,400 with overdue AR 0 and fee 1,250.50 on 2026-11-12 (v1.0.0).',
+      );
 
       expect(formatEmbeddedAmountsInText('Total: PKR 250,000.00')).toBe('Total: PKR 250,000');
     });

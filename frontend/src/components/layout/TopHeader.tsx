@@ -59,7 +59,7 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
           <div className="relative" ref={orgMenuRef}>
             <button
               onClick={() => setIsOrgMenuOpen(!isOrgMenuOpen)}
-              className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)]/60 hover:bg-[var(--surface-elevated)] transition-colors cursor-pointer text-sm font-semibold text-[var(--text-primary)]"
+              className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)]/60 hover:bg-[var(--surface-elevated)] transition-all duration-200 hover:-translate-y-0.5 cursor-pointer text-sm font-semibold text-[var(--text-primary)]"
               aria-expanded={isOrgMenuOpen}
               aria-label="Select organization workspace"
             >
@@ -72,7 +72,7 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
             </button>
 
             {isOrgMenuOpen && (
-              <div className="absolute left-0 mt-1.5 w-64 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xl py-1.5 z-50">
+              <div className="absolute left-0 mt-1.5 w-64 rounded-xl border border-[var(--border-subtle)]/80 bg-[var(--surface-card)]/90 backdrop-blur-md shadow-2xl py-1.5 z-50 transition-all duration-200">
                 <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] border-b border-[var(--border-subtle)]">
                   Switch Workspace
                 </div>
@@ -121,7 +121,7 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
         {/* Theme Mode Switcher */}
         <button
           onClick={toggleTheme}
-          className="p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+          className="p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] transition-all duration-200 hover:-translate-y-0.5 cursor-pointer"
           title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
           aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
         >
@@ -135,7 +135,7 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
         {/* Notifications Icon (when user is authenticated) */}
         {user && (
           <button
-            className="relative p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+            className="relative p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] transition-all duration-200 hover:-translate-y-0.5 cursor-pointer"
             aria-label="View notifications"
             title="Notifications"
           >
@@ -149,7 +149,7 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
           <div className="relative" ref={userMenuRef}>
             <button
               onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-              className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-lg border border-[var(--border-subtle)] hover:bg-[var(--surface-elevated)] transition-colors cursor-pointer"
+              className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-lg border border-[var(--border-subtle)] hover:bg-[var(--surface-elevated)] transition-all duration-200 hover:-translate-y-0.5 cursor-pointer"
               aria-expanded={isUserMenuOpen}
               aria-label="User profile options"
             >
@@ -167,7 +167,7 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
             </button>
 
             {isUserMenuOpen && (
-              <div className="absolute right-0 mt-1.5 w-56 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xl py-2 z-50">
+              <div className="absolute right-0 mt-1.5 w-56 rounded-xl border border-[var(--border-subtle)]/80 bg-[var(--surface-card)]/90 backdrop-blur-md shadow-2xl py-2 z-50 transition-all duration-200">
                 <div className="px-4 py-2 border-b border-[var(--border-subtle)]">
                   <p className="text-xs font-bold text-[var(--text-primary)] truncate">
                     {user.fullName}

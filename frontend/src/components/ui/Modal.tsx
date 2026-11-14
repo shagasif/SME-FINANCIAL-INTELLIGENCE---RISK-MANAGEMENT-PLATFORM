@@ -49,13 +49,13 @@ export function Modal({
       className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
     >
       <div
-        className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity"
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-250"
         onClick={onClose}
         aria-hidden="true"
       />
 
       <div
-        className={`relative w-full ${SIZE_CLASSES[size]} rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] text-[var(--text-primary)] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden z-10 transition-all`}
+        className={`relative w-full ${SIZE_CLASSES[size]} rounded-2xl border border-[var(--border-subtle)]/80 bg-[var(--surface-card)]/95 backdrop-blur-md text-[var(--text-primary)] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden z-10 transition-all duration-250`}
       >
         <div className="flex items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-6 py-4.5 bg-[var(--surface-elevated)]/40">
           <div className="min-w-0">

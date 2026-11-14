@@ -2,7 +2,6 @@ import { useMemo, useEffect, useState } from 'react';
 import {
   AlertCircle,
   AlertTriangle,
-  CheckCircle2,
   ChevronDown,
   ChevronUp,
   Download,
@@ -12,8 +11,6 @@ import {
   Lock,
   Plus,
   RefreshCw,
-  ShieldAlert,
-  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
 import { apiGet, apiPost, ApiClientError } from '../../services/apiClient';
@@ -22,8 +19,15 @@ import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
 import { Drawer } from '../../components/ui/Drawer';
 import { Skeleton } from '../../components/ui/LoadingSpinner';
-import { formatDate } from '../../utils/formatters';
-import { resolveExecutiveBrief } from '../../utils/reportBriefAdapter';
+import { formatDate, formatReportText } from '../../utils/formatters';
+import {
+  getReportDataSources,
+  getReportRecordCounts,
+  getRiskSeverityCounts,
+  getSourceReferenceLabel,
+  formatSourceReferenceValues,
+  resolveExecutiveBrief,
+} from '../../utils/reportBriefAdapter';
 import { buildExecutiveReportPdfBytes } from '../../utils/reportPdfGenerator';
 import { ReportType, type ExecutiveBrief, type ReportRecord } from '../../types/reports.types';
 import { DEFAULT_DEMO_ORG } from '../../config/demo.config';
@@ -66,6 +70,13 @@ const DEFAULT_REPORTS: ReportRecord[] = [
   },
 ];
 
+function formatReportType(reportType: string): string {
+  return reportType
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 export function ReportsPage() {
   const { activeOrg, isAuditor, canExportReports } = useAuth();
   const effectiveOrg = activeOrg || DEFAULT_DEMO_ORG;
@@ -97,6 +108,28 @@ export function ReportsPage() {
         ? resolveExecutiveBrief(inspectReport, effectiveOrg.baseCurrency || 'USD')
         : null,
     [inspectReport, effectiveOrg.baseCurrency],
+  );
+  const riskSeverityCounts = useMemo(
+    () => (inspectBrief ? getRiskSeverityCounts(inspectBrief.risksAndAnomalies) : []),
+    [inspectBrief],
+  );
+  const sourceRecordCounts = inspectBrief ? getReportRecordCounts(inspectBrief) : [];
+  const reportDataSources = inspectBrief ? getReportDataSources(inspectBrief) : [];
+  const hasRiskDistributionTable =
+    inspectBrief?.tables.some((table) =>
+      table.title.toLowerCase().includes('alert distribution by severity'),
+    ) ?? false;
+  const maxRiskSeverityCount = Math.max(1, ...riskSeverityCounts.map((item) => item.count));
+  const hasSourceReferences = Object.values(inspectReport?.sourceRecordIds ?? {}).some(
+    (ids) => Array.isArray(ids) && ids.length > 0,
+  );
+  const hasGroundingDetails = Boolean(
+    inspectBrief &&
+    (sourceRecordCounts.length > 0 ||
+      reportDataSources.length > 0 ||
+      inspectBrief.dataGrounding.missingInputs.length > 0 ||
+      Boolean(inspectBrief.dataGrounding.methodologyNote.trim()) ||
+      hasSourceReferences),
   );
 
   useEffect(() => {
@@ -235,11 +268,10 @@ export function ReportsPage() {
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--text-primary)] flex items-center gap-2">
             <FileText className="w-6 h-6 text-[var(--accent-primary)]" />
-            Financial Reports & Executive Dossiers
+            Financial reports
           </h1>
           <p className="text-xs text-[var(--text-muted)] mt-1">
-            Grounded executive summaries, cash flow statements, and RBAC-enforced compliance
-            exports.
+            Review financial performance, liquidity, and risk across your saved reports.
           </p>
         </div>
 
@@ -265,7 +297,7 @@ export function ReportsPage() {
               }}
             >
               <Plus className="w-3.5 h-3.5 mr-1.5" />
-              Generate Report
+              Create report
             </Button>
           )}
         </div>
@@ -306,11 +338,14 @@ export function ReportsPage() {
       {/* Reports Table */}
       <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs overflow-hidden">
         <div className="p-4 border-b border-[var(--border-subtle)]">
-          <h2 className="text-sm font-bold text-[var(--text-primary)]">
-            Report Archive ({reports.length} Generated Reports)
-          </h2>
-          <p className="text-[11px] text-[var(--text-muted)]">
-            All reports include auditable transaction citations and data limitation disclosures
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold text-[var(--text-primary)]">Report archive</h2>
+            <span className="text-[11px] tabular-nums text-[var(--text-muted)]">
+              {reports.length} {reports.length === 1 ? 'report' : 'reports'}
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+            Saved reports with reporting periods, summaries, and source details.
           </p>
         </div>
 
@@ -323,95 +358,96 @@ export function ReportsPage() {
         ) : reports.length === 0 ? (
           <div className="py-16 text-center text-xs text-[var(--text-muted)]">
             <FileSpreadsheet className="mx-auto h-8 w-8 text-[var(--text-muted)] opacity-50 mb-2" />
-            No financial reports generated yet. Click Generate Report to create your first executive
-            dossier.
+            No financial reports yet. Create a report to review financial performance, liquidity,
+            and risk in one place.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-[var(--surface-elevated)]/60 text-[var(--text-muted)] uppercase text-[10px] tracking-wider border-b border-[var(--border-subtle)]">
-                <tr>
-                  <th className="py-3 px-4 font-semibold">Report Title</th>
-                  <th className="py-3 px-4 font-semibold">Report Type</th>
-                  <th className="py-3 px-4 font-semibold">Executive Summary</th>
-                  <th className="py-3 px-4 font-semibold text-right">Generated At</th>
-                  <th className="py-3 px-4 font-semibold text-center">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--border-subtle)] font-medium">
-                {reports.map((report) => {
-                  const displayType = report.reportType || report.type || 'REPORT';
-                  const previewBrief = resolveExecutiveBrief(
-                    report,
-                    effectiveOrg.baseCurrency || 'USD',
-                  );
-                  const headlineSummary =
-                    report.summary ||
-                    previewBrief.executiveSummary[0] ||
-                    'Generated from authoritative ledger records';
+          <div className="divide-y divide-[var(--border-subtle)]">
+            <div
+              aria-hidden="true"
+              className="hidden xl:grid xl:grid-cols-[minmax(12rem,1.1fr)_7rem_minmax(15rem,1.8fr)_7rem_8.5rem] xl:items-center xl:gap-3 bg-[var(--surface-elevated)]/50 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]"
+            >
+              <span>Report</span>
+              <span>Type</span>
+              <span>Summary</span>
+              <span>Date</span>
+              <span className="text-right">Actions</span>
+            </div>
+            {reports.map((report) => {
+              const displayType = report.reportType || report.type || 'REPORT';
+              const previewBrief = resolveExecutiveBrief(
+                report,
+                effectiveOrg.baseCurrency || 'USD',
+              );
+              const reportCurrency = previewBrief.dataGrounding.currency;
+              const headlineSummary = formatReportText(
+                report.summary || previewBrief.executiveSummary[0] || 'No summary provided.',
+                reportCurrency,
+              );
 
-                  return (
-                    <tr
-                      key={report.id}
-                      className="hover:bg-[var(--surface-elevated)]/40 transition-colors"
+              return (
+                <article
+                  key={report.id}
+                  className="grid grid-cols-1 gap-3 px-4 py-4 transition-colors hover:bg-[var(--surface-elevated)]/25 xl:grid-cols-[minmax(12rem,1.1fr)_7rem_minmax(15rem,1.8fr)_7rem_8.5rem] xl:items-center xl:gap-3"
+                >
+                  <div className="min-w-0">
+                    <h3 className="break-words text-sm font-semibold leading-snug text-[var(--text-primary)]">
+                      {formatReportText(report.title, reportCurrency)}
+                    </h3>
+                    <span className="mt-2 inline-flex rounded-md bg-[var(--surface-elevated)] px-2 py-1 text-[10px] font-medium text-[var(--accent-primary)] xl:hidden">
+                      {formatReportType(displayType)}
+                    </span>
+                  </div>
+                  <span className="hidden rounded-md bg-[var(--surface-elevated)] px-2 py-1 text-[10px] font-medium text-[var(--accent-primary)] xl:inline-flex xl:w-fit">
+                    {formatReportType(displayType)}
+                  </span>
+                  <p className="text-xs leading-relaxed text-[var(--text-secondary)] xl:line-clamp-2">
+                    {headlineSummary}
+                  </p>
+                  <div className="flex items-center justify-between gap-2 text-[11px] tabular-nums text-[var(--text-muted)] xl:block">
+                    <span className="xl:hidden">Generated</span>
+                    <time dateTime={report.createdAt}>{formatDate(report.createdAt)}</time>
+                  </div>
+                  <div className="flex items-center gap-2 xl:justify-end">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setShowSourceIds(false);
+                        setInspectReport(report);
+                      }}
+                      className="h-8 px-2.5 text-xs"
+                      title="View report details"
                     >
-                      <td className="py-3 px-4 font-semibold text-[var(--text-primary)]">
-                        {report.title}
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="rounded bg-[var(--surface-elevated)] px-2 py-0.5 font-mono text-[10px] text-[var(--accent-primary)]">
-                          {displayType}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 max-w-sm text-[var(--text-secondary)] line-clamp-1">
-                        {headlineSummary}
-                      </td>
-                    <td className="py-3 px-4 text-right text-[11px] text-[var(--text-muted)] tabular-nums">
-                      {formatDate(report.createdAt)}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setShowSourceIds(false);
-                            setInspectReport(report);
-                          }}
-                          className="h-7 px-2 text-[11px] flex items-center gap-1"
-                        >
-                          <Eye className="h-3 w-3" />
-                          View
-                        </Button>
+                      <Eye className="mr-1.5 h-3.5 w-3.5" />
+                      View
+                    </Button>
 
-                        <button
-                          onClick={() => handleExport(report, 'PDF')}
-                          disabled={isAuditor || !canExportReports || isExporting}
-                          className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-                            isAuditor || !canExportReports
-                              ? 'cursor-not-allowed text-gray-400 bg-gray-100 dark:bg-gray-800 dark:text-gray-500'
-                              : 'text-[var(--accent-primary)] hover:bg-[var(--surface-elevated)] cursor-pointer'
-                          }`}
-                          title={
-                            isAuditor || !canExportReports
-                              ? 'Report export is restricted for Auditor roles'
-                              : 'Download Executive PDF Brief'
-                          }
-                        >
-                          {isAuditor ? (
-                            <Lock className="h-3 w-3" />
-                          ) : (
-                            <Download className="h-3 w-3" />
-                          )}
-                          Export
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                    <button
+                      onClick={() => handleExport(report, 'PDF')}
+                      disabled={isAuditor || !canExportReports || isExporting}
+                      className={`inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors ${
+                        isAuditor || !canExportReports
+                          ? 'cursor-not-allowed text-gray-400 bg-gray-100 dark:bg-gray-800 dark:text-gray-500'
+                          : 'text-[var(--accent-primary)] hover:bg-[var(--surface-elevated)] cursor-pointer'
+                      }`}
+                      title={
+                        isAuditor || !canExportReports
+                          ? 'Report export is restricted for Auditor roles'
+                          : 'Download PDF report'
+                      }
+                    >
+                      {isAuditor ? (
+                        <Lock className="h-3.5 w-3.5" />
+                      ) : (
+                        <Download className="h-3.5 w-3.5" />
+                      )}
+                      Export
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
       </div>
@@ -423,7 +459,11 @@ export function ReportsPage() {
           setInspectReport(null);
           setShowSourceIds(false);
         }}
-        title={inspectReport?.title || 'Executive Financial Brief'}
+        title={
+          inspectReport && inspectBrief
+            ? formatReportText(inspectReport.title, inspectBrief.dataGrounding.currency)
+            : 'Executive Financial Brief'
+        }
         subtitle={
           inspectBrief && inspectReport
             ? `Period: ${formatDate(inspectBrief.dataGrounding.reportingPeriodStart)} – ${formatDate(inspectBrief.dataGrounding.reportingPeriodEnd)} · Generated ${formatDate(inspectReport.createdAt)}`
@@ -432,8 +472,8 @@ export function ReportsPage() {
         headerBadge={
           inspectBrief && (
             <>
-              <span className="inline-flex items-center rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--accent-primary)]">
-                {inspectBrief.reportType.replace(/_/g, ' ')}
+              <span className="inline-flex items-center rounded-md bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent-primary)]">
+                {formatReportType(inspectBrief.reportType)}
               </span>
               <span className="inline-flex items-center rounded-md border border-[var(--border-subtle)] bg-[var(--surface-bg)] px-2 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)]">
                 {inspectBrief.dataGrounding.currency}
@@ -483,49 +523,37 @@ export function ReportsPage() {
         width="xl"
       >
         {inspectReport && inspectBrief && (
-          <div className="space-y-6 text-xs text-[var(--text-primary)]">
+          <div className="space-y-7 text-xs text-[var(--text-primary)]">
             {/* 1. Executive Summary */}
-            <section className="space-y-2.5">
-              <div className="flex items-center justify-between">
-                <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--accent-primary)]">
-                  Executive Summary
+            {inspectBrief.executiveSummary.length > 0 && (
+              <section className="space-y-2.5">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                  Executive summary
                 </h3>
-                <span className="text-[10px] font-medium text-[var(--text-muted)]">
-                  Grounded Financial Brief
-                </span>
-              </div>
-              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-bg)] p-4 space-y-2">
-                {inspectBrief.executiveSummary.map((sentence, idx) => (
-                  <p
-                    key={idx}
-                    className="text-[13px] leading-relaxed text-[var(--text-secondary)]"
-                  >
-                    {sentence}
-                  </p>
-                ))}
-              </div>
-            </section>
+                <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-bg)] p-4 space-y-2.5">
+                  {inspectBrief.executiveSummary.map((sentence, idx) => (
+                    <p key={idx} className="text-sm leading-relaxed text-[var(--text-secondary)]">
+                      {sentence}
+                    </p>
+                  ))}
+                </div>
+              </section>
+            )}
 
             {/* 2. Key Financial KPIs */}
             {inspectBrief.kpis.length > 0 && (
               <section className="space-y-3 border-t border-[var(--border-subtle)] pt-5">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--accent-primary)]">
-                    Key Financial KPIs
-                  </h3>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[var(--status-ok-bg)] px-2 py-0.5 text-[10px] font-semibold text-[var(--status-ok-text)]">
-                    <CheckCircle2 className="h-3 w-3" />
-                    Verified Ledger
-                  </span>
-                </div>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                  Financial indicators
+                </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {inspectBrief.kpis.map((kpi, idx) => (
                     <div
                       key={idx}
-                      className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-bg)] p-3.5 space-y-1"
+                      className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-bg)] p-4 space-y-1.5"
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                        <span className="text-xs font-medium text-[var(--text-muted)]">
                           {kpi.label}
                         </span>
                         {kpi.status === 'MISSING_DATA' && (
@@ -536,7 +564,7 @@ export function ReportsPage() {
                       </div>
                       <div className="flex flex-wrap items-baseline justify-between gap-2 pt-0.5">
                         <span
-                          className={`text-base font-bold tabular-nums tracking-tight ${
+                          className={`text-lg font-semibold tabular-nums tracking-tight ${
                             kpi.status === 'MISSING_DATA'
                               ? 'text-[var(--status-warn-text)]'
                               : 'text-[var(--text-primary)]'
@@ -552,7 +580,7 @@ export function ReportsPage() {
                         )}
                       </div>
                       {kpi.subtext && (
-                        <p className="text-[11px] text-[var(--text-muted)] leading-snug tabular-nums">
+                        <p className="text-xs text-[var(--text-muted)] leading-snug tabular-nums">
                           {kpi.subtext}
                         </p>
                       )}
@@ -567,11 +595,8 @@ export function ReportsPage() {
               <section className="space-y-4 border-t border-[var(--border-subtle)] pt-5">
                 <div className="flex items-center justify-between">
                   <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--accent-primary)]">
-                    Core Performance Breakdown
+                    Performance detail
                   </h3>
-                  <span className="text-[10px] font-medium text-[var(--text-muted)]">
-                    Verified Calculations ({inspectBrief.dataGrounding.currency})
-                  </span>
                 </div>
 
                 {inspectBrief.tables.map((table, tIdx) => (
@@ -580,7 +605,9 @@ export function ReportsPage() {
                     className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-bg)] overflow-hidden"
                   >
                     <div className="px-3.5 py-2.5 border-b border-[var(--border-subtle)] flex items-center justify-between gap-2 bg-[var(--surface-elevated)]/45">
-                      <h4 className="text-xs font-bold text-[var(--text-primary)]">{table.title}</h4>
+                      <h4 className="text-xs font-bold text-[var(--text-primary)]">
+                        {table.title}
+                      </h4>
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
@@ -658,25 +685,64 @@ export function ReportsPage() {
               </section>
             )}
 
-            {/* 4. Key Risks & Anomalies (Omitted cleanly when zero issues exist) */}
+            {/* 4. Risk observations */}
             {inspectBrief.risksAndAnomalies.length > 0 && (
               <section className="space-y-3 border-t border-[var(--border-subtle)] pt-5">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--accent-primary)]">
-                    Key Risks & Anomalies
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                    Risk observations
                   </h3>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[var(--status-warn-bg)] px-2 py-0.5 text-[10px] font-semibold text-[var(--status-warn-text)]">
-                    <ShieldAlert className="h-3 w-3" />
-                    {inspectBrief.risksAndAnomalies.length} Detected Signal(s)
-                  </span>
                 </div>
+                {!hasRiskDistributionTable && (
+                  <div
+                    role="img"
+                    aria-label={`Risk observations by severity: ${riskSeverityCounts
+                      .map(({ severity, count }) => `${severity.toLowerCase()} ${count}`)
+                      .join(', ')}`}
+                    className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-bg)] p-4"
+                  >
+                    <h4 className="mb-3 text-xs font-medium text-[var(--text-secondary)]">
+                      Severity profile
+                    </h4>
+                    <div className="space-y-2.5">
+                      {riskSeverityCounts.map(({ severity, count }) => {
+                        const toneClass =
+                          severity === 'CRITICAL' || severity === 'HIGH'
+                            ? 'bg-[var(--status-err-text)]'
+                            : severity === 'MEDIUM'
+                              ? 'bg-[var(--status-warn-text)]'
+                              : 'bg-[var(--status-ok-text)]';
+
+                        return (
+                          <div
+                            key={severity}
+                            className="grid grid-cols-[5.5rem_minmax(0,1fr)_2rem] items-center gap-3"
+                          >
+                            <span className="text-[11px] text-[var(--text-secondary)]">
+                              {formatReportType(severity)}
+                            </span>
+                            <div className="h-2 overflow-hidden rounded-full bg-[var(--surface-elevated)]">
+                              <div
+                                className={`h-full rounded-full ${toneClass}`}
+                                style={{ width: `${(count / maxRiskSeverityCount) * 100}%` }}
+                              />
+                            </div>
+                            <span className="text-right text-xs font-medium tabular-nums text-[var(--text-primary)]">
+                              {count}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 <ul className="space-y-2">
                   {inspectBrief.risksAndAnomalies.map((risk, idx) => {
                     const isCritOrHigh = risk.severity === 'CRITICAL' || risk.severity === 'HIGH';
                     return (
                       <li
                         key={idx}
-                        className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-bg)] p-3 flex items-start gap-2.5"
+                        className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-bg)] p-4 flex items-start gap-3"
                       >
                         <span
                           className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
@@ -688,15 +754,15 @@ export function ReportsPage() {
                           {risk.severity}
                         </span>
                         <div className="min-w-0 space-y-0.5">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-semibold text-[var(--text-primary)]">
+                          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                            <span className="text-sm font-semibold text-[var(--text-primary)]">
                               {risk.title}
                             </span>
-                            <span className="text-[10px] text-[var(--text-muted)]">
-                              · {risk.sourceTag}
+                            <span className="text-[11px] text-[var(--text-muted)]">
+                              Source: {risk.sourceTag}
                             </span>
                           </div>
-                          <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
+                          <p className="mt-1 text-[13px] leading-relaxed text-[var(--text-secondary)]">
                             {risk.detail}
                           </p>
                         </div>
@@ -711,33 +777,29 @@ export function ReportsPage() {
             {inspectBrief.prioritizedActionPlan.length > 0 && (
               <section className="space-y-3 border-t border-[var(--border-subtle)] pt-5">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--accent-primary)]">
-                    Prioritized Action Plan
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                    Recommended actions
                   </h3>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[var(--surface-elevated)] px-2 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)]">
-                    <Sparkles className="h-3 w-3 text-[var(--accent-amber)]" />
-                    AI Advisory (Grounded)
-                  </span>
                 </div>
                 <ol className="space-y-2">
                   {inspectBrief.prioritizedActionPlan.map((action) => (
                     <li
                       key={action.priority}
-                      className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-bg)] p-3 flex items-start gap-3"
+                      className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-bg)] p-4 flex items-start gap-3"
                     >
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent-primary)] text-[10px] font-bold text-white tabular-nums">
-                        {action.priority}
+                      <span className="shrink-0 rounded-md bg-[var(--surface-elevated)] px-2 py-1 text-[10px] font-semibold text-[var(--accent-primary)] tabular-nums">
+                        P{action.priority}
                       </span>
                       <div className="min-w-0 flex-1 space-y-0.5">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-semibold text-[var(--text-primary)]">
+                          <span className="text-sm font-semibold text-[var(--text-primary)]">
                             {action.title}
                           </span>
                           <span className="text-[10px] font-medium text-[var(--text-muted)]">
-                            {action.targetArea} · {action.impact} Impact
+                            {action.targetArea} · {action.impact.toLowerCase()} impact
                           </span>
                         </div>
-                        <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
+                        <p className="text-[13px] leading-relaxed text-[var(--text-secondary)]">
                           {action.rationale}
                         </p>
                       </div>
@@ -747,106 +809,100 @@ export function ReportsPage() {
               </section>
             )}
 
-            {/* 6. Data Grounding & Limitations Footer */}
-            <section className="border-t border-[var(--border-subtle)] pt-5">
-              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-bg)] p-4 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                    Data Grounding & Limitations
-                  </h3>
-                  <span className="text-[10px] font-medium text-[var(--text-muted)] tabular-nums">
-                    {inspectBrief.dataGrounding.currency} ·{' '}
-                    {formatDate(inspectBrief.dataGrounding.reportingPeriodStart)} –{' '}
-                    {formatDate(inspectBrief.dataGrounding.reportingPeriodEnd)}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
-                  {(
-                    [
-                      ['Accounts', inspectBrief.dataGrounding.recordCounts.accounts],
-                      ['Transactions', inspectBrief.dataGrounding.recordCounts.transactions],
-                      ['Invoices', inspectBrief.dataGrounding.recordCounts.invoices],
-                      ['Bills', inspectBrief.dataGrounding.recordCounts.bills],
-                      ['Budgets', inspectBrief.dataGrounding.recordCounts.budgets],
-                      ['Alerts', inspectBrief.dataGrounding.recordCounts.riskAlerts],
-                    ] as const
-                  ).map(([label, count]) => (
-                    <div
-                      key={label}
-                      className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-card)] px-2 py-1.5"
-                    >
-                      <div className="text-xs font-bold text-[var(--text-primary)] tabular-nums">
-                        {count}
-                      </div>
-                      <div className="text-[10px] text-[var(--text-muted)]">{label}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {inspectBrief.dataGrounding.dataSources.length > 0 && (
-                  <p className="text-[11px] text-[var(--text-secondary)]">
-                    <strong className="text-[var(--text-primary)]">Sources:</strong>{' '}
-                    {inspectBrief.dataGrounding.dataSources.join(' · ')}
-                  </p>
-                )}
-
-                {inspectBrief.dataGrounding.missingInputs.length > 0 && (
-                  <div className="rounded-lg border border-amber-500/30 bg-[var(--status-warn-bg)]/60 p-2.5 space-y-1">
-                    {inspectBrief.dataGrounding.missingInputs.map((lim, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-start gap-1.5 text-[11px] text-[var(--status-warn-text)]"
-                      >
-                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                        <span>{lim}</span>
-                      </div>
-                    ))}
+            {/* 6. Sources and limitations */}
+            {hasGroundingDetails && (
+              <section className="border-t border-[var(--border-subtle)] pt-5">
+                <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-bg)] p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                      Sources & limitations
+                    </h3>
                   </div>
-                )}
 
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[var(--border-subtle)]">
-                  <p className="text-[10px] text-[var(--text-muted)] leading-snug max-w-lg">
-                    {inspectBrief.dataGrounding.methodologyNote}
-                  </p>
-                  {Object.values(inspectReport.sourceRecordIds ?? {}).some(
-                    (ids) => Array.isArray(ids) && ids.length > 0,
-                  ) && (
-                    <button
-                      type="button"
-                      onClick={() => setShowSourceIds((prev) => !prev)}
-                      aria-expanded={showSourceIds}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--accent-primary)] hover:underline cursor-pointer"
-                    >
-                      {showSourceIds ? (
-                        <>
-                          Hide Source IDs
-                          <ChevronUp className="h-3.5 w-3.5" />
-                        </>
-                      ) : (
-                        <>
-                          View Source IDs
-                          <ChevronDown className="h-3.5 w-3.5" />
-                        </>
-                      )}
-                    </button>
-                  )}
-                </div>
-
-                {showSourceIds && (
-                  <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-card)] p-2.5 space-y-1 text-[10px] text-[var(--text-muted)] font-mono">
-                    {Object.entries(inspectReport.sourceRecordIds ?? {})
-                      .filter(([, ids]) => Array.isArray(ids) && ids.length > 0)
-                      .map(([key, ids]) => (
-                        <div key={key} className="break-all">
-                          <span className="font-semibold text-[var(--text-secondary)]">{key}:</span>{' '}
-                          {ids.join(', ')}
+                  {sourceRecordCounts.length > 0 && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {sourceRecordCounts.map(({ label, count }) => (
+                        <div
+                          key={label}
+                          className="flex items-center justify-between gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 py-2"
+                        >
+                          <span className="text-xs text-[var(--text-secondary)]">{label}</span>
+                          <span className="text-xs font-semibold text-[var(--text-primary)] tabular-nums">
+                            {count}
+                          </span>
                         </div>
                       ))}
-                  </div>
-                )}
-              </div>
-            </section>
+                    </div>
+                  )}
+
+                  {reportDataSources.length > 0 && (
+                    <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
+                      <strong className="font-medium text-[var(--text-primary)]">Sources:</strong>{' '}
+                      {reportDataSources.join(' · ')}
+                    </p>
+                  )}
+
+                  {inspectBrief.dataGrounding.missingInputs.length > 0 && (
+                    <div className="rounded-lg border border-amber-500/30 bg-[var(--status-warn-bg)]/60 p-2.5 space-y-1">
+                      {inspectBrief.dataGrounding.missingInputs.map((lim, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-start gap-1.5 text-xs leading-relaxed text-[var(--status-warn-text)]"
+                        >
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                          <span>{lim}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {(inspectBrief.dataGrounding.methodologyNote || hasSourceReferences) && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-[var(--border-subtle)]">
+                      {inspectBrief.dataGrounding.methodologyNote && (
+                        <p className="text-[11px] text-[var(--text-muted)] leading-relaxed max-w-lg">
+                          {inspectBrief.dataGrounding.methodologyNote}
+                        </p>
+                      )}
+                      {hasSourceReferences && (
+                        <button
+                          type="button"
+                          onClick={() => setShowSourceIds((prev) => !prev)}
+                          aria-expanded={showSourceIds}
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--accent-primary)] hover:underline cursor-pointer"
+                        >
+                          {showSourceIds ? (
+                            <>
+                              Hide Source IDs
+                              <ChevronUp className="h-3.5 w-3.5" />
+                            </>
+                          ) : (
+                            <>
+                              View Source IDs
+                              <ChevronDown className="h-3.5 w-3.5" />
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {showSourceIds && (
+                    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-card)] p-2.5 space-y-1 text-[10px] text-[var(--text-muted)] font-mono">
+                      {Object.entries(inspectReport.sourceRecordIds ?? {})
+                        .filter(([, ids]) => Array.isArray(ids) && ids.length > 0)
+                        .map(([key, ids]) => (
+                          <div key={key} className="break-all">
+                            <span className="font-semibold text-[var(--text-secondary)]">
+                              {getSourceReferenceLabel(key)}:
+                            </span>{' '}
+                            {formatSourceReferenceValues(key, ids).join(', ')}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
           </div>
         )}
       </Drawer>
@@ -856,7 +912,7 @@ export function ReportsPage() {
         <Modal
           isOpen={true}
           onClose={() => setIsGenerateModalOpen(false)}
-          title="Generate Financial Report"
+          title="Create financial report"
         >
           <form onSubmit={handleGenerateReport} className="space-y-4 text-xs">
             {modalError && (
@@ -883,13 +939,11 @@ export function ReportsPage() {
                 onChange={(e) => setReportType(e.target.value as ReportType)}
                 className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-bg)] p-2 text-xs font-semibold"
               >
-                <option value={ReportType.BUSINESS_HEALTH}>
-                  BUSINESS_HEALTH (Comprehensive SME Scorecard)
-                </option>
-                <option value={ReportType.CASH_FLOW}>CASH_FLOW (7-90 Day Horizon Analysis)</option>
-                <option value={ReportType.EXPENSE}>EXPENSE (Operating Cost & Burn Audit)</option>
-                <option value={ReportType.BUDGET}>BUDGET (Allocated vs Actual Spending)</option>
-                <option value={ReportType.RISK}>RISK (Statistical Anomaly Digest)</option>
+                <option value={ReportType.BUSINESS_HEALTH}>Business health</option>
+                <option value={ReportType.CASH_FLOW}>Cash flow</option>
+                <option value={ReportType.EXPENSE}>Expenses</option>
+                <option value={ReportType.BUDGET}>Budget performance</option>
+                <option value={ReportType.RISK}>Risk</option>
               </select>
             </div>
 
@@ -903,7 +957,7 @@ export function ReportsPage() {
                 isLoading={isGenerating}
                 disabled={!title.trim()}
               >
-                Compile Report
+                Create report
               </Button>
             </div>
           </form>
