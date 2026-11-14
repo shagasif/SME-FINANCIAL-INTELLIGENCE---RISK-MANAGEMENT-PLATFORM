@@ -52,4 +52,24 @@ export class ScenarioPlanningController {
   async list(@Param('orgId') orgId: string) {
     return this.service.listScenarios(orgId);
   }
+
+  @Get(':scenarioId')
+  @Roles(
+    RoleType.PLATFORM_ADMIN,
+    RoleType.BUSINESS_OWNER,
+    RoleType.FINANCE_MANAGER,
+    RoleType.ACCOUNTANT,
+    RoleType.OPERATIONS_MANAGER,
+    RoleType.FINANCIAL_ANALYST,
+    RoleType.AUDITOR,
+  )
+  @ApiOperation({
+    summary: 'Get details, impact, projections, risk assessment, and recommendations for a specific scenario simulation',
+  })
+  async getScenario(
+    @Param('orgId') orgId: string,
+    @Param('scenarioId') scenarioId: string,
+  ) {
+    return this.service.getScenarioById(orgId, scenarioId);
+  }
 }
