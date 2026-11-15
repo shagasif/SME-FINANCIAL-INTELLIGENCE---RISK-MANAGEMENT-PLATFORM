@@ -115,8 +115,8 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
   }, []);
 
   return (
-    <header className="h-16 border-b border-[var(--border-subtle)] bg-[var(--surface-card)] px-4 sm:px-6 flex items-center justify-between z-20 shrink-0">
-      <div className="flex items-center gap-3">
+    <header className="h-16 border-b border-[var(--border-subtle)] bg-[var(--surface-card)] px-3 sm:px-6 flex items-center justify-between z-20 shrink-0 relative">
+      <div className="flex items-center gap-2 sm:gap-3">
         {/* Mobile Nav Button */}
         <button
           onClick={onOpenMobileNav}
@@ -131,16 +131,16 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
           <div className="relative" ref={orgMenuRef}>
             <button
               onClick={() => setIsOrgMenuOpen(!isOrgMenuOpen)}
-              className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)]/60 hover:bg-[var(--surface-elevated)] transition-all duration-200 hover:-translate-y-0.5 cursor-pointer text-sm font-semibold text-[var(--text-primary)]"
+              className="flex items-center gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)]/60 hover:bg-[var(--surface-elevated)] transition-all duration-200 hover:-translate-y-0.5 cursor-pointer text-sm font-semibold text-[var(--text-primary)]"
               aria-expanded={isOrgMenuOpen}
               aria-label="Select organization workspace"
             >
-              <Building2 className="w-4 h-4 text-[var(--accent-teal)] shrink-0" />
-              <span className="max-w-[160px] sm:max-w-[220px] truncate">{activeOrg.name}</span>
-              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-md bg-[var(--surface-card)] border border-[var(--border-subtle)] text-[var(--text-muted)]">
+              <Building2 className="hidden sm:block w-4 h-4 text-[var(--accent-teal)] shrink-0" />
+              <span className="max-w-[130px] sm:max-w-[220px] truncate">{activeOrg.name}</span>
+              <span className="hidden sm:inline-block text-[10px] font-mono px-1.5 py-0.2 rounded-md bg-[var(--surface-card)] border border-[var(--border-subtle)] text-[var(--text-muted)]">
                 {activeOrg.baseCurrency}
               </span>
-              <ChevronDown className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+              <ChevronDown className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" />
             </button>
 
             {isOrgMenuOpen && (
@@ -189,11 +189,11 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
       </div>
 
       {/* Right Controls */}
-      <div className="flex items-center gap-2 sm:gap-3">
+      <div className="flex items-center gap-1.5 sm:gap-3">
         {/* Theme Mode Switcher */}
         <button
           onClick={toggleTheme}
-          className="p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] transition-all duration-200 hover:-translate-y-0.5 cursor-pointer"
+          className="hidden sm:flex p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] transition-all duration-200 hover:-translate-y-0.5 cursor-pointer"
           title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
           aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
         >
@@ -206,7 +206,7 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
 
         {/* Notifications Icon (when user is authenticated) */}
         {user && (
-          <div className="relative" ref={notificationMenuRef}>
+          <div className="sm:relative" ref={notificationMenuRef}>
             <button
               onClick={() => setIsNotificationsOpen((prev) => !prev)}
               className={`relative p-2 rounded-lg transition-all duration-200 hover:-translate-y-0.5 cursor-pointer ${
@@ -246,7 +246,7 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
           <div className="relative" ref={userMenuRef}>
             <button
               onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-              className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-lg border border-[var(--border-subtle)] hover:bg-[var(--surface-elevated)] transition-all duration-200 hover:-translate-y-0.5 cursor-pointer"
+              className="flex items-center gap-1.5 sm:gap-2 pl-1.5 sm:pl-2 pr-1.5 sm:pr-1 py-1 rounded-lg border border-[var(--border-subtle)] hover:bg-[var(--surface-elevated)] transition-all duration-200 hover:-translate-y-0.5 cursor-pointer"
               aria-expanded={isUserMenuOpen}
               aria-label="User profile options"
             >
@@ -260,7 +260,7 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
               <span className="hidden sm:inline text-xs font-semibold text-[var(--text-primary)] max-w-[120px] truncate">
                 {user.fullName || user.email}
               </span>
-              <ChevronDown className="w-3 h-3 text-[var(--text-muted)]" />
+              <ChevronDown className="hidden sm:block w-3 h-3 text-[var(--text-muted)]" />
             </button>
 
             {isUserMenuOpen && (

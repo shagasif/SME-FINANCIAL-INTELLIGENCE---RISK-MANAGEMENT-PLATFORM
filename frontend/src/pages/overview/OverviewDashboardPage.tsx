@@ -7,7 +7,6 @@ import {
   ArrowDownRight,
   ArrowRight,
   ArrowUpRight,
-  Bot,
   CheckCircle2,
   Clock,
   DollarSign,
@@ -882,7 +881,6 @@ export function OverviewDashboardPage() {
     isLoading: isAuthLoading,
     isAuditor,
     canMutateLedger,
-    canRunAiWorkflows,
   } = useAuth();
 
   const hasToken = Boolean(authStorage.getToken());
@@ -1196,15 +1194,6 @@ export function OverviewDashboardPage() {
               <Button variant="primary" size="sm">
                 <Plus className="w-3.5 h-3.5 mr-1.5" />
                 New Entry
-              </Button>
-            </Link>
-          )}
-
-          {canRunAiWorkflows && (
-            <Link to="/ai-assistant">
-              <Button variant="secondary" size="sm">
-                <Bot className="w-3.5 h-3.5 mr-1.5 text-[var(--accent-teal)]" />
-                AI Assistant
               </Button>
             </Link>
           )}

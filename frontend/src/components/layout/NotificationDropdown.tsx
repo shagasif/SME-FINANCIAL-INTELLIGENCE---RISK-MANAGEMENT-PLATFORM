@@ -108,7 +108,7 @@ export function NotificationDropdown({
     <div
       role="dialog"
       aria-label="Notifications panel"
-      className="fixed inset-x-3 top-16 sm:static sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-96 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-2xl z-50 overflow-hidden flex flex-col max-h-[85vh] sm:max-h-[520px] transition-all animate-in fade-in zoom-in-95 duration-150"
+      className="absolute top-full mt-2 right-0 z-50 w-[calc(100vw-1.5rem)] max-w-sm sm:w-96 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-2xl overflow-hidden flex flex-col max-h-[80vh] sm:max-h-[520px] transition-all animate-in fade-in zoom-in-95 duration-150"
     >
       {/* Header */}
       <div className="p-3.5 sm:p-4 border-b border-[var(--border-subtle)] flex items-center justify-between gap-2 bg-[var(--surface-canvas)]/50 shrink-0">
@@ -197,13 +197,8 @@ export function NotificationDropdown({
             <div className="w-10 h-10 rounded-full bg-[var(--surface-elevated)] flex items-center justify-center mb-2.5 text-[var(--text-muted)]">
               <Check className="w-5 h-5 text-emerald-500" />
             </div>
-            <p className="font-semibold text-[var(--text-primary)] mb-0.5">
-              {filter === 'UNREAD' ? 'No unread alerts' : 'No notifications'}
-            </p>
-            <p className="text-[11px] max-w-[220px]">
-              {filter === 'UNREAD'
-                ? 'All pending financial warnings and tasks have been acknowledged.'
-                : 'Platform health nominal. Any telemetry warnings will appear here.'}
+            <p className="font-semibold text-[var(--text-primary)] text-center max-w-[260px]">
+              You&apos;re all caught up! New alerts and updates will appear here.
             </p>
           </div>
         ) : (
