@@ -845,7 +845,7 @@ export function TransactionsPage() {
                                 : 'text-[var(--accent-teal)]'
                           }
                         >
-                          {isIncome ? '+' : isExpense ? '-' : ''}
+                          {Number(tx.amount) < 0 ? '' : isIncome ? '+' : isExpense ? '-' : ''}
                           {formatCurrency(
                             tx.amount,
                             tx.currency || accountMap[tx.accountId]?.currency || currency,
@@ -924,6 +924,7 @@ export function TransactionsPage() {
         isOpen={isCsvModalOpen}
         onClose={() => setIsCsvModalOpen(false)}
         accounts={safeAccounts}
+        initialAccountId={selectedAccountId || safeAccounts[0]?.id || ''}
         orgId={activeOrgId || ''}
         onSuccess={handleRefresh}
       />

@@ -90,7 +90,7 @@ export function RegisterPage() {
     setIsSubmitting(true);
 
     try {
-      const session = await apiPost<AuthSessionPayload>('/v1/auth/register', {
+      await apiPost<AuthSessionPayload>('/v1/auth/register', {
         fullName: fullName.trim(),
         email: email.trim().toLowerCase(),
         password,
@@ -99,12 +99,15 @@ export function RegisterPage() {
         baseCurrency,
       });
 
-      // Save token and navigate
-      authStorage.setToken(session.accessToken, true);
-      if (session.organization?.id) {
-        authStorage.setActiveOrgId(session.organization.id);
-      }
-      navigate('/overview', { replace: true });
+      // Clear any session tokens so newly registered user logs in explicitly on login page
+      authStorage.clearToken();
+      navigate('/login', {
+        replace: true,
+        state: {
+          registeredEmail: email.trim().toLowerCase(),
+          successMessage: 'Account successfully registered! Please sign in with your credentials.',
+        },
+      });
     } catch (err: unknown) {
       if (err instanceof ApiClientError) {
         setError(err.message || 'Registration failed. Please try a different email.');

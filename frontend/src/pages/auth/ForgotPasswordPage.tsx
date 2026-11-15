@@ -1,12 +1,13 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Mail, KeyRound } from 'lucide-react';
 import { apiPost, ApiClientError } from '../../services/apiClient';
+import { AuthPageBackground } from '../../components/auth/AuthPageBackground';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 
 export function ForgotPasswordPage() {
-  const [step, setStep] = useState<'request' | 'confirm'>('request');
+  const [step, setStep] = useState<'request' | 'sent' | 'confirm'>('request');
   const [email, setEmail] = useState('');
   const [token, setToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -27,10 +28,7 @@ export function ForgotPasswordPage() {
 
     try {
       await apiPost('/v1/auth/password-reset/request', { email: email.trim().toLowerCase() });
-      setSuccessMessage(
-        'If an account exists with this email, a reset token has been issued. Please check your email or proceed below to enter your recovery token.',
-      );
-      setStep('confirm');
+      setStep('sent');
     } catch (err: unknown) {
       if (err instanceof ApiClientError) {
         setError(err.message);
@@ -74,25 +72,37 @@ export function ForgotPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--surface-canvas)] flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
+    <div
+      data-theme="dark"
+      className="auth-glass-page relative isolate min-h-screen overflow-hidden bg-[#080611] flex flex-col justify-center py-12 sm:px-6 lg:px-8"
+    >
+      <AuthPageBackground />
+
+      <Link
+        to="/login"
+        className="absolute left-4 top-4 z-20 text-xs text-white/60 transition-colors hover:text-white sm:left-6 sm:top-6"
+      >
+        ← Back to Sign In
+      </Link>
+
+      <div className="relative z-10 sm:mx-auto sm:w-full sm:max-w-md text-center">
         <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-[var(--accent-primary)] text-white font-bold text-xl shadow-lg mb-4">
           SME
         </div>
-        <h1 className="text-2xl font-bold tracking-tight text-[var(--text-primary)]">
+        <h1 className="text-2xl font-bold tracking-tight text-white">
           Password Recovery
         </h1>
-        <p className="mt-1.5 text-xs text-[var(--text-muted)]">
+        <p className="mt-1.5 text-xs text-white/60">
           Secure identity verification and credential rotation
         </p>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4 sm:px-0">
-        <div className="bg-[var(--surface-card)] py-8 px-6 sm:px-10 shadow-lg rounded-2xl border border-[var(--border-subtle)]">
+      <div className="relative z-10 mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4 sm:px-0">
+        <div className="rounded-2xl border border-white/15 bg-white/[0.04] px-6 py-8 shadow-2xl backdrop-blur-2xl sm:px-10">
           {error && (
             <div
               role="alert"
-              className="mb-5 flex items-start gap-3 p-3.5 rounded-xl border border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400 text-xs"
+              className="mb-5 flex items-start gap-3 p-3.5 rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 text-xs"
             >
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span className="leading-relaxed">{error}</span>
@@ -102,18 +112,18 @@ export function ForgotPasswordPage() {
           {successMessage && (
             <div
               role="status"
-              className="mb-5 flex items-start gap-3 p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-xs"
+              className="mb-5 flex items-start gap-3 p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs"
             >
               <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
               <span className="leading-relaxed">{successMessage}</span>
             </div>
           )}
 
-          {step === 'request' ? (
+          {step === 'request' && (
             <form className="space-y-5" onSubmit={handleRequestSubmit}>
-              <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                Enter your registered work email address below to receive an authorized security
-                token for resetting your password.
+              <p className="text-xs text-white/70 leading-relaxed">
+                Enter your registered work email address below. If an active account matches, we
+                will send a secure password reset link valid for 30 minutes.
               </p>
 
               <Input
@@ -121,6 +131,7 @@ export function ForgotPasswordPage() {
                 label="Registered Work Email"
                 type="email"
                 required
+                className="auth-glass-input"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@company.com"
@@ -133,20 +144,72 @@ export function ForgotPasswordPage() {
                 className="w-full justify-center"
                 isLoading={isSubmitting}
               >
-                Request Recovery Token
+                Send Reset Link
                 <ArrowRight className="w-4 h-4 ml-1.5" />
               </Button>
+
+              <div className="text-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => setStep('confirm')}
+                  className="text-xs text-white/60 hover:text-white transition-colors inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  Already have a recovery token?
+                </button>
+              </div>
             </form>
-          ) : (
+          )}
+
+          {step === 'sent' && (
+            <div className="text-center py-2 space-y-4">
+              <div className="w-12 h-12 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-400 mx-auto flex items-center justify-center">
+                <Mail className="w-6 h-6" />
+              </div>
+              <h2 className="text-lg font-semibold text-white">Check Your Inbox</h2>
+              <p className="text-xs text-white/70 leading-relaxed">
+                If an active account exists for <strong className="text-white">{email}</strong>,
+                we have emailed a secure password reset link. Please check your inbox and click the
+                link within <strong>30 minutes</strong>.
+              </p>
+              <div className="p-3 rounded-xl bg-white/[0.05] border border-white/10 text-white/70 text-xs text-left">
+                <strong className="text-white">Can't find the email?</strong>
+                <ul className="list-disc list-inside mt-1 space-y-0.5">
+                  <li>Check your spam or junk folder.</li>
+                  <li>Verify that your email address was typed correctly.</li>
+                </ul>
+              </div>
+
+              <div className="pt-2 flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => setStep('request')}
+                  className="text-xs text-[var(--accent-teal)] hover:underline cursor-pointer"
+                >
+                  Send to a different email address
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep('confirm')}
+                  className="text-xs text-white/60 hover:text-white cursor-pointer"
+                >
+                  Or enter token manually
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === 'confirm' && (
             <form className="space-y-5" onSubmit={handleConfirmSubmit}>
               <Input
                 id="token"
                 label="Recovery Token"
                 type="text"
                 required
+                className="auth-glass-input"
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
-                placeholder="Paste token received via email/admin"
+                placeholder="Paste token received via email"
               />
 
               <Input
@@ -154,6 +217,7 @@ export function ForgotPasswordPage() {
                 label="New Secure Password"
                 type="password"
                 required
+                className="auth-glass-input"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="••••••••••••"
@@ -173,14 +237,14 @@ export function ForgotPasswordPage() {
               <button
                 type="button"
                 onClick={() => setStep('request')}
-                className="w-full text-center text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                className="w-full text-center text-xs text-white/60 hover:text-white cursor-pointer"
               >
-                Did not receive a token? Try another email
+                &larr; Back to request link
               </button>
             </form>
           )}
 
-          <div className="mt-6 pt-5 border-t border-[var(--border-subtle)] text-center text-xs">
+          <div className="mt-6 pt-5 border-t border-white/10 text-center text-xs">
             <Link
               to="/login"
               className="inline-flex items-center gap-1.5 font-semibold text-[var(--accent-teal)] hover:underline"

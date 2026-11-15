@@ -5,7 +5,7 @@ import { useAuth } from '../../context/useAuth';
 import { AiAssistantPage } from '../../pages/ai-assistant/AiAssistantPage';
 import './FloatingAiAssistant.css';
 
-const HIDDEN_PATHS = new Set(['/', '/login', '/register', '/forgot-password']);
+const HIDDEN_PATHS = new Set(['/', '/login', '/register', '/forgot-password', '/reset-password']);
 
 export function FloatingAiAssistant() {
   const { isAuthenticated, isLoading } = useAuth();

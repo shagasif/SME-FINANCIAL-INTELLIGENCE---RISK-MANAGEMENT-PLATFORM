@@ -1,15 +1,15 @@
-import { useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import * as XLSX from 'xlsx';
 import {
   AlertCircle,
   AlertTriangle,
   ArrowRight,
+  Building2,
   Check,
   CheckCircle2,
   FileSpreadsheet,
   FileText,
   Loader2,
-  ShieldCheck,
   Sparkles,
   Upload,
 } from 'lucide-react';
@@ -104,6 +104,7 @@ interface CsvImportModalProps {
   onClose: () => void;
   accounts: FinancialAccount[];
   orgId: string;
+  initialAccountId?: string;
   onSuccess: () => void;
 }
 
@@ -112,12 +113,39 @@ export function CsvImportModal({
   onClose,
   accounts,
   orgId,
+  initialAccountId,
   onSuccess,
 }: CsvImportModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
-  const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id || '');
+  const [selectedAccountId, setSelectedAccountId] = useState(() => {
+    if (initialAccountId && accounts.some((a) => a.id === initialAccountId)) {
+      return initialAccountId;
+    }
+    return accounts[0]?.id || '';
+  });
+
+  // Preserve and reliably synchronize selected account state across steps and prop updates
+  useEffect(() => {
+    if (!isOpen) return;
+
+    setSelectedAccountId((prevId) => {
+      // If the currently selected account exists and is valid in accounts, retain it
+      if (prevId && accounts.some((a) => a.id === prevId)) {
+        return prevId;
+      }
+      // If initialAccountId is provided and exists, use it
+      if (initialAccountId && accounts.some((a) => a.id === initialAccountId)) {
+        return initialAccountId;
+      }
+      // Otherwise default to the first available account
+      if (accounts.length > 0) {
+        return accounts[0].id;
+      }
+      return '';
+    });
+  }, [isOpen, accounts, initialAccountId]);
   const [fileName, setFileName] = useState('');
   const [fileFormat, setFileFormat] = useState<SupportedImportFormat | null>(null);
   const [csvContent, setCsvContent] = useState('');
@@ -204,6 +232,9 @@ export function CsvImportModal({
           headers: headersList,
           sampleRows: sampleRowsList,
         },
+        undefined,
+        undefined,
+        60_000, // 60s timeout for multi-agent AI orchestration pipeline
       );
 
       if (res && res.success) {
@@ -212,12 +243,12 @@ export function CsvImportModal({
         const mappings =
           res.verifierResult?.verifiedMappings || res.analystResult?.detectedMappings;
         if (mappings) {
-          if (mappings.dateColumn) setDateColumn(mappings.dateColumn);
-          if (mappings.amountColumn) setAmountColumn(mappings.amountColumn);
-          if (mappings.descriptionColumn) setDescriptionColumn(mappings.descriptionColumn);
-          if (mappings.typeColumn) setTypeColumn(mappings.typeColumn);
-          if (mappings.categoryColumn) setCategoryColumn(mappings.categoryColumn);
-          if (mappings.counterpartyColumn) setCounterpartyColumn(mappings.counterpartyColumn);
+          if (mappings.dateColumn !== undefined) setDateColumn(mappings.dateColumn || '');
+          if (mappings.amountColumn !== undefined) setAmountColumn(mappings.amountColumn || '');
+          if (mappings.descriptionColumn !== undefined) setDescriptionColumn(mappings.descriptionColumn || '');
+          if (mappings.typeColumn !== undefined) setTypeColumn(mappings.typeColumn || '');
+          if (mappings.categoryColumn !== undefined) setCategoryColumn(mappings.categoryColumn || '');
+          if (mappings.counterpartyColumn !== undefined) setCounterpartyColumn(mappings.counterpartyColumn || '');
         }
       }
     } catch (err: unknown) {
@@ -445,7 +476,13 @@ export function CsvImportModal({
 
   // Step 2 -> Step 3: Call preview API
   const handleGeneratePreview = async () => {
-    if (!selectedAccountId) {
+    let targetAccId = selectedAccountId;
+    if (!targetAccId && accounts.length > 0) {
+      targetAccId = accounts[0].id;
+      setSelectedAccountId(targetAccId);
+    }
+
+    if (!targetAccId) {
       setError('Please select a target financial account.');
       return;
     }
@@ -459,7 +496,7 @@ export function CsvImportModal({
 
     try {
       const batch = await apiPost<ImportBatch>(`/v1/organizations/${orgId}/csv-imports/preview`, {
-        accountId: selectedAccountId,
+        accountId: targetAccId,
         fileName: fileName || 'uploaded_statement.csv',
         csvContent,
         columnMapping: {
@@ -510,55 +547,146 @@ export function CsvImportModal({
     }
   };
 
-  const renderConfidenceBadge = (fieldKey: string) => {
-    if (isAiMappingLoading) {
-      return (
-        <span className="inline-flex items-center gap-1 text-[10px] text-[var(--text-muted)] animate-pulse">
-          <Loader2 className="w-3 h-3 animate-spin" />
-          Profiling...
-        </span>
-      );
-    }
-    if (!aiMappingResult) return null;
+  const computeFieldConfidence = (
+    fieldKey: string,
+    colName: string,
+  ): number => {
+    if (!colName) return 0;
+    const colIdx = headers.indexOf(colName);
+    if (colIdx === -1) return 0;
 
-    const score = aiMappingResult.analystResult?.confidenceScores?.[fieldKey] ?? 0;
-    const mappings =
-      aiMappingResult.verifierResult?.verifiedMappings ||
-      aiMappingResult.analystResult?.detectedMappings;
-    const mappedHeader = mappings?.[`${fieldKey}Column` as keyof typeof mappings];
-
-    if (!mappedHeader || score === 0) {
-      return (
-        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[var(--surface-elevated)] text-[var(--text-muted)] border border-[var(--border-subtle)]">
-          Unmapped
-        </span>
-      );
+    const aiMappings =
+      aiMappingResult?.verifierResult?.verifiedMappings ||
+      aiMappingResult?.analystResult?.detectedMappings;
+    const aiScore = aiMappingResult?.analystResult?.confidenceScores?.[fieldKey];
+    if (
+      aiMappings &&
+      aiMappings[`${fieldKey}Column` as keyof typeof aiMappings] === colName &&
+      typeof aiScore === 'number'
+    ) {
+      return Math.min(0.99, Math.max(0.1, aiScore));
     }
 
-    if (score >= 0.85) {
-      return (
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-          <Check className="w-2.5 h-2.5" />
-          {Math.round(score * 100)}% Confidence
-        </span>
-      );
+    const lowerHeader = colName.toLowerCase();
+    const samples = previewSample.map((r) => r[colIdx]).filter(Boolean);
+    const sampleCount = samples.length || 1;
+
+    if (fieldKey === 'date') {
+      const hasHeaderMatch = /date|time|posting|txn|trans|day|period|booking|value/i.test(lowerHeader);
+      const validCount = samples.filter((s) => {
+        if (!s) return false;
+        const parsed = Date.parse(s);
+        if (!Number.isNaN(parsed)) return true;
+        return /^\d{1,4}[-/.][a-z0-9]{1,3}[-/.][a-z0-9]{1,4}/i.test(s.trim());
+      }).length;
+      const ratio = validCount / sampleCount;
+      let score = hasHeaderMatch ? 0.25 : 0.05;
+      if (ratio >= 0.8) score += 0.63;
+      else if (ratio >= 0.4) score += 0.35;
+      return Math.min(0.88, score);
     }
 
-    if (score >= 0.6) {
-      return (
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-          <AlertTriangle className="w-2.5 h-2.5" />
-          {Math.round(score * 100)}% Review Suggested
-        </span>
-      );
+    if (fieldKey === 'amount') {
+      const hasHeaderMatch =
+        /amount|total|sum|net|price|val|cost|fee|debit|credit|pkr|usd/i.test(lowerHeader);
+      const validCount = samples.filter((s) => {
+        if (!s) return false;
+        const clean = s
+          .replace(/\b(rs|re|pkr|usd|eur|gbp)\.?\b/gi, '')
+          .replace(/[$,€£₨₹()]/g, '')
+          .trim();
+        return /\d/.test(clean) && !isNaN(parseFloat(clean.replace(/,/g, '')));
+      }).length;
+      const ratio = validCount / sampleCount;
+      let score = hasHeaderMatch ? 0.25 : 0.05;
+      if (ratio >= 0.8) score += 0.63;
+      else if (ratio >= 0.4) score += 0.35;
+      return Math.min(0.88, score);
     }
 
-    return (
-      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30">
-        Low Confidence ({Math.round(score * 100)}%)
-      </span>
-    );
+    if (fieldKey === 'description') {
+      const hasHeaderMatch = /desc|item|memo|detail|narration|particular|note|name/i.test(lowerHeader);
+      const validCount = samples.filter(
+        (s) => s && s.trim().length >= 2 && !/^\d+(\.\d+)?$/.test(s.trim()),
+      ).length;
+      const ratio = validCount / sampleCount;
+      let score = hasHeaderMatch ? 0.3 : 0.1;
+      if (ratio >= 0.8) score += 0.55;
+      return Math.min(0.85, score);
+    }
+
+    if (fieldKey === 'type') {
+      const hasHeaderMatch = /type|movement|dr_cr|direction/i.test(lowerHeader);
+      const validCount = samples.filter((s) =>
+        /sale|purchase|income|expense|debit|credit|transfer|inflow|outflow/i.test(s),
+      ).length;
+      const ratio = validCount / sampleCount;
+      let score = hasHeaderMatch ? 0.3 : 0.1;
+      if (ratio >= 0.5) score += 0.55;
+      return Math.min(0.85, score);
+    }
+
+    if (fieldKey === 'category') {
+      const hasHeaderMatch = /cat|class|group|account/i.test(lowerHeader);
+      let score = hasHeaderMatch ? 0.35 : 0.15;
+      if (samples.some((s) => s && s.length >= 2)) score += 0.5;
+      return Math.min(0.85, score);
+    }
+
+    if (fieldKey === 'counterparty') {
+      const hasHeaderMatch =
+        /vendor|customer|payee|payer|party|entity|client|merchant/i.test(lowerHeader);
+      let score = hasHeaderMatch ? 0.35 : 0.15;
+      if (samples.some((s) => s && s.length >= 2)) score += 0.5;
+      return Math.min(0.85, score);
+    }
+
+    return 0.5;
   };
+
+  // Dynamically calculate honest single overall mapping confidence percentage
+  const overallConfidence = useMemo(() => {
+    if (!dateColumn && !amountColumn && !descriptionColumn) return 0;
+
+    const dateScore = computeFieldConfidence('date', dateColumn);
+    const amountScore = computeFieldConfidence('amount', amountColumn);
+    const descScore = computeFieldConfidence('description', descriptionColumn);
+
+    const optScores: number[] = [];
+    if (typeColumn) optScores.push(computeFieldConfidence('type', typeColumn));
+    if (categoryColumn) optScores.push(computeFieldConfidence('category', categoryColumn));
+    if (counterpartyColumn) optScores.push(computeFieldConfidence('counterparty', counterpartyColumn));
+
+    const optAverage =
+      optScores.length > 0 ? optScores.reduce((a, b) => a + b, 0) / optScores.length : 0.9;
+
+    // Required field weights: Date 35%, Amount 35%, Description 20%, Optional quality 10%
+    const total = dateScore * 0.35 + amountScore * 0.35 + descScore * 0.2 + optAverage * 0.1;
+    return Math.max(5, Math.min(99, Math.round(total * 100)));
+  }, [
+    dateColumn,
+    amountColumn,
+    descriptionColumn,
+    typeColumn,
+    categoryColumn,
+    counterpartyColumn,
+    headers,
+    previewSample,
+    aiMappingResult,
+  ]);
+
+  const missingRequiredMessage = useMemo(() => {
+    if (!amountColumn) {
+      return 'Amount field not detected. Please review the mapping.';
+    }
+    if (!dateColumn) {
+      return 'Date field not detected. Please review the mapping.';
+    }
+    if (!descriptionColumn) {
+      return 'Description field not detected. Please review the mapping.';
+    }
+    return null;
+  }, [amountColumn, dateColumn, descriptionColumn]);
 
   const headerOptions = [
     { value: '', label: '— Do Not Map —' },
@@ -569,6 +697,30 @@ export function CsvImportModal({
     value: a.id,
     label: `${a.name} (${a.currency})`,
   }));
+
+  const selectedAccountObj =
+    accounts.find((a) => a.id === selectedAccountId) || accounts[0] || null;
+
+  const handleProceedToStep2 = () => {
+    let targetAccId = selectedAccountId;
+    if (!targetAccId && accounts.length > 0) {
+      targetAccId = accounts[0].id;
+      setSelectedAccountId(targetAccId);
+    }
+
+    if (!targetAccId) {
+      setError('Please select a target financial account before continuing.');
+      return;
+    }
+
+    if (headers.length === 0) {
+      setError('Please upload a valid financial file with column headers before continuing.');
+      return;
+    }
+
+    setError(null);
+    setStep(2);
+  };
 
   return (
     <Modal
@@ -639,14 +791,29 @@ export function CsvImportModal({
         {/* Step 1: Upload File & Select Account */}
         {step === 1 && (
           <div className="space-y-4">
-            <Select
-              id="targetAccount"
-              label="Destination Financial Account"
-              value={selectedAccountId}
-              onChange={(e) => setSelectedAccountId(e.target.value)}
-              options={accountOptions}
-              helperText="The account whose balance will be updated by this imported batch"
-            />
+            {accounts.length === 0 ? (
+              <div className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 text-xs flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">No active financial accounts found</p>
+                  <p className="mt-0.5 text-[11px] opacity-90">
+                    Please create an account in Manage Accounts before importing transactions.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <Select
+                id="targetAccount"
+                label="Destination Financial Account"
+                value={selectedAccountId || accounts[0]?.id || ''}
+                onChange={(e) => {
+                  setSelectedAccountId(e.target.value);
+                  setError(null);
+                }}
+                options={accountOptions}
+                helperText="The account whose balance will be updated by this imported batch"
+              />
+            )}
 
             <div className="border-2 border-dashed border-[var(--border-subtle)] rounded-2xl p-8 text-center bg-[var(--surface-canvas)]/50 hover:bg-[var(--surface-elevated)]/40 transition-colors">
               <FileSpreadsheet className="w-10 h-10 text-[var(--accent-teal)] mx-auto mb-3" />
@@ -759,7 +926,11 @@ export function CsvImportModal({
               <Button variant="ghost" onClick={handleClose}>
                 Cancel
               </Button>
-              <Button variant="primary" onClick={() => setStep(2)} disabled={headers.length === 0}>
+              <Button
+                variant="primary"
+                onClick={handleProceedToStep2}
+                disabled={headers.length === 0 || accounts.length === 0}
+              >
                 Continue to Column Mapping
                 <ArrowRight className="w-4 h-4 ml-1.5" />
               </Button>
@@ -770,14 +941,44 @@ export function CsvImportModal({
         {/* Step 2: Column Mapping */}
         {step === 2 && (
           <div className="space-y-4">
+            {/* Target Financial Account Retention Card in Step 2 */}
+            <div className="p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-[var(--accent-teal)]/10 text-[var(--accent-teal)] flex items-center justify-center shrink-0">
+                  <Building2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">
+                    Destination Financial Account
+                  </span>
+                  <span className="text-xs font-bold text-[var(--text-primary)]">
+                    {selectedAccountObj
+                      ? `${selectedAccountObj.name} (${selectedAccountObj.currency})`
+                      : 'No Account Selected'}
+                  </span>
+                </div>
+              </div>
+              {accounts.length > 1 && (
+                <div className="w-full sm:w-64">
+                  <Select
+                    id="step2TargetAccount"
+                    aria-label="Change Destination Financial Account"
+                    value={selectedAccountId || selectedAccountObj?.id || ''}
+                    onChange={(e) => {
+                      setSelectedAccountId(e.target.value);
+                      setError(null);
+                    }}
+                    options={accountOptions}
+                  />
+                </div>
+              )}
+            </div>
+
             {/* AI Orchestration Header & Controls */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-[var(--border-subtle)]">
               <div>
                 <p className="text-xs font-semibold text-[var(--text-primary)]">
-                  Step 2: AI Column Mapping & Ledger Schema Alignment
-                </p>
-                <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
-                  Mappings identified by Finance Data Analyst and independently audited by Verifier AI. You may manually adjust any selection.
+                  Step 2: Column Mapping
                 </p>
               </div>
               <Button
@@ -796,7 +997,7 @@ export function CsvImportModal({
                 {isAiMappingLoading ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                    Profiling...
+                    Analyzing...
                   </>
                 ) : (
                   <>
@@ -813,58 +1014,46 @@ export function CsvImportModal({
                 <Loader2 className="w-5 h-5 text-[var(--accent-teal)] animate-spin flex-shrink-0" />
                 <div className="text-xs">
                   <p className="font-semibold text-[var(--text-primary)]">
-                    Supervisor Orchestrator running Finance Data Analyst & Verifier AI...
+                    AI Mapping in progress...
                   </p>
                   <p className="text-[var(--text-muted)] mt-0.5">
-                    Analyzing column semantics, inspecting representative sample rows, and enforcing required ledger guardrails.
+                    Analyzing column names and sample data.
                   </p>
                 </div>
               </div>
             )}
 
             {/* AI Result Card */}
-            {!isAiMappingLoading && aiMappingResult && (
+            {!isAiMappingLoading && (aiMappingResult || overallConfidence > 0) && (
               <div className="p-3.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] space-y-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <div className="w-7 h-7 rounded-lg bg-[var(--accent-teal)]/10 text-[var(--accent-teal)] flex items-center justify-center">
                       <Sparkles className="w-4 h-4" />
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-[var(--text-primary)]">
-                          AI Agent Auto-Mapping Active
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-[var(--text-primary)]">
+                        Automatic Mapping
+                      </span>
+                      {missingRequiredMessage || overallConfidence < 70 ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                          <AlertTriangle className="w-3 h-3" />
+                          Needs Review: Some fields need attention ({overallConfidence}%)
                         </span>
-                        {aiMappingResult.verifierResult?.isApproved ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                            <ShieldCheck className="w-3 h-3" />
-                            Verified by Verifier AI ({Math.round(aiMappingResult.verifierResult.confidenceScore * 100)}%)
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                            <AlertTriangle className="w-3 h-3" />
-                            Review Required: Ambiguous or Missing Columns
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
-                        Supervisor Orchestrator &bull; Analyst: Finance Data Analyst &bull; Engine: {aiMappingResult.provider} {aiMappingResult.externalCredentialsConfigured ? '(External Model)' : '(Grounded Deterministic Engine)'} &bull; {aiMappingResult.durationMs}ms
-                      </p>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                          <Check className="w-3 h-3" />
+                          {overallConfidence}% Confidence
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
 
-                {aiMappingResult.verifierResult?.validationErrors && aiMappingResult.verifierResult.validationErrors.length > 0 && (
-                  <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-300 space-y-1">
-                    <p className="font-semibold flex items-center gap-1.5">
-                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
-                      Verifier AI Audit Notes:
-                    </p>
-                    <ul className="list-disc list-inside pl-1 space-y-0.5 text-[11px]">
-                      {aiMappingResult.verifierResult.validationErrors.map((err, idx) => (
-                        <li key={idx}>{err}</li>
-                      ))}
-                    </ul>
+                {missingRequiredMessage && (
+                  <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-400 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                    <span>{missingRequiredMessage}</span>
                   </div>
                 )}
               </div>
@@ -873,147 +1062,105 @@ export function CsvImportModal({
             {aiMappingError && (
               <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                <span>{aiMappingError}</span>
+                <span>Automatic mapping could not be completed. Manual selection enabled.</span>
               </div>
             )}
 
             {/* Mapping Fields Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label
-                    htmlFor="dateCol"
-                    className="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase"
-                  >
-                    Transaction Date *
-                  </label>
-                  {renderConfidenceBadge('date')}
-                </div>
+                <label
+                  htmlFor="dateCol"
+                  className="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase block"
+                >
+                  Transaction Date *
+                </label>
                 <Select
                   id="dateCol"
                   aria-label="Transaction Date *"
                   value={dateColumn}
                   onChange={(e) => setDateColumn(e.target.value)}
                   options={headerOptions}
-                  helperText={
-                    aiMappingResult?.analystResult?.fieldAnalysis?.date ||
-                    'ISO-8601 or YYYY-MM-DD format'
-                  }
                 />
               </div>
 
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label
-                    htmlFor="amountCol"
-                    className="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase"
-                  >
-                    Amount *
-                  </label>
-                  {renderConfidenceBadge('amount')}
-                </div>
+                <label
+                  htmlFor="amountCol"
+                  className="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase block"
+                >
+                  Amount *
+                </label>
                 <Select
                   id="amountCol"
                   aria-label="Amount *"
                   value={amountColumn}
                   onChange={(e) => setAmountColumn(e.target.value)}
                   options={headerOptions}
-                  helperText={
-                    aiMappingResult?.analystResult?.fieldAnalysis?.amount ||
-                    'Numeric amount (currency symbols stripped automatically)'
-                  }
                 />
               </div>
 
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label
-                    htmlFor="descCol"
-                    className="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase"
-                  >
-                    Description / Memo *
-                  </label>
-                  {renderConfidenceBadge('description')}
-                </div>
+                <label
+                  htmlFor="descCol"
+                  className="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase block"
+                >
+                  Description / Memo *
+                </label>
                 <Select
                   id="descCol"
                   aria-label="Description / Memo *"
                   value={descriptionColumn}
                   onChange={(e) => setDescriptionColumn(e.target.value)}
                   options={headerOptions}
-                  helperText={
-                    aiMappingResult?.analystResult?.fieldAnalysis?.description ||
-                    'Primary journal line text'
-                  }
                 />
               </div>
 
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label
-                    htmlFor="typeCol"
-                    className="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase"
-                  >
-                    Transaction Type (Optional)
-                  </label>
-                  {renderConfidenceBadge('type')}
-                </div>
+                <label
+                  htmlFor="typeCol"
+                  className="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase block"
+                >
+                  Transaction Type (Optional)
+                </label>
                 <Select
                   id="typeCol"
                   aria-label="Transaction Type (Optional)"
                   value={typeColumn}
                   onChange={(e) => setTypeColumn(e.target.value)}
                   options={headerOptions}
-                  helperText={
-                    aiMappingResult?.analystResult?.fieldAnalysis?.type ||
-                    'INCOME, EXPENSE, or TRANSFER'
-                  }
                 />
               </div>
 
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label
-                    htmlFor="catCol"
-                    className="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase"
-                  >
-                    Category (Optional)
-                  </label>
-                  {renderConfidenceBadge('category')}
-                </div>
+                <label
+                  htmlFor="catCol"
+                  className="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase block"
+                >
+                  Category (Optional)
+                </label>
                 <Select
                   id="catCol"
                   aria-label="Category (Optional)"
                   value={categoryColumn}
                   onChange={(e) => setCategoryColumn(e.target.value)}
                   options={headerOptions}
-                  helperText={
-                    aiMappingResult?.analystResult?.fieldAnalysis?.category ||
-                    'Chart of accounts classification'
-                  }
                 />
               </div>
 
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label
-                    htmlFor="counterpartyCol"
-                    className="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase"
-                  >
-                    Counterparty / Vendor (Optional)
-                  </label>
-                  {renderConfidenceBadge('counterparty')}
-                </div>
+                <label
+                  htmlFor="counterpartyCol"
+                  className="text-xs font-semibold tracking-wide text-[var(--text-secondary)] uppercase block"
+                >
+                  Counterparty / Vendor (Optional)
+                </label>
                 <Select
                   id="counterpartyCol"
                   aria-label="Counterparty / Vendor (Optional)"
                   value={counterpartyColumn}
                   onChange={(e) => setCounterpartyColumn(e.target.value)}
                   options={headerOptions}
-                  helperText={
-                    aiMappingResult?.analystResult?.fieldAnalysis?.counterparty ||
-                    'Customer, vendor, or merchant name'
-                  }
                 />
               </div>
             </div>
@@ -1066,6 +1213,20 @@ export function CsvImportModal({
                   {createdBatch.errorRowsCount ?? createdBatch.invalidRows ?? 0}
                 </span>
               </div>
+            </div>
+
+            {/* Target Financial Account Summary in Step 3 */}
+            <div className="flex items-center justify-between p-3 rounded-xl bg-[var(--surface-card)] border border-[var(--border-subtle)] text-xs">
+              <div className="flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-[var(--accent-teal)] shrink-0" />
+                <span className="text-[var(--text-muted)]">Target Financial Account:</span>
+                <span className="font-semibold text-[var(--text-primary)]">
+                  {selectedAccountObj?.name || 'Financial Account'} ({selectedAccountObj?.currency || ''})
+                </span>
+              </div>
+              <span className="text-[11px] text-[var(--text-muted)] font-mono">
+                Batch: {createdBatch.id.slice(0, 8)}...
+              </span>
             </div>
 
             {/* Sanitization & Duplicate options */}

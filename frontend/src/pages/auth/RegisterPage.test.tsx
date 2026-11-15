@@ -157,7 +157,13 @@ describe('RegisterPage Component', () => {
         country: 'Pakistan',
         baseCurrency: 'PKR',
       });
-      expect(mockNavigate).toHaveBeenCalledWith('/overview', { replace: true });
+      expect(mockNavigate).toHaveBeenCalledWith('/login', {
+        replace: true,
+        state: {
+          registeredEmail: 'tariq@pakistan-sme.pk',
+          successMessage: 'Account successfully registered! Please sign in with your credentials.',
+        },
+      });
     });
   });
 

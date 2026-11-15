@@ -493,18 +493,17 @@ describe('CsvImportModal Component', () => {
           fileName: 'statement.csv',
           headers: ['TxnDate', 'NetValue', 'MemoText'],
         }),
+        undefined,
+        undefined,
+        60_000,
       );
     });
 
     fireEvent.click(screen.getByRole('button', { name: /Continue to Column Mapping/i }));
 
     await waitFor(() => {
-      expect(screen.getByText('AI Agent Auto-Mapping Active')).toBeInTheDocument();
-      expect(screen.getByText(/Verified by Verifier AI \(93%\)/i)).toBeInTheDocument();
-      expect(screen.getByText(/95% Confidence/i)).toBeInTheDocument();
-      expect(screen.getByText(/92% Confidence/i)).toBeInTheDocument();
-      expect(screen.getByText(/88% Confidence/i)).toBeInTheDocument();
-      expect(screen.getByText(/Mapped to TxnDate. ISO-8601 syntax confirmed./i)).toBeInTheDocument();
+      expect(screen.getByText('Automatic Mapping')).toBeInTheDocument();
+      expect(screen.getByText(/% Confidence/i)).toBeInTheDocument();
     });
 
     // Verify selects are populated with AI suggested values
@@ -518,7 +517,7 @@ describe('CsvImportModal Component', () => {
     expect(descSelect.value).toBe('MemoText');
   });
 
-  it('displays Verifier AI warning when columns are ambiguous or missing, and allows manual override', async () => {
+  it('displays Needs Review warning when required field is missing, immediately recalculates confidence upon manual selection', async () => {
     const mockPost = vi.mocked(apiClient.apiPost);
     mockPost.mockResolvedValueOnce({
       success: true,
@@ -583,24 +582,31 @@ describe('CsvImportModal Component', () => {
       expect(mockPost).toHaveBeenCalledWith(
         `/v1/organizations/${orgId}/csv-imports/auto-map`,
         expect.any(Object),
+        undefined,
+        undefined,
+        60_000,
       );
+      expect(screen.getByText('Raw File Header Preview')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByRole('button', { name: /Continue to Column Mapping/i }));
 
     await waitFor(() => {
+      expect(screen.getByText('Automatic Mapping')).toBeInTheDocument();
       expect(
-        screen.getByText(/Review Required: Ambiguous or Missing Columns/i),
+        screen.getByText(/Needs Review: Some fields need attention/i),
       ).toBeInTheDocument();
-      expect(screen.getByText(/Required field "Amount" is not mapped./i)).toBeInTheDocument();
-      expect(screen.getByText(/65% Review Suggested/i)).toBeInTheDocument();
-      expect(screen.getAllByText(/Unmapped/i).length).toBeGreaterThan(0);
+      expect(screen.getByText('Amount field not detected. Please review the mapping.')).toBeInTheDocument();
     });
 
     // Manually override Amount column to RawData
     const amountSelect = screen.getByLabelText(/Amount \*/i) as HTMLSelectElement;
     fireEvent.change(amountSelect, { target: { value: 'RawData' } });
     expect(amountSelect.value).toBe('RawData');
+
+    // Missing amount warning disappears and overall confidence recalculates immediately
+    expect(screen.queryByText('Amount field not detected. Please review the mapping.')).not.toBeInTheDocument();
+    expect(screen.getByText(/% Confidence/i)).toBeInTheDocument();
   });
 
   it('progresses an XLSX file through Step 1, Step 2 AI mapping, and Step 3 preview without extension rejection', async () => {
@@ -697,6 +703,9 @@ describe('CsvImportModal Component', () => {
       expect(mockPost).toHaveBeenCalledWith(
         `/v1/organizations/${orgId}/csv-imports/auto-map`,
         expect.any(Object),
+        undefined,
+        undefined,
+        60_000,
       );
     });
 
@@ -705,8 +714,8 @@ describe('CsvImportModal Component', () => {
 
     // Step 2: Auto mapping completes
     await waitFor(() => {
-      expect(screen.getByText('AI Agent Auto-Mapping Active')).toBeInTheDocument();
-      expect(screen.getByText(/Verified by Verifier AI \(94%\)/i)).toBeInTheDocument();
+      expect(screen.getByText('Automatic Mapping')).toBeInTheDocument();
+      expect(screen.getByText(/% Confidence/i)).toBeInTheDocument();
     });
 
     // Step 2 -> Step 3: Click Validate & Preview Batch
@@ -723,5 +732,150 @@ describe('CsvImportModal Component', () => {
       expect(screen.getByText('2026-10-01')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Commit 2 Records to Ledger/i })).toBeInTheDocument();
     });
+  });
+
+  it('retains and passes the selected account ID to Step 2 and preview API without error', async () => {
+    const multiAccounts: FinancialAccount[] = [
+      mockAccounts[0],
+      {
+        id: 'acc-2',
+        organizationId: 'org-test-99',
+        name: 'Apex Savings Reserve',
+        accountType: 'BANK',
+        currency: 'USD',
+        openingBalance: '5000.0000',
+        currentBalance: '12000.0000',
+        isArchived: false,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ];
+
+    const mockPost = vi.mocked(apiClient.apiPost);
+    mockPost.mockImplementation(async (url: string) => {
+      if (url.includes('/auto-map')) {
+        return {
+          success: true,
+          provider: 'Finance Analyst AI Engine',
+          externalCredentialsConfigured: false,
+          workflowRunId: 'run-test-acc',
+          taskClassification: 'SCHEMA_MAPPING',
+          durationMs: 45,
+          analystResult: {
+            detectedMappings: {
+              dateColumn: 'Date',
+              amountColumn: 'Amount',
+              descriptionColumn: 'Description',
+            },
+            confidenceScores: { date: 0.95, amount: 0.95, description: 0.95 },
+            fieldAnalysis: {},
+            unmappedHeaders: [],
+            notes: 'All mapped',
+          },
+          verifierResult: {
+            isApproved: true,
+            verifiedMappings: {
+              dateColumn: 'Date',
+              amountColumn: 'Amount',
+              descriptionColumn: 'Description',
+            },
+            validationErrors: [],
+            confidenceScore: 0.95,
+            requiresManualReview: false,
+            notes: 'Approved',
+          },
+        };
+      }
+      if (url.includes('/preview')) {
+        return {
+          id: 'batch-acc-test-1',
+          organizationId: orgId,
+          totalRows: 1,
+          validRowsCount: 1,
+          errorRowsCount: 0,
+          duplicateRowsCount: 0,
+          previewRows: [
+            {
+              rowNumber: 2,
+              date: '2026-10-15',
+              transactionDate: '2026-10-15T00:00:00.000Z',
+              type: 'INCOME',
+              amount: '1500.0000',
+              description: 'Payment',
+            },
+          ],
+        };
+      }
+      return {};
+    });
+
+    // 1. Mount with empty accounts first (simulating initial async load on TransactionsPage)
+    const { rerender } = render(
+      <CsvImportModal
+        isOpen={true}
+        onClose={mockOnClose}
+        accounts={[]}
+        orgId={orgId}
+        onSuccess={mockOnSuccess}
+      />,
+    );
+
+    expect(screen.getByText(/No active financial accounts found/i)).toBeInTheDocument();
+
+    // 2. Re-render with loaded accounts
+    rerender(
+      <CsvImportModal
+        isOpen={true}
+        onClose={mockOnClose}
+        accounts={multiAccounts}
+        initialAccountId="acc-2"
+        orgId={orgId}
+        onSuccess={mockOnSuccess}
+      />,
+    );
+
+    // Verify account selection synchronized with initialAccountId
+    const select = screen.getByLabelText(/Destination Financial Account/i) as HTMLSelectElement;
+    expect(select.value).toBe('acc-2');
+
+    // Upload file
+    const fileInput = screen.getByTestId('csv-file-input');
+    const csvFile = new File(['Date,Amount,Description\n2026-10-15,1500,Payment\n'], 'test.csv', {
+      type: 'text/csv',
+    });
+    fireEvent.change(fileInput, { target: { files: [csvFile] } });
+
+    await waitFor(() => {
+      expect(screen.getByText('test.csv')).toBeInTheDocument();
+      expect(screen.getByText('Raw File Header Preview')).toBeInTheDocument();
+    });
+
+    // Proceed to Step 2
+    const continueBtn = screen.getByRole('button', { name: /Continue to Column Mapping/i });
+    expect(continueBtn).not.toBeDisabled();
+    fireEvent.click(continueBtn);
+
+    // Verify Step 2 retains the Destination Financial Account
+    expect(screen.getByText('Step 2: Column Mapping')).toBeInTheDocument();
+    expect(screen.getAllByText(/Apex Savings Reserve \(USD\)/i).length).toBeGreaterThanOrEqual(1);
+
+    // Verify no "Please select a target financial account" error is displayed
+    expect(screen.queryByText(/Please select a target financial account/i)).not.toBeInTheDocument();
+
+    // Click Validate & Preview Batch
+    fireEvent.click(screen.getByRole('button', { name: /Validate & Preview Batch/i }));
+
+    // Verify preview API was called with the preserved accountId: 'acc-2'
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith(
+        `/v1/organizations/${orgId}/csv-imports/preview`,
+        expect.objectContaining({
+          accountId: 'acc-2',
+        }),
+      );
+    });
+
+    // Step 3 shows target account summary
+    expect(screen.getByText(/Target Financial Account:/i)).toBeInTheDocument();
   });
 });

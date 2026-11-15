@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { AlertCircle, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { AlertCircle, ArrowRight, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
 import { AuthPageBackground } from '../../components/auth/AuthPageBackground';
 import { Button } from '../../components/ui/Button';
@@ -9,6 +9,8 @@ import { ApiClientError } from '../../services/apiClient';
 
 interface LocationState {
   from?: { pathname: string };
+  registeredEmail?: string;
+  successMessage?: string;
 }
 
 export function LoginPage() {
@@ -16,11 +18,15 @@ export function LoginPage() {
   const location = useLocation();
   const { login } = useAuth();
 
-  const [email, setEmail] = useState('');
+  const locationState = location.state as LocationState | undefined;
+  const [email, setEmail] = useState(locationState?.registeredEmail || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [persist, setPersist] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(
+    locationState?.successMessage || null,
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -31,6 +37,7 @@ export function LoginPage() {
     }
 
     setError(null);
+    setSuccessMessage(null);
     setIsSubmitting(true);
 
     try {
@@ -84,6 +91,16 @@ export function LoginPage() {
       <div className="relative z-10 mt-8 px-4 sm:mx-auto sm:w-full sm:max-w-xl sm:px-0">
         <div className="rounded-2xl border border-white/15 bg-white/[0.04] px-6 py-8 shadow-2xl backdrop-blur-2xl sm:px-10">
           <form className="space-y-5" onSubmit={handleSubmit}>
+            {successMessage && (
+              <div
+                role="status"
+                className="flex items-start gap-3 p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs"
+              >
+                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                <span className="leading-relaxed">{successMessage}</span>
+              </div>
+            )}
+
             {error && (
               <div
                 role="alert"
