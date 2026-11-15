@@ -879,7 +879,7 @@ export function InvoicesPayablesPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -1108,14 +1108,14 @@ export function InvoicesPayablesPage() {
 
       {/* Tabs + Search / Status Filter Row */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--border-subtle)] pb-2">
-        <div className="flex items-center gap-2">
+        <div className="flex overflow-x-auto whitespace-nowrap gap-2 pb-1 max-w-full">
           <button
             type="button"
             onClick={() => {
               setActiveTab('invoices');
               setStatusFilter('');
             }}
-            className={`px-4 py-2 text-xs font-semibold border-b-2 cursor-pointer transition-all ${
+            className={`shrink-0 px-4 py-2 text-xs font-semibold border-b-2 cursor-pointer transition-all ${
               activeTab === 'invoices'
                 ? 'border-[var(--accent-teal)] text-[var(--accent-primary)] font-bold'
                 : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
@@ -1129,7 +1129,7 @@ export function InvoicesPayablesPage() {
               setActiveTab('bills');
               setStatusFilter('');
             }}
-            className={`px-4 py-2 text-xs font-semibold border-b-2 cursor-pointer transition-all ${
+            className={`shrink-0 px-4 py-2 text-xs font-semibold border-b-2 cursor-pointer transition-all ${
               activeTab === 'bills'
                 ? 'border-[var(--accent-teal)] text-[var(--accent-primary)] font-bold'
                 : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'

@@ -315,7 +315,7 @@ export function AiOrchestrationPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -362,10 +362,10 @@ export function AiOrchestrationPage() {
       )}
 
       {/* Navigation Tabs */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] pb-2 text-xs font-semibold">
+      <div className="flex overflow-x-auto whitespace-nowrap gap-2 pb-1 border-b border-[var(--border-subtle)] text-xs font-semibold max-w-full">
         <button
           onClick={() => setActiveTab('WORKFLOWS')}
-          className={`px-3 py-1.5 rounded-lg transition-colors ${
+          className={`shrink-0 px-3 py-1.5 rounded-lg transition-colors ${
             activeTab === 'WORKFLOWS'
               ? 'bg-[var(--brand-primary)] text-white shadow-xs'
               : 'text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]'
@@ -375,7 +375,7 @@ export function AiOrchestrationPage() {
         </button>
         <button
           onClick={() => setActiveTab('ARCHITECTURE')}
-          className={`px-3 py-1.5 rounded-lg transition-colors ${
+          className={`shrink-0 px-3 py-1.5 rounded-lg transition-colors ${
             activeTab === 'ARCHITECTURE'
               ? 'bg-[var(--brand-primary)] text-white shadow-xs'
               : 'text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]'
@@ -385,7 +385,7 @@ export function AiOrchestrationPage() {
         </button>
         <button
           onClick={() => setActiveTab('TELEMETRY')}
-          className={`px-3 py-1.5 rounded-lg transition-colors ${
+          className={`shrink-0 px-3 py-1.5 rounded-lg transition-colors ${
             activeTab === 'TELEMETRY'
               ? 'bg-[var(--brand-primary)] text-white shadow-xs'
               : 'text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]'
@@ -395,7 +395,7 @@ export function AiOrchestrationPage() {
         </button>
         <button
           onClick={() => setActiveTab('HITL')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
+          className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
             activeTab === 'HITL'
               ? 'bg-[var(--brand-primary)] text-white shadow-xs'
               : 'text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]'

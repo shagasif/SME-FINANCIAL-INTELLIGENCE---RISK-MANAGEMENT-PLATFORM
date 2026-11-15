@@ -502,7 +502,7 @@ export function CashFlowPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -565,13 +565,13 @@ export function CashFlowPage() {
 
       {/* Horizon Selector Tabs & Version Selector */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-subtle)] pb-2">
-        <div className="flex items-center gap-2">
+        <div className="flex overflow-x-auto whitespace-nowrap gap-2 pb-1 max-w-full">
           {([7, 30, 60, 90] as const).map((h) => (
             <button
               key={h}
               type="button"
               onClick={() => setSelectedHorizon(h)}
-              className={`px-4 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+              className={`shrink-0 px-4 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
                 selectedHorizon === h
                   ? 'bg-[var(--accent-primary)] text-white shadow-xs'
                   : 'bg-[var(--surface-elevated)]/60 text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)]'

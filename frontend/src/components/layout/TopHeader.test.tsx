@@ -212,4 +212,90 @@ describe('TopHeader Component', () => {
     expect(logoutMock).toHaveBeenCalledOnce();
     expect(await screen.findByText('Landing page')).toBeInTheDocument();
   });
+
+  it('opens notification panel on button click, displays real notifications, and marks them as read', async () => {
+    const mockNotifications = [
+      {
+        id: 'notif-1',
+        organizationId: 'org-real-1',
+        title: 'Risk Alert: Sudden Expense Spike',
+        message: 'Operating expenses surged by 45% in Operations department.',
+        severity: 'HIGH',
+        category: 'EXPENSE_SPIKE',
+        isRead: false,
+        linkPath: '/risk-center',
+        createdAt: '2026-11-15T12:00:00.000Z',
+      },
+      {
+        id: 'notif-2',
+        organizationId: 'org-real-1',
+        title: 'FinMemory Snapshot Committed',
+        message: 'Snapshot baseline captured for period 2026-M11.',
+        severity: 'LOW',
+        category: 'FINMEMORY',
+        isRead: true,
+        linkPath: '/finmemory',
+        createdAt: '2026-11-14T08:00:00.000Z',
+      },
+    ];
+
+    const apiClient = await import('../../services/apiClient');
+    vi.spyOn(apiClient, 'apiGet').mockResolvedValue(mockNotifications);
+    const patchSpy = vi.spyOn(apiClient, 'apiPatch').mockResolvedValue({});
+
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: {
+        id: 'usr-real-1',
+        email: 'ceo@quantumholdings.com',
+        fullName: 'Dr. Evelyn Vance',
+        isPlatformAdmin: false,
+      },
+      activeOrg: {
+        id: 'org-real-1',
+        name: 'Quantum Holdings Ltd',
+        slug: 'quantum-holdings',
+        baseCurrency: 'EUR',
+        role: RoleType.BUSINESS_OWNER,
+      },
+      memberships: [],
+      activeRole: RoleType.BUSINESS_OWNER,
+      isAuthenticated: true,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+      switchOrganization: vi.fn(),
+      hasRole: () => true,
+      canMutateLedger: true,
+      canManageBudgets: true,
+      canRunAiWorkflows: true,
+      canExportReports: true,
+      isAuditor: false,
+    });
+
+    render(
+      <MemoryRouter>
+        <TopHeader onOpenMobileNav={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    // Initial state: notification bell button exists with unread badge '1'
+    const notifBtn = screen.getByRole('button', { name: 'View notifications' });
+    expect(notifBtn).toBeInTheDocument();
+    expect(await screen.findByText('1')).toBeInTheDocument();
+
+    // Clicking the notification button opens the panel
+    fireEvent.click(notifBtn);
+    expect(screen.getByRole('dialog', { name: 'Notifications panel' })).toBeInTheDocument();
+    expect(screen.getByText('Risk Alert: Sudden Expense Spike')).toBeInTheDocument();
+    expect(screen.getByText('FinMemory Snapshot Committed')).toBeInTheDocument();
+
+    // Clicking 'Mark all read' triggers mark-all
+    const markAllBtn = screen.getByRole('button', { name: /Mark all read/i });
+    fireEvent.click(markAllBtn);
+    expect(patchSpy).toHaveBeenCalledWith('/v1/organizations/org-real-1/notifications/read-all', {});
+
+    // Clicking a notification navigates and closes panel
+    fireEvent.click(screen.getByText('Risk Alert: Sudden Expense Spike'));
+    expect(patchSpy).toHaveBeenCalledWith('/v1/organizations/org-real-1/notifications/notif-1/read', {});
+  });
 });

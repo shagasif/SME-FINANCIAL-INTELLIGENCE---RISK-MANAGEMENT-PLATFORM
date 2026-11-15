@@ -340,7 +340,7 @@ export function AnalyticsPage() {
             Track key financial health, liquidity, and efficiency metrics for your business.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -357,7 +357,7 @@ export function AnalyticsPage() {
       {/* Date Range & Category Filter Bar */}
       <div className="flex flex-col gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-card)] p-3 sm:flex-row sm:items-center sm:justify-between">
         {/* Category Tabs */}
-        <div className="flex flex-wrap items-center gap-1">
+        <div className="flex overflow-x-auto whitespace-nowrap gap-2 pb-1 max-w-full">
           {categories.map((cat) => (
             <button
               key={cat}
@@ -367,7 +367,7 @@ export function AnalyticsPage() {
                   setExpandedCategory(cat);
                 }
               }}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                 selectedCategory === cat
                   ? 'bg-[var(--brand-primary)] text-white shadow-sm'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]'
@@ -379,7 +379,7 @@ export function AnalyticsPage() {
         </div>
 
         {/* Date Filters & Presets */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2.5">
           <div className="flex items-center gap-1">
             <button
               onClick={() => handleApplyPreset(30)}
@@ -401,7 +401,7 @@ export function AnalyticsPage() {
             </button>
           </div>
 
-          <div className="flex items-center gap-2 border-l border-[var(--border-subtle)] pl-2">
+          <div className="flex flex-wrap items-center gap-2.5 border-l-0 sm:border-l border-[var(--border-subtle)] pl-0 sm:pl-2 w-full sm:w-auto">
             <Calendar className="h-3.5 w-3.5 text-[var(--text-muted)]" />
             <input
               id="analyticsStartDate"
@@ -422,7 +422,7 @@ export function AnalyticsPage() {
               onChange={(e) => setDateRange((prev) => ({ ...prev, endDate: e.target.value }))}
               className="rounded border border-[var(--border-subtle)] bg-transparent px-2 py-1 text-xs text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]"
             />
-            <Button size="sm" variant="outline" onClick={handleRefresh} className="text-xs">
+            <Button size="sm" variant="outline" onClick={handleRefresh} className="text-xs w-full sm:w-auto">
               Apply
             </Button>
           </div>

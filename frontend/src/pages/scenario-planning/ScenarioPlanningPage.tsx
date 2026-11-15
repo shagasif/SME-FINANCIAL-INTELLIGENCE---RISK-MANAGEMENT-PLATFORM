@@ -260,7 +260,7 @@ export function ScenarioPlanningPage() {
         </div>
 
         {/* Quick Presets */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-[11px] font-semibold text-[var(--text-muted)]">Presets:</span>
           <button
             type="button"

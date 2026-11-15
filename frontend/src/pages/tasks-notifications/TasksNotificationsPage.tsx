@@ -246,7 +246,7 @@ export function TasksNotificationsPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -292,10 +292,10 @@ export function TasksNotificationsPage() {
       )}
 
       {/* Tab Switcher */}
-      <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] pb-2">
+      <div className="flex overflow-x-auto whitespace-nowrap gap-2 pb-1 border-b border-[var(--border-subtle)] max-w-full">
         <button
           onClick={() => setActiveTab('TASKS')}
-          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+          className={`shrink-0 flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
             activeTab === 'TASKS'
               ? 'bg-[var(--brand-primary)] text-white shadow-xs'
               : 'text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]'
@@ -307,7 +307,7 @@ export function TasksNotificationsPage() {
 
         <button
           onClick={() => setActiveTab('NOTIFICATIONS')}
-          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+          className={`shrink-0 flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
             activeTab === 'NOTIFICATIONS'
               ? 'bg-[var(--brand-primary)] text-white shadow-xs'
               : 'text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]'

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Bell,
@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
 import { useTheme } from '../../hooks/useTheme';
+import { apiGet, apiPatch } from '../../services/apiClient';
+import { NotificationDropdown, type AppNotification } from './NotificationDropdown';
 
 export interface TopHeaderProps {
   onOpenMobileNav: () => void;
@@ -25,9 +27,73 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
 
   const [isOrgMenuOpen, setIsOrgMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [isNotificationsLoading, setIsNotificationsLoading] = useState(false);
 
   const orgMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const notificationMenuRef = useRef<HTMLDivElement>(null);
+
+  const fetchNotifications = useCallback(async () => {
+    if (!activeOrg?.id) {
+      setNotifications([]);
+      return;
+    }
+    setIsNotificationsLoading(true);
+    try {
+      const res = await apiGet<AppNotification[]>(
+        `/v1/organizations/${activeOrg.id}/notifications`,
+      );
+      const list = Array.isArray(res)
+        ? res
+        : (res as unknown as { items?: AppNotification[]; data?: AppNotification[] })?.items ||
+          (res as unknown as { items?: AppNotification[]; data?: AppNotification[] })?.data ||
+          [];
+      setNotifications(list);
+    } catch {
+      // Keep existing list on transient failure
+    } finally {
+      setIsNotificationsLoading(false);
+    }
+  }, [activeOrg?.id]);
+
+  useEffect(() => {
+    if (user && activeOrg?.id) {
+      void fetchNotifications();
+    } else {
+      setNotifications([]);
+    }
+  }, [user, activeOrg?.id, fetchNotifications]);
+
+  const handleNotificationRead = async (id: string) => {
+    if (!activeOrg?.id) return;
+    try {
+      await apiPatch(`/v1/organizations/${activeOrg.id}/notifications/${id}/read`, {});
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)),
+      );
+    } catch {
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)),
+      );
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    if (!activeOrg?.id) return;
+    try {
+      await apiPatch(`/v1/organizations/${activeOrg.id}/notifications/read-all`, {});
+    } catch {
+      const unread = notifications.filter((n) => !n.isRead);
+      await Promise.allSettled(
+        unread.map((n) =>
+          apiPatch(`/v1/organizations/${activeOrg.id}/notifications/${n.id}/read`, {}),
+        ),
+      );
+    }
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+  };
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -36,6 +102,12 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
       }
       if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
         setIsUserMenuOpen(false);
+      }
+      if (
+        notificationMenuRef.current &&
+        !notificationMenuRef.current.contains(event.target as Node)
+      ) {
+        setIsNotificationsOpen(false);
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
@@ -134,14 +206,39 @@ export function TopHeader({ onOpenMobileNav }: TopHeaderProps) {
 
         {/* Notifications Icon (when user is authenticated) */}
         {user && (
-          <button
-            className="relative p-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)] transition-all duration-200 hover:-translate-y-0.5 cursor-pointer"
-            aria-label="View notifications"
-            title="Notifications"
-          >
-            <Bell className="w-4 h-4" />
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[var(--accent-amber)]" />
-          </button>
+          <div className="relative" ref={notificationMenuRef}>
+            <button
+              onClick={() => setIsNotificationsOpen((prev) => !prev)}
+              className={`relative p-2 rounded-lg transition-all duration-200 hover:-translate-y-0.5 cursor-pointer ${
+                isNotificationsOpen
+                  ? 'bg-[var(--surface-elevated)] text-[var(--text-primary)]'
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)]'
+              }`}
+              aria-label="View notifications"
+              title="Notifications"
+              aria-expanded={isNotificationsOpen}
+              aria-haspopup="dialog"
+            >
+              <Bell className="w-4 h-4" />
+              {notifications.filter((n) => !n.isRead).length > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white shadow-xs animate-in zoom-in-50 duration-150">
+                  {notifications.filter((n) => !n.isRead).length > 9
+                    ? '9+'
+                    : notifications.filter((n) => !n.isRead).length}
+                </span>
+              )}
+            </button>
+
+            <NotificationDropdown
+              isOpen={isNotificationsOpen}
+              onClose={() => setIsNotificationsOpen(false)}
+              activeOrgId={activeOrg?.id}
+              notifications={notifications}
+              isLoading={isNotificationsLoading}
+              onNotificationRead={handleNotificationRead}
+              onMarkAllRead={handleMarkAllNotificationsRead}
+            />
+          </div>
         )}
 
         {/* User Profile Menu or Sign In CTA */}
