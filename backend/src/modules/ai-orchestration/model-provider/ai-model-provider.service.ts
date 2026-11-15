@@ -124,6 +124,14 @@ export class AiModelProviderService {
     // Sanitize user prompt before sending to any model
     const sanitizedPrompt = SecurityUtil.sanitizeImportedText(request.userPrompt).sanitized;
 
+    const schemaRequirement =
+      request.requiredOutputKeys && request.requiredOutputKeys.length > 0
+        ? `\n\nCRITICAL OUTPUT REQUIREMENT: You MUST respond with a valid JSON object containing EXACTLY these keys: ${JSON.stringify(
+            request.requiredOutputKeys,
+          )}. Do not omit any required key.`
+        : '';
+    const enhancedSystemInstructions = `${request.systemInstructions}${schemaRequirement}`;
+
     let attempts = 0;
     let structuredOutput: Record<string, unknown> | null = null;
     let status: AiModelUsageMetrics['status'] = 'SUCCESS';
@@ -137,25 +145,162 @@ export class AiModelProviderService {
             apiKey,
             model,
             timeoutMs,
-            systemInstructions: request.systemInstructions,
+            systemInstructions: enhancedSystemInstructions,
             userPrompt: sanitizedPrompt,
             deterministicEvidence: request.deterministicEvidence,
             attachments: request.attachments,
           });
+
+          // Safe key-alias normalization for known equivalent fields before strict validation
+          if (
+            structuredOutput &&
+            typeof structuredOutput === 'object' &&
+            !Array.isArray(structuredOutput)
+          ) {
+            // Mapping aliases
+            if (!structuredOutput.detectedMappings) {
+              if (structuredOutput.mappings && typeof structuredOutput.mappings === 'object') {
+                structuredOutput.detectedMappings = structuredOutput.mappings;
+              } else if (
+                structuredOutput.columnMappings &&
+                typeof structuredOutput.columnMappings === 'object'
+              ) {
+                structuredOutput.detectedMappings = structuredOutput.columnMappings;
+              } else if (
+                structuredOutput.detected_mappings &&
+                typeof structuredOutput.detected_mappings === 'object'
+              ) {
+                structuredOutput.detectedMappings = structuredOutput.detected_mappings;
+              }
+            }
+
+            if (!structuredOutput.verifiedMappings) {
+              if (structuredOutput.mappings && typeof structuredOutput.mappings === 'object') {
+                structuredOutput.verifiedMappings = structuredOutput.mappings;
+              } else if (
+                structuredOutput.verified_mappings &&
+                typeof structuredOutput.verified_mappings === 'object'
+              ) {
+                structuredOutput.verifiedMappings = structuredOutput.verified_mappings;
+              } else if (
+                structuredOutput.validatedMappings &&
+                typeof structuredOutput.validatedMappings === 'object'
+              ) {
+                structuredOutput.verifiedMappings = structuredOutput.validatedMappings;
+              } else if (
+                structuredOutput.columnMappings &&
+                typeof structuredOutput.columnMappings === 'object'
+              ) {
+                structuredOutput.verifiedMappings = structuredOutput.columnMappings;
+              }
+            }
+
+            // File name normalization
+            if (!structuredOutput.fileName) {
+              if (structuredOutput.file_name) {
+                structuredOutput.fileName = structuredOutput.file_name;
+              } else if (structuredOutput.filename) {
+                structuredOutput.fileName = structuredOutput.filename;
+              } else if (request.deterministicEvidence?.fileName) {
+                structuredOutput.fileName = request.deterministicEvidence.fileName;
+              }
+            }
+
+            // Approval & Boolean flags
+            if (structuredOutput.isApproved === undefined) {
+              if (structuredOutput.approved !== undefined) {
+                structuredOutput.isApproved = Boolean(structuredOutput.approved);
+              } else if (structuredOutput.is_approved !== undefined) {
+                structuredOutput.isApproved = Boolean(structuredOutput.is_approved);
+              }
+            }
+
+            if (structuredOutput.requiresManualReview === undefined) {
+              if (structuredOutput.requires_manual_review !== undefined) {
+                structuredOutput.requiresManualReview = Boolean(
+                  structuredOutput.requires_manual_review,
+                );
+              } else if (structuredOutput.manualReviewRequired !== undefined) {
+                structuredOutput.requiresManualReview = Boolean(
+                  structuredOutput.manualReviewRequired,
+                );
+              }
+            }
+
+            // Confidence score & numbers
+            if (structuredOutput.confidenceScore === undefined) {
+              if (typeof structuredOutput.confidence_score === 'number') {
+                structuredOutput.confidenceScore = structuredOutput.confidence_score;
+              } else if (typeof structuredOutput.confidence === 'number') {
+                structuredOutput.confidenceScore = structuredOutput.confidence;
+              }
+            }
+
+            // Collection & object normalization
+            if (!structuredOutput.confidenceScores && structuredOutput.confidence_scores) {
+              structuredOutput.confidenceScores = structuredOutput.confidence_scores;
+            }
+            if (
+              !structuredOutput.validationErrors &&
+              Array.isArray(structuredOutput.validation_errors)
+            ) {
+              structuredOutput.validationErrors = structuredOutput.validation_errors;
+            } else if (!structuredOutput.validationErrors && Array.isArray(structuredOutput.errors)) {
+              structuredOutput.validationErrors = structuredOutput.errors;
+            }
+            if (!structuredOutput.fieldAnalysis && structuredOutput.field_analysis) {
+              structuredOutput.fieldAnalysis = structuredOutput.field_analysis;
+            }
+            if (!structuredOutput.unmappedHeaders) {
+              if (Array.isArray(structuredOutput.unmapped_headers)) {
+                structuredOutput.unmappedHeaders = structuredOutput.unmapped_headers;
+              } else if (Array.isArray(structuredOutput.unmappedColumns)) {
+                structuredOutput.unmappedHeaders = structuredOutput.unmappedColumns;
+              } else if (Array.isArray(structuredOutput.unmapped)) {
+                structuredOutput.unmappedHeaders = structuredOutput.unmapped;
+              }
+            }
+          }
+
+          // Validate and reconcile skillId using trusted server-side request metadata
+          if (request.skillId) {
+            const currentSkillId = structuredOutput.skillId;
+            if (
+              currentSkillId === undefined ||
+              currentSkillId === null ||
+              (typeof currentSkillId === 'string' && !currentSkillId.trim())
+            ) {
+              structuredOutput.skillId = request.skillId;
+            } else if (typeof currentSkillId === 'string') {
+              if (currentSkillId.trim() !== request.skillId) {
+                this.logger.warn(
+                  `External AI model returned mismatched skillId "${currentSkillId}" (expected "${request.skillId}"); validating and reconciling with trusted request metadata.`,
+                );
+                structuredOutput.skillId = request.skillId;
+              }
+            } else {
+              structuredOutput.skillId = request.skillId;
+            }
+          }
+
           this.validateStructuredOutput(structuredOutput, request.requiredOutputKeys);
           break;
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : String(err);
           this.logger.warn(`External AI provider call attempt ${attempts} failed: ${errMsg}`);
-          if (attempts > maxRetries) {
+
+          // Optimize unnecessary retries: immediately fallback on non-transient client/auth errors (e.g. HTTP 400, 401, 403, 404)
+          const isNonTransient = /HTTP (?:400|401|403|404)/.test(errMsg);
+          if (isNonTransient || attempts > maxRetries) {
             this.logger.warn(
               `External AI provider (${provider}/${model}) failed after ${attempts} attempt(s); activating grounded deterministic synthesis fallback.`,
             );
             structuredOutput = null;
             status = 'FALLBACK_USED';
+            break;
           } else {
-            // Exponential backoff to handle temporary provider demand spikes (e.g. HTTP 503)
-            await new Promise((resolve) => setTimeout(resolve, 2000 * attempts));
+            // Exponential backoff to handle temporary provider demand spikes (e.g. HTTP 503, 429)
+            await new Promise((resolve) => setTimeout(resolve, 1500 * attempts));
           }
         }
       }
@@ -279,7 +424,7 @@ export class AiModelProviderService {
       return tier === 'specialist' ? 'gpt-4o-mini' : 'gpt-4o';
     }
     if (provider === 'gemini') {
-      return 'gemini-3.8-flash';
+      return 'gemini-3.5-flash';
     }
     if (provider === 'anthropic') {
       return 'claude-sonnet-4-20250514';

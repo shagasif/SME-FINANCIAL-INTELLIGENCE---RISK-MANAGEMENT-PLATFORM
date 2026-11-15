@@ -24,6 +24,8 @@ export interface EnvConfig {
   AI_MAX_RETRIES?: string;
   AI_RATE_LIMIT_PER_MIN?: string;
   MCP_EXTERNAL_SERVER_URL?: string;
+  RESEND_API_KEY?: string;
+  RESEND_FROM_EMAIL?: string;
 }
 
 const ALLOWED_NODE_ENVS = ['development', 'test', 'production'] as const;
@@ -95,6 +97,8 @@ export function validateEnv(raw: Record<string, unknown>): EnvConfig {
     'AI_MAX_RETRIES',
     'AI_RATE_LIMIT_PER_MIN',
     'MCP_EXTERNAL_SERVER_URL',
+    'RESEND_API_KEY',
+    'RESEND_FROM_EMAIL',
   ];
 
   for (const key of knownOptionalKeys) {

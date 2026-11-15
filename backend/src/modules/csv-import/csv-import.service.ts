@@ -21,6 +21,14 @@ import { SupervisorOrchestratorService } from '../ai-orchestration/supervisor-or
 import { AuditService } from '../audit/audit.service.js';
 import { FinancialTransactionsService } from '../financial-transactions/financial-transactions.service.js';
 import { AutoMapColumnsDto, ConfirmCsvImportDto, UploadCsvPreviewDto } from './dto/csv-import.dto.js';
+import {
+  INCOME_BUSINESS_TERMS,
+  EXPENSE_BUSINESS_TERMS,
+  TRANSFER_BUSINESS_TERMS,
+  normalizeBusinessTransactionType,
+  parseFlexibleAmount as parseFlexibleAmountUtil,
+  parseFlexibleDate as parseFlexibleDateUtil,
+} from './csv-import-normalization.util.js';
 
 export interface ValidatedCsvRow {
   rowNumber: number;
@@ -57,54 +65,23 @@ export class CsvImportService {
     return CsvImportService.ALLOWED_FILE_EXTENSIONS.some((ext) => cleaned.endsWith(ext));
   }
 
-  /**
-   * Robust date parser handling ISO-8601, standard date strings (YYYY-MM-DD, MM/DD/YYYY, DD/MM/YYYY),
-   * and Excel serial date numbers (e.g. 45506). Returns null if the value cannot be parsed or falls
-   * outside reasonable sanity boundaries.
-   */
+  public static readonly INCOME_TERMS = INCOME_BUSINESS_TERMS;
+  public static readonly EXPENSE_TERMS = EXPENSE_BUSINESS_TERMS;
+  public static readonly TRANSFER_TERMS = TRANSFER_BUSINESS_TERMS;
+
+  public static normalizeTransactionType(
+    rawType: unknown,
+    numericAmount?: Prisma.Decimal | null,
+  ) {
+    return normalizeBusinessTransactionType(rawType, numericAmount);
+  }
+
+  public static parseFlexibleAmount(raw: unknown): Prisma.Decimal | null {
+    return parseFlexibleAmountUtil(raw);
+  }
+
   public static parseFlexibleDate(raw: unknown): Date | null {
-    if (raw === null || raw === undefined) return null;
-    if (raw instanceof Date) {
-      return Number.isNaN(raw.getTime()) ? null : raw;
-    }
-    const trimmed = String(raw).trim();
-    if (!trimmed) return null;
-
-    // Excel serial dates: 4 to 5 digits (e.g. 45506 represents ~Aug 2024; valid range 1000 to 90000)
-    if (/^\d{4,5}(\.\d+)?$/.test(trimmed)) {
-      const serial = parseFloat(trimmed);
-      if (serial >= 1000 && serial <= 90000) {
-        // Excel base date: Dec 30, 1899 taking into account Lotus 1900 leap bug
-        const excelEpochMs = Date.UTC(1899, 11, 30);
-        const dateMs = excelEpochMs + Math.round(serial * 86400 * 1000);
-        const d = new Date(dateMs);
-        if (!Number.isNaN(d.getTime())) return d;
-      }
-    }
-
-    // Standard date parsing (ISO-8601, YYYY-MM-DD, MM/DD/YYYY, etc.)
-    const parsed = Date.parse(trimmed);
-    if (!Number.isNaN(parsed)) {
-      const d = new Date(parsed);
-      const y = d.getUTCFullYear();
-      if (y >= 1970 && y <= 2100) return d;
-    }
-
-    // Common DD/MM/YYYY or DD-MM-YYYY formats
-    const parts = trimmed.split(/[/.-]/);
-    if (parts.length === 3) {
-      const [p1, p2, p3] = parts.map((p) => parseInt(p, 10));
-      // YYYY-MM-DD
-      if (p1 > 1000 && p2 >= 1 && p2 <= 12 && p3 >= 1 && p3 <= 31) {
-        return new Date(Date.UTC(p1, p2 - 1, p3));
-      }
-      // DD-MM-YYYY
-      if (p3 > 1000 && p2 >= 1 && p2 <= 12 && p1 >= 1 && p1 <= 31) {
-        return new Date(Date.UTC(p3, p2 - 1, p1));
-      }
-    }
-
-    return null;
+    return parseFlexibleDateUtil(raw);
   }
 
   constructor(
@@ -270,15 +247,12 @@ export class CsvImportService {
         errors.push(`Invalid date "${rawDate}" in column "${mapping.dateColumn}"`);
       }
 
-      const rawAmount = (raw[mapping.amountColumn] ?? '').replace(/[,$]/g, '').trim();
-      let parsedDecimal: Prisma.Decimal | null = null;
-      if (!rawAmount || !/^-?\d+(\.\d+)?$/.test(rawAmount)) {
-        errors.push(`Invalid numeric amount "${raw[mapping.amountColumn] ?? ''}"`);
-      } else {
-        parsedDecimal = DecimalMath.of(rawAmount);
-        if (parsedDecimal.isZero()) {
-          errors.push('Transaction amount cannot be zero');
-        }
+      const rawAmount = raw[mapping.amountColumn];
+      const parsedDecimal = CsvImportService.parseFlexibleAmount(rawAmount);
+      if (!parsedDecimal) {
+        errors.push(`Invalid numeric amount "${rawAmount ?? ''}"`);
+      } else if (parsedDecimal.isZero()) {
+        errors.push('Transaction amount cannot be zero');
       }
 
       const rawDescription = raw[mapping.descriptionColumn] ?? '';
@@ -286,42 +260,22 @@ export class CsvImportService {
         errors.push('Description is required and must be at least 2 characters');
       }
 
-      const rawType = mapping.typeColumn
-        ? (raw[mapping.typeColumn] ?? '').toUpperCase().trim()
-        : '';
-      let resolvedType: TransactionType = TransactionType.EXPENSE;
-      if (rawType) {
-        if (
-          rawType === 'INCOME' ||
-          rawType === 'CREDIT' ||
-          rawType === 'INFLOW' ||
-          rawType === 'RECEIPT'
-        ) {
-          resolvedType = TransactionType.INCOME;
-        } else if (
-          rawType === 'EXPENSE' ||
-          rawType === 'DEBIT' ||
-          rawType === 'OUTFLOW' ||
-          rawType === 'PAYMENT'
-        ) {
-          resolvedType = TransactionType.EXPENSE;
-        } else if (rawType === 'TRANSFER') {
-          resolvedType = TransactionType.TRANSFER;
-        } else {
-          errors.push(`Unrecognized transaction type "${rawType}"`);
-        }
-      } else if (parsedDecimal) {
-        resolvedType = parsedDecimal.gt(DecimalMath.ZERO)
-          ? TransactionType.INCOME
-          : TransactionType.EXPENSE;
+      const typeResult = CsvImportService.normalizeTransactionType(
+        mapping.typeColumn ? raw[mapping.typeColumn] : undefined,
+        parsedDecimal,
+      );
+      if (typeResult.unrecognized) {
+        errors.push(`Unrecognized transaction type "${typeResult.unrecognizedValue}"`);
       }
+      const resolvedType = typeResult.resolvedType;
 
       if (errors.length > 0 || !parsedDecimal) {
         rowErrors.push({ rowNumber, rawRow: raw, errors });
         continue;
       }
 
-      const absAmount = parsedDecimal.abs().toDecimalPlaces(4);
+      // Preserve exact financial sign from source data (e.g. -9200 for (9,200), 18500 for 18,500)
+      const exactAmount = parsedDecimal.toDecimalPlaces(4);
       const txDate = parsedDate!;
 
       const descSanitized = SecurityUtil.sanitizeImportedText(rawDescription);
@@ -355,7 +309,7 @@ export class CsvImportService {
         accountId: dto.accountId,
         transactionDate: txDate,
         type: resolvedType,
-        amount: absAmount,
+        amount: exactAmount,
         description: descSanitized.sanitized,
       });
 
@@ -367,7 +321,7 @@ export class CsvImportService {
         rowNumber,
         txDate,
         type: resolvedType,
-        amount: absAmount,
+        amount: exactAmount,
         description: descSanitized.sanitized,
         category: catSanitized.sanitized || 'Uncategorized',
         counterparty: counterpartySanitized.sanitized || null,
@@ -517,7 +471,11 @@ export class CsvImportService {
     let netBalanceChange = DecimalMath.ZERO;
     for (const row of rowsToCommit) {
       const amt = DecimalMath.of(row.amount);
-      if (row.type === TransactionType.INCOME) {
+      if (amt.isNegative()) {
+        // If amount already preserves its negative sign (e.g. -9200),
+        // add it directly so it reduces the balance
+        netBalanceChange = DecimalMath.add(netBalanceChange, amt);
+      } else if (row.type === TransactionType.INCOME) {
         netBalanceChange = DecimalMath.add(netBalanceChange, amt);
       } else if (row.type === TransactionType.EXPENSE) {
         netBalanceChange = DecimalMath.sub(netBalanceChange, amt);

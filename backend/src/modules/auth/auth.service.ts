@@ -9,6 +9,7 @@ import { AccountType, MembershipStatus, Prisma, RoleType } from '../../generated
 import { SecurityUtil } from '../../common/utils/security.util.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
+import { EmailService } from '../email/email.service.js';
 import {
   ConfirmPasswordResetDto,
   LoginDto,
@@ -22,6 +23,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly audit: AuditService,
+    private readonly email: EmailService,
   ) {}
 
   private getJwtSecret(): string {
@@ -326,11 +328,11 @@ export class AuthService {
       // Return uniform response to prevent user enumeration
       return {
         status: 'accepted',
-        message: 'If an active account exists for this email, a reset token has been generated.',
+        message: 'If an active account exists for this email, password reset instructions have been sent.',
       };
     }
 
-    const rawToken = SecurityUtil.generateRandomToken(24);
+    const rawToken = SecurityUtil.generateRandomToken(32);
     const tokenHash = SecurityUtil.sha256(rawToken);
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
 
@@ -350,11 +352,26 @@ export class AuthService {
       status: 'SUCCESS',
     });
 
-    const nodeEnv = this.config.get<string>('NODE_ENV') ?? 'development';
+    const frontendBaseUrl = (
+      this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:5173'
+    )
+      .split(',')[0]
+      .trim()
+      .replace(/\/+$/, '');
+
+    const resetUrl = `${frontendBaseUrl}/reset-password?token=${encodeURIComponent(rawToken)}`;
+
+    // Dispatch branded email via Resend
+    await this.email.sendPasswordResetEmail({
+      toEmail: user.email,
+      recipientName: user.fullName,
+      resetUrl,
+      expiresMinutes: 30,
+    });
+
     return {
       status: 'accepted',
-      message: 'If an active account exists for this email, a reset token has been generated.',
-      ...(nodeEnv !== 'production' ? { resetTokenForDevOrTest: rawToken } : {}),
+      message: 'If an active account exists for this email, password reset instructions have been sent.',
     };
   }
 
