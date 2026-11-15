@@ -447,12 +447,62 @@ export class ReportsService {
   }
 
   async listNotifications(organizationId: string, userId?: string) {
-    return this.prisma.notification.findMany({
+    const existing = await this.prisma.notification.findMany({
       where: {
         organizationId,
         ...(userId ? { OR: [{ userId }, { userId: null }] } : {}),
       },
       orderBy: { createdAt: 'desc' },
+    });
+
+    if (existing.length > 0) {
+      return existing;
+    }
+
+    // When an organization has real risk alerts but no notifications have been generated yet,
+    // sync real notifications from the active risk alerts.
+    const realAlerts = await this.prisma.riskAlert.findMany({
+      where: { organizationId },
+      orderBy: { detectedAt: 'desc' },
+      take: 10,
+    });
+
+    if (realAlerts.length > 0) {
+      await this.prisma.notification.createMany({
+        data: realAlerts.map((a) => ({
+          organizationId,
+          userId: null,
+          title: `Risk Alert: ${a.title}`,
+          message: a.explanation,
+          severity: a.severity,
+          category: a.type,
+          linkPath: '/risk-center',
+          isRead: false,
+          createdAt: a.detectedAt,
+        })),
+        skipDuplicates: true,
+      });
+
+      return this.prisma.notification.findMany({
+        where: {
+          organizationId,
+          ...(userId ? { OR: [{ userId }, { userId: null }] } : {}),
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    return [];
+  }
+
+  async markAllNotificationsRead(organizationId: string, userId?: string) {
+    return this.prisma.notification.updateMany({
+      where: {
+        organizationId,
+        ...(userId ? { OR: [{ userId }, { userId: null }] } : {}),
+        isRead: false,
+      },
+      data: { isRead: true },
     });
   }
 

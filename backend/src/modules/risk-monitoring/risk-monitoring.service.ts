@@ -363,6 +363,18 @@ export class RiskMonitoringService {
           nonFraudDisclaimer: NON_FRAUD_DISCLAIMER,
         },
       });
+      await this.prisma.notification.create({
+        data: {
+          organizationId,
+          userId: null,
+          title: `Risk Alert: ${alert.title}`,
+          message: alert.explanation,
+          severity: alert.severity,
+          category: alert.type,
+          linkPath: '/risk-center',
+          isRead: false,
+        },
+      });
       createdAlerts.push(this.serializeAlert(alert));
     }
 

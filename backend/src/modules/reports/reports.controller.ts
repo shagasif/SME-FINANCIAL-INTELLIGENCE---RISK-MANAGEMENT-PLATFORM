@@ -102,6 +102,24 @@ export class ReportsController {
     return this.service.listNotifications(orgId, user.userId);
   }
 
+  @Patch('notifications/read-all')
+  @Roles(
+    RoleType.PLATFORM_ADMIN,
+    RoleType.BUSINESS_OWNER,
+    RoleType.FINANCE_MANAGER,
+    RoleType.ACCOUNTANT,
+    RoleType.OPERATIONS_MANAGER,
+    RoleType.FINANCIAL_ANALYST,
+    RoleType.AUDITOR,
+  )
+  @ApiOperation({ summary: 'Mark all notifications as read for current user/organization' })
+  async markAllRead(
+    @Param('orgId') orgId: string,
+    @CurrentUser() user: AuthenticatedPrincipal,
+  ) {
+    return this.service.markAllNotificationsRead(orgId, user.userId);
+  }
+
   @Patch('notifications/:notificationId/read')
   @Roles(
     RoleType.PLATFORM_ADMIN,
