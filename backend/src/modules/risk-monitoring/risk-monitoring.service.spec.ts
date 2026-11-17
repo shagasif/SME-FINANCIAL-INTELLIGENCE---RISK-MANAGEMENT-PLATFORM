@@ -7,6 +7,7 @@ import {
   RiskAlertStatus,
   RiskAlertType,
   RiskSeverity,
+  TaskStatus,
 } from '../../generated/prisma/client.js';
 import { RiskMonitoringService } from './risk-monitoring.service.js';
 
@@ -85,6 +86,7 @@ describe('RiskMonitoringService Triage Workflows', () => {
   function createMockPrisma(alertOverride = {}) {
     const currentAlert = { ...baseAlert, ...alertOverride };
     const reviewDecisions: any[] = [];
+    const followUpTasks: any[] = [];
 
     const mockTx = {
       reviewDecision: {
@@ -92,6 +94,18 @@ describe('RiskMonitoringService Triage Workflows', () => {
           const record = { id: `dec-${reviewDecisions.length + 1}`, createdAt: new Date(), ...data };
           reviewDecisions.unshift(record);
           return record;
+        }),
+      },
+      followUpTask: {
+        updateMany: jest.fn(async ({ where, data }: any) => {
+          let count = 0;
+          for (const t of followUpTasks) {
+            if (t.relatedEntityId === where.relatedEntityId) {
+              Object.assign(t, data);
+              count += 1;
+            }
+          }
+          return { count };
         }),
       },
       riskAlert: {
@@ -108,6 +122,38 @@ describe('RiskMonitoringService Triage Workflows', () => {
     const prisma = {
       riskAlert: {
         findFirst: jest.fn(async () => currentAlert),
+        findMany: jest.fn(async () => [currentAlert]),
+        create: jest.fn(async ({ data }: any) => ({ id: 'alert-new-1', ...data })),
+        update: jest.fn(async ({ data }: any) => ({ ...currentAlert, ...data })),
+      },
+      followUpTask: {
+        findFirst: jest.fn(async ({ where }: any) => {
+          return followUpTasks.find((t) => t.relatedEntityId === where.relatedEntityId) || null;
+        }),
+        create: jest.fn(async ({ data }: any) => {
+          const task = { id: `task-${followUpTasks.length + 1}`, createdAt: new Date(), ...data };
+          followUpTasks.push(task);
+          return task;
+        }),
+        updateMany: jest.fn(async () => ({ count: 1 })),
+      },
+      organizationMembership: {
+        findMany: jest.fn(async () => [
+          { userId: 'usr-accountant-1', role: 'ACCOUNTANT' },
+          { userId: 'usr-owner-1', role: 'BUSINESS_OWNER' },
+        ]),
+      },
+      notification: {
+        create: jest.fn(async ({ data }: any) => ({ id: 'notif-1', ...data })),
+      },
+      financialAccount: {
+        findMany: jest.fn(async () => []),
+      },
+      cashFlowForecast: {
+        findFirst: jest.fn(async () => null),
+      },
+      budget: {
+        findMany: jest.fn(async () => []),
       },
       financialTransaction: {
         findFirst: jest.fn(async ({ where }: any) => {
@@ -528,5 +574,167 @@ describe('RiskMonitoringService Triage Workflows', () => {
         expect.stringContaining('Approve financial correction'),
       ]),
     );
+  });
+
+  describe('Automatic FollowUpTask Lifecycle & Outcome Synchronization', () => {
+    it('synchronizes linked follow-up task status to COMPLETED when alert is resolved with verified evidence', async () => {
+      const { prisma, audit, budgetsService, mockTx } = createMockPrisma({
+        supportingRecordIds: { transactionIds: ['tx-1', correctionTx.id] },
+      });
+      const service = new RiskMonitoringService(prisma as any, budgetsService as any, audit as any);
+
+      await service.triageAlert(
+        orgId,
+        'alert-123',
+        {
+          action: ReviewActionType.APPROVE,
+          reviewerNotes: `Verified against organization refund transaction ${correctionTx.reference}`,
+          resolutionEvidence: `Verified against organization refund transaction ${correctionTx.reference}`,
+        },
+        reviewerUserId,
+      );
+
+      expect(mockTx.followUpTask.updateMany).toHaveBeenCalledWith({
+        where: {
+          organizationId: orgId,
+          relatedEntityId: 'alert-123',
+          relatedType: 'RISK_ALERT',
+          status: { notIn: [TaskStatus.COMPLETED, TaskStatus.CANCELLED] },
+        },
+        data: expect.objectContaining({
+          status: TaskStatus.COMPLETED,
+          completedAt: expect.any(Date),
+        }),
+      });
+    });
+
+    it('synchronizes linked follow-up task status to CANCELLED when alert is dismissed with justification', async () => {
+      const { prisma, audit, budgetsService, mockTx } = createMockPrisma();
+      const service = new RiskMonitoringService(prisma as any, budgetsService as any, audit as any);
+
+      await service.triageAlert(
+        orgId,
+        'alert-123',
+        {
+          action: ReviewActionType.DISMISS,
+          reviewerNotes: 'Approved seasonal variance per annual budget allocation and vendor contract schedule.',
+        },
+        reviewerUserId,
+      );
+
+      expect(mockTx.followUpTask.updateMany).toHaveBeenCalledWith({
+        where: {
+          organizationId: orgId,
+          relatedEntityId: 'alert-123',
+          relatedType: 'RISK_ALERT',
+          status: { notIn: [TaskStatus.COMPLETED, TaskStatus.CANCELLED] },
+        },
+        data: expect.objectContaining({
+          status: TaskStatus.CANCELLED,
+          completedAt: expect.any(Date),
+        }),
+      });
+    });
+
+    it('synchronizes linked follow-up task status to IN_PROGRESS when alert is under investigation', async () => {
+      const { prisma, audit, budgetsService, mockTx } = createMockPrisma();
+      const service = new RiskMonitoringService(prisma as any, budgetsService as any, audit as any);
+
+      await service.triageAlert(
+        orgId,
+        'alert-123',
+        {
+          action: ReviewActionType.INVESTIGATE,
+          reviewerNotes: 'Investigate unexpected invoice amount spike.',
+        },
+        reviewerUserId,
+      );
+
+      expect(mockTx.followUpTask.updateMany).toHaveBeenCalledWith({
+        where: {
+          organizationId: orgId,
+          relatedEntityId: 'alert-123',
+          relatedType: 'RISK_ALERT',
+          status: TaskStatus.OPEN,
+        },
+        data: {
+          status: TaskStatus.IN_PROGRESS,
+        },
+      });
+    });
+
+    it('synchronizes linked follow-up task status to IN_PROGRESS and CRITICAL priority when alert is escalated', async () => {
+      const { prisma, audit, budgetsService, mockTx } = createMockPrisma();
+      const service = new RiskMonitoringService(prisma as any, budgetsService as any, audit as any);
+
+      await service.triageAlert(
+        orgId,
+        'alert-123',
+        {
+          action: ReviewActionType.ESCALATE,
+          reviewerNotes: 'Escalate to CFO for urgent executive review of cash exposure.',
+        },
+        reviewerUserId,
+      );
+
+      expect(mockTx.followUpTask.updateMany).toHaveBeenCalledWith({
+        where: {
+          organizationId: orgId,
+          relatedEntityId: 'alert-123',
+          relatedType: 'RISK_ALERT',
+          status: { notIn: [TaskStatus.COMPLETED, TaskStatus.CANCELLED] },
+        },
+        data: {
+          status: TaskStatus.IN_PROGRESS,
+          priority: RiskSeverity.CRITICAL,
+        },
+      });
+    });
+
+    it('automatically creates a FollowUpTask with responsible assignee, priority, due date and originating alert link', async () => {
+      const { prisma, audit, budgetsService } = createMockPrisma();
+      const service = new RiskMonitoringService(prisma as any, budgetsService as any, audit as any);
+
+      const alertToTask = {
+        id: 'alert-overdue-1',
+        type: RiskAlertType.OVERDUE_RECEIVABLE,
+        severity: RiskSeverity.HIGH,
+        title: '3 unpaid customer invoices past due',
+        explanation: 'Customer invoices are past payment due date.',
+      };
+
+      const task = await (service as any).ensureTaskForRiskAlert(orgId, alertToTask, reviewerUserId);
+
+      expect(task).not.toBeNull();
+      expect(prisma.followUpTask.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          organizationId: orgId,
+          title: expect.stringContaining('Collect past-due customer receivable'),
+          priority: RiskSeverity.HIGH,
+          assignedToId: 'usr-accountant-1', // resolved based on ACCOUNTANT role priority
+          relatedEntityId: 'alert-overdue-1',
+          relatedType: 'RISK_ALERT',
+          dueDate: expect.any(Date),
+        }),
+      });
+    });
+
+    it('prevents duplicate follow-up tasks if an active task for the risk alert already exists', async () => {
+      const { prisma, audit, budgetsService } = createMockPrisma();
+      // Simulate existing active task
+      (prisma.followUpTask.findFirst as jest.Mock).mockResolvedValueOnce({
+        id: 'existing-task-1',
+        relatedEntityId: 'alert-123',
+        relatedType: 'RISK_ALERT',
+        status: TaskStatus.OPEN,
+      } as any);
+
+      const service = new RiskMonitoringService(prisma as any, budgetsService as any, audit as any);
+
+      const task = await (service as any).ensureTaskForRiskAlert(orgId, baseAlert, reviewerUserId);
+
+      expect(task).toBeNull();
+      expect(prisma.followUpTask.create).not.toHaveBeenCalled();
+    });
   });
 });

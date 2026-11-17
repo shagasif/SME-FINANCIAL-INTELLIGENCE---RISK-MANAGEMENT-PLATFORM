@@ -556,7 +556,11 @@ export class ReportsService {
         organizationId,
         ...(status ? { status } : {}),
       },
-      orderBy: { createdAt: 'desc' },
+      include: {
+        assignedTo: { select: { id: true, email: true, fullName: true } },
+        createdBy: { select: { id: true, email: true, fullName: true } },
+      },
+      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
     });
   }
 

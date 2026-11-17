@@ -10,6 +10,8 @@ import {
   RiskAlertStatus,
   RiskAlertType,
   RiskSeverity,
+  RoleType,
+  TaskStatus,
   TransactionType,
 } from '../../generated/prisma/client.js';
 import { DecimalMath } from '../../common/utils/decimal-math.js';
@@ -69,6 +71,232 @@ export class RiskMonitoringService {
       }));
 
     return { ...sup, transactions };
+  }
+
+  private async resolveResponsibleUserId(
+    organizationId: string,
+    alertType: RiskAlertType,
+    fallbackUserId: string,
+  ): Promise<string> {
+    const memberships = await this.prisma.organizationMembership.findMany({
+      where: {
+        organizationId,
+        status: 'ACTIVE',
+      },
+      select: {
+        userId: true,
+        role: true,
+      },
+    });
+
+    if (memberships.length === 0) {
+      return fallbackUserId;
+    }
+
+    let preferredRoles: RoleType[];
+    switch (alertType) {
+      case RiskAlertType.OVERDUE_RECEIVABLE:
+      case RiskAlertType.DUPLICATE_CANDIDATE:
+      case RiskAlertType.UNUSUAL_AMOUNT:
+        preferredRoles = [RoleType.ACCOUNTANT, RoleType.FINANCE_MANAGER, RoleType.BUSINESS_OWNER];
+        break;
+      case RiskAlertType.CASH_SHORTFALL:
+      case RiskAlertType.BUDGET_OVERRUN:
+      case RiskAlertType.CATEGORY_SHIFT:
+      case RiskAlertType.UNUSUAL_FREQUENCY:
+      case RiskAlertType.TIMING_CHANGE:
+      default:
+        preferredRoles = [RoleType.FINANCE_MANAGER, RoleType.BUSINESS_OWNER, RoleType.ACCOUNTANT];
+        break;
+    }
+
+    for (const role of preferredRoles) {
+      const match = memberships.find((m) => m.role === role);
+      if (match) return match.userId;
+    }
+
+    if (memberships.some((m) => m.userId === fallbackUserId)) {
+      return fallbackUserId;
+    }
+
+    return memberships[0].userId;
+  }
+
+  private generateTaskForRiskAlert(
+    alert: {
+      id: string;
+      type: RiskAlertType;
+      severity: RiskSeverity;
+      title: string;
+      explanation: string;
+      metricValue: Prisma.Decimal | null;
+      thresholdValue: Prisma.Decimal | null;
+      supportingRecordIds: unknown;
+    },
+  ): {
+    title: string;
+    description: string;
+    priority: RiskSeverity;
+    dueDate: Date;
+  } {
+    const now = new Date();
+    const addDays = (days: number) => new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+
+    const sup = (alert.supportingRecordIds ?? {}) as Record<string, unknown>;
+    const txs = (sup['transactions'] ?? []) as Array<Record<string, unknown>>;
+    const firstTx = txs[0];
+
+    switch (alert.type) {
+      case RiskAlertType.OVERDUE_RECEIVABLE: {
+        const amountStr = alert.metricValue ? DecimalMath.toFixed2(alert.metricValue) : '';
+        return {
+          title: `Collect past-due customer receivable${amountStr ? ` ($${amountStr})` : ''}`,
+          description: `Customer invoice balance is past payment due date. Initiate outreach to customer accounts payable department, confirm receipt of invoice, and secure committed remittance date.`,
+          priority: alert.severity,
+          dueDate: addDays(3),
+        };
+      }
+
+      case RiskAlertType.DUPLICATE_CANDIDATE: {
+        const amountStr = alert.metricValue ? DecimalMath.toFixed2(alert.metricValue) : '';
+        const vendor = firstTx?.['vendor'] ? String(firstTx['vendor']) : 'vendor';
+        return {
+          title: `Audit suspected duplicate charge${amountStr ? ` of $${amountStr}` : ''} from ${vendor}`,
+          description: `Two identical expense entries were detected within 48 hours. Inspect bank/credit card statements, verify vendor invoice, and request a credit memo or refund if duplicated.`,
+          priority: alert.severity,
+          dueDate: addDays(2),
+        };
+      }
+
+      case RiskAlertType.CASH_SHORTFALL: {
+        const cashStr = alert.metricValue ? DecimalMath.toFixed2(alert.metricValue) : '';
+        return {
+          title: 'Implement liquidity preservation controls & review AP disbursements',
+          description: `Available cash reserves (${cashStr ? `$${cashStr}` : 'critical level'}) have dropped below safety buffer. Review scheduled disbursements, expedite customer collections, and defer discretionary operating expenses.`,
+          priority: alert.severity,
+          dueDate: addDays(1),
+        };
+      }
+
+      case RiskAlertType.BUDGET_OVERRUN: {
+        return {
+          title: `Remediate budget overrun: ${alert.title}`,
+          description: `${alert.explanation} Freeze discretionary spending in this category and review line-item expenditure with department manager.`,
+          priority: alert.severity,
+          dueDate: addDays(4),
+        };
+      }
+
+      case RiskAlertType.CATEGORY_SHIFT: {
+        return {
+          title: `Review expenditure concentration in ${alert.title.split(' ')[2] || 'flagged category'}`,
+          description: `${alert.explanation} Verify that category concentration aligns with approved operating plan and contracts.`,
+          priority: alert.severity,
+          dueDate: addDays(5),
+        };
+      }
+
+      case RiskAlertType.UNUSUAL_AMOUNT: {
+        const amountStr = alert.metricValue ? DecimalMath.toFixed2(alert.metricValue) : '';
+        const vendor = firstTx?.['vendor'] ? String(firstTx['vendor']) : 'vendor';
+        return {
+          title: `Verify contract authorization for high-value expense${amountStr ? ` ($${amountStr})` : ''}`,
+          description: `Outlier expense to ${vendor} detected. Confirm department purchase authorization, invoice terms, and verified delivery of goods or services.`,
+          priority: alert.severity,
+          dueDate: addDays(3),
+        };
+      }
+
+      case RiskAlertType.UNUSUAL_FREQUENCY:
+      case RiskAlertType.TIMING_CHANGE:
+      default: {
+        return {
+          title: `Investigate transaction pattern anomaly: ${alert.title}`,
+          description: `${alert.explanation} Cross-check source invoices and account movements to verify financial legitimacy.`,
+          priority: alert.severity,
+          dueDate: addDays(5),
+        };
+      }
+    }
+  }
+
+  private async ensureTaskForRiskAlert(
+    organizationId: string,
+    alert: {
+      id: string;
+      type: RiskAlertType;
+      severity: RiskSeverity;
+      status: RiskAlertStatus;
+      title: string;
+      explanation: string;
+      metricValue: Prisma.Decimal | null;
+      thresholdValue: Prisma.Decimal | null;
+      supportingRecordIds: unknown;
+    },
+    actorUserId: string,
+  ): Promise<unknown> {
+    if (
+      alert.status === RiskAlertStatus.RESOLVED ||
+      alert.status === RiskAlertStatus.DISMISSED
+    ) {
+      return null;
+    }
+
+    // Duplicate check: ensure no active task already exists for this risk alert
+    const existing = await this.prisma.followUpTask.findFirst({
+      where: {
+        organizationId,
+        relatedEntityId: alert.id,
+        relatedType: 'RISK_ALERT',
+        status: { in: [TaskStatus.OPEN, TaskStatus.IN_PROGRESS] },
+      },
+    });
+
+    if (existing) {
+      return null;
+    }
+
+    const taskSpec = this.generateTaskForRiskAlert(alert);
+    const assignedToId = await this.resolveResponsibleUserId(
+      organizationId,
+      alert.type,
+      actorUserId,
+    );
+
+    const task = await this.prisma.followUpTask.create({
+      data: {
+        organizationId,
+        title: taskSpec.title,
+        description: taskSpec.description,
+        priority: taskSpec.priority,
+        dueDate: taskSpec.dueDate,
+        assignedToId,
+        createdById: actorUserId,
+        relatedEntityId: alert.id,
+        relatedType: 'RISK_ALERT',
+        status:
+          alert.status === RiskAlertStatus.INVESTIGATING ||
+          alert.status === RiskAlertStatus.ESCALATED
+            ? TaskStatus.IN_PROGRESS
+            : TaskStatus.OPEN,
+      },
+    });
+
+    await this.audit.record({
+      organizationId,
+      actorUserId,
+      action: 'FOLLOW_UP_TASK_AUTO_CREATED_BY_RISK_SCAN',
+      resourceType: 'FOLLOW_UP_TASK',
+      resourceId: task.id,
+      details: {
+        riskAlertId: alert.id,
+        riskType: alert.type,
+        priority: task.priority,
+        assignedToId,
+      },
+    });
+
+    return task;
   }
 
   async runAnomalyAndRiskScan(organizationId: string, actorUserId: string) {
@@ -328,7 +556,17 @@ export class RiskMonitoringService {
           notIn: [RiskAlertStatus.RESOLVED, RiskAlertStatus.DISMISSED],
         },
       },
-      select: { id: true, type: true, supportingRecordIds: true },
+      select: {
+        id: true,
+        type: true,
+        severity: true,
+        status: true,
+        title: true,
+        explanation: true,
+        metricValue: true,
+        thresholdValue: true,
+        supportingRecordIds: true,
+      },
     });
 
     const existingFingerprints = new Set<string>();
@@ -375,7 +613,82 @@ export class RiskMonitoringService {
           isRead: false,
         },
       });
+
+      // Automatically create an actual follow-up task record for the genuine risk
+      await this.ensureTaskForRiskAlert(organizationId, alert, actorUserId);
+
       createdAlerts.push(this.serializeAlert(alert));
+    }
+
+    // Ensure follow-up tasks exist for all active alerts (including previously scanned ones)
+    for (const a of activeAlerts) {
+      await this.ensureTaskForRiskAlert(organizationId, a, actorUserId);
+    }
+
+    // Update task & alert status based on actual progress and verified outcomes:
+    for (const a of activeAlerts) {
+      if (a.type === RiskAlertType.OVERDUE_RECEIVABLE && overdueInvoices.length === 0) {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.riskAlert.update({
+            where: { id: a.id },
+            data: { status: RiskAlertStatus.RESOLVED },
+          });
+          await tx.followUpTask.updateMany({
+            where: {
+              organizationId,
+              relatedEntityId: a.id,
+              relatedType: 'RISK_ALERT',
+              status: { notIn: [TaskStatus.COMPLETED, TaskStatus.CANCELLED] },
+            },
+            data: {
+              status: TaskStatus.COMPLETED,
+              completedAt: new Date(),
+            },
+          });
+        });
+        await this.audit.record({
+          organizationId,
+          actorUserId,
+          action: 'RISK_ALERT_AUTO_RESOLVED_VIA_PAYMENT',
+          resourceType: 'RISK_ALERT',
+          resourceId: a.id,
+          details: { verifiedOutcome: 'All overdue customer invoices have been cleared/settled' },
+        });
+      } else if (
+        a.type === RiskAlertType.CASH_SHORTFALL &&
+        accounts.length > 0 &&
+        liquidCash.gte(safetyThreshold) &&
+        !latestForecast?.hasLiquidityWarning
+      ) {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.riskAlert.update({
+            where: { id: a.id },
+            data: { status: RiskAlertStatus.RESOLVED },
+          });
+          await tx.followUpTask.updateMany({
+            where: {
+              organizationId,
+              relatedEntityId: a.id,
+              relatedType: 'RISK_ALERT',
+              status: { notIn: [TaskStatus.COMPLETED, TaskStatus.CANCELLED] },
+            },
+            data: {
+              status: TaskStatus.COMPLETED,
+              completedAt: new Date(),
+            },
+          });
+        });
+        await this.audit.record({
+          organizationId,
+          actorUserId,
+          action: 'RISK_ALERT_AUTO_RESOLVED_VIA_LIQUIDITY_RESTORED',
+          resourceType: 'RISK_ALERT',
+          resourceId: a.id,
+          details: {
+            verifiedOutcome: `Liquid cash restored to ${DecimalMath.toFixed2(liquidCash)} >= ${DecimalMath.toFixed2(safetyThreshold)}`,
+          },
+        });
+      }
     }
 
     await this.audit.record({
@@ -666,6 +979,60 @@ export class RiskMonitoringService {
           metadata: aiWorkflow as unknown as Prisma.InputJsonValue,
         },
       });
+
+      // Synchronize linked follow-up task status based on verified outcomes & actual review actions
+      if (dto.action === ReviewActionType.APPROVE) {
+        await tx.followUpTask.updateMany({
+          where: {
+            organizationId,
+            relatedEntityId: alert.id,
+            relatedType: 'RISK_ALERT',
+            status: { notIn: [TaskStatus.COMPLETED, TaskStatus.CANCELLED] },
+          },
+          data: {
+            status: TaskStatus.COMPLETED,
+            completedAt: new Date(),
+          },
+        });
+      } else if (dto.action === ReviewActionType.DISMISS) {
+        await tx.followUpTask.updateMany({
+          where: {
+            organizationId,
+            relatedEntityId: alert.id,
+            relatedType: 'RISK_ALERT',
+            status: { notIn: [TaskStatus.COMPLETED, TaskStatus.CANCELLED] },
+          },
+          data: {
+            status: TaskStatus.CANCELLED,
+            completedAt: new Date(),
+          },
+        });
+      } else if (dto.action === ReviewActionType.INVESTIGATE) {
+        await tx.followUpTask.updateMany({
+          where: {
+            organizationId,
+            relatedEntityId: alert.id,
+            relatedType: 'RISK_ALERT',
+            status: TaskStatus.OPEN,
+          },
+          data: {
+            status: TaskStatus.IN_PROGRESS,
+          },
+        });
+      } else if (dto.action === ReviewActionType.ESCALATE) {
+        await tx.followUpTask.updateMany({
+          where: {
+            organizationId,
+            relatedEntityId: alert.id,
+            relatedType: 'RISK_ALERT',
+            status: { notIn: [TaskStatus.COMPLETED, TaskStatus.CANCELLED] },
+          },
+          data: {
+            status: TaskStatus.IN_PROGRESS,
+            priority: RiskSeverity.CRITICAL,
+          },
+        });
+      }
 
       return tx.riskAlert.update({
         where: { id: alert.id },
