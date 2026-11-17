@@ -107,6 +107,8 @@ export function TasksNotificationsPage() {
     if (!activeOrgId) return;
 
     let isMounted = true;
+    const isRealOrg = Boolean(activeOrg?.id && activeOrg.id !== DEFAULT_DEMO_ORG.id);
+
     Promise.allSettled([
       apiGet<FollowUpTask[]>(`/v1/organizations/${activeOrgId}/tasks`),
       apiGet<Notification[]>(`/v1/organizations/${activeOrgId}/notifications`),
@@ -121,9 +123,9 @@ export function TasksNotificationsPage() {
             : (raw as unknown as { items?: FollowUpTask[]; data?: FollowUpTask[] })?.items ||
               (raw as unknown as { items?: FollowUpTask[]; data?: FollowUpTask[] })?.data ||
               [];
-          setTasks(list.length > 0 ? list : DEFAULT_TASKS);
+          setTasks(list.length > 0 ? list : (isRealOrg ? [] : DEFAULT_TASKS));
         } else {
-          setTasks((prev) => (prev.length > 0 ? prev : DEFAULT_TASKS));
+          setTasks((prev) => (prev.length > 0 ? prev : (isRealOrg ? [] : DEFAULT_TASKS)));
         }
 
         if (notifsRes.status === 'fulfilled') {
@@ -133,17 +135,17 @@ export function TasksNotificationsPage() {
             : (raw as unknown as { items?: Notification[]; data?: Notification[] })?.items ||
               (raw as unknown as { items?: Notification[]; data?: Notification[] })?.data ||
               [];
-          setNotifications(list.length > 0 ? list : DEFAULT_NOTIFICATIONS);
+          setNotifications(list.length > 0 ? list : (isRealOrg ? [] : DEFAULT_NOTIFICATIONS));
         } else {
-          setNotifications((prev) => (prev.length > 0 ? prev : DEFAULT_NOTIFICATIONS));
+          setNotifications((prev) => (prev.length > 0 ? prev : (isRealOrg ? [] : DEFAULT_NOTIFICATIONS)));
         }
 
         setError(null);
       })
       .catch(() => {
         if (!isMounted) return;
-        setTasks((prev) => (prev.length > 0 ? prev : DEFAULT_TASKS));
-        setNotifications((prev) => (prev.length > 0 ? prev : DEFAULT_NOTIFICATIONS));
+        setTasks((prev) => (prev.length > 0 ? prev : (isRealOrg ? [] : DEFAULT_TASKS)));
+        setNotifications((prev) => (prev.length > 0 ? prev : (isRealOrg ? [] : DEFAULT_NOTIFICATIONS)));
         setError(null);
       })
       .finally(() => {
@@ -153,7 +155,7 @@ export function TasksNotificationsPage() {
     return () => {
       isMounted = false;
     };
-  }, [activeOrgId, reloadKey]);
+  }, [activeOrgId, activeOrg?.id, reloadKey]);
 
   const handleRefresh = () => {
     setIsLoading(true);
@@ -351,6 +353,7 @@ export function TasksNotificationsPage() {
                   <tr>
                     <th className="py-3 px-4 font-semibold">Priority</th>
                     <th className="py-3 px-4 font-semibold">Task Title & Details</th>
+                    <th className="py-3 px-4 font-semibold">Assigned To</th>
                     <th className="py-3 px-4 font-semibold text-center">Status</th>
                     <th className="py-3 px-4 font-semibold text-right">Due Date</th>
                     <th className="py-3 px-4 font-semibold text-center">Actions</th>
@@ -376,9 +379,31 @@ export function TasksNotificationsPage() {
                         </span>
                       </td>
                       <td className="py-3 px-4 max-w-sm">
-                        <div className="font-semibold text-[var(--text-primary)]">{task.title}</div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-[var(--text-primary)]">{task.title}</span>
+                          {task.relatedType === 'RISK_ALERT' && (
+                            <a
+                              href="/risk-center"
+                              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors"
+                              title="Linked originating risk in Risk Center"
+                            >
+                              <ShieldAlert className="w-2.5 h-2.5" />
+                              Originating Risk Alert
+                            </a>
+                          )}
+                        </div>
                         <div className="text-[11px] text-[var(--text-muted)] line-clamp-1 mt-0.5">
                           {task.description}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-5 h-5 rounded-full bg-[var(--surface-elevated)] border border-[var(--border-subtle)] flex items-center justify-center text-[10px] font-bold text-[var(--text-secondary)] shrink-0">
+                            {(task.assignedTo?.fullName || task.assignedUser?.fullName || task.assignedTo?.email || task.assignedUser?.email || 'U')[0].toUpperCase()}
+                          </div>
+                          <span className="text-[11px] text-[var(--text-secondary)] truncate max-w-[120px]">
+                            {task.assignedTo?.fullName || task.assignedUser?.fullName || task.assignedTo?.email || task.assignedUser?.email || 'Unassigned'}
+                          </span>
                         </div>
                       </td>
                       <td className="py-3 px-4 text-center">
@@ -388,7 +413,9 @@ export function TasksNotificationsPage() {
                               ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                               : task.status === TaskStatus.IN_PROGRESS
                                 ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
-                                : 'bg-slate-500/10 text-slate-500'
+                                : task.status === TaskStatus.CANCELLED
+                                  ? 'bg-slate-500/10 text-slate-400 line-through'
+                                  : 'bg-slate-500/10 text-slate-500'
                           }`}
                         >
                           {task.status}
@@ -398,7 +425,7 @@ export function TasksNotificationsPage() {
                         {task.dueDate ? formatDate(task.dueDate) : '—'}
                       </td>
                       <td className="py-3 px-4 text-center">
-                        {!isAuditor && task.status !== TaskStatus.COMPLETED && (
+                        {!isAuditor && task.status !== TaskStatus.COMPLETED && task.status !== TaskStatus.CANCELLED && (
                           <div className="flex items-center justify-center gap-1">
                             <Button
                               variant="ghost"
@@ -432,8 +459,14 @@ export function TasksNotificationsPage() {
                             </Button>
                           </div>
                         )}
-                        {isAuditor && (
-                          <span className="text-[10px] text-[var(--text-muted)]">Locked</span>
+                        {(isAuditor || task.status === TaskStatus.COMPLETED || task.status === TaskStatus.CANCELLED) && (
+                          <span className="text-[10px] text-[var(--text-muted)]">
+                            {task.status === TaskStatus.COMPLETED
+                              ? 'Resolved'
+                              : task.status === TaskStatus.CANCELLED
+                                ? 'Dismissed'
+                                : 'Locked'}
+                          </span>
                         )}
                       </td>
                     </tr>
