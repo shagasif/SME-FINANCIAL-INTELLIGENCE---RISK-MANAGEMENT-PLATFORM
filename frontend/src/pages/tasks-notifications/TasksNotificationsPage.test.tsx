@@ -91,7 +91,7 @@ describe('TasksNotificationsPage Component', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Reconcile Q1 corporate card disbursements')).toBeInTheDocument();
-      expect(screen.getByText('IN_PROGRESS')).toBeInTheDocument();
+      expect(screen.getAllByText('In Progress').length).toBeGreaterThan(0);
     });
 
     expect(screen.getByText('New Task')).toBeInTheDocument();

@@ -91,16 +91,16 @@ const SPECIALIST_AGENTS: Array<{
 ];
 
 const LIFECYCLE_STEPS = [
-  { step: 1, name: 'RUN_STARTED', label: 'Run Initialized' },
-  { step: 2, name: 'PLANNING_SYNTHESIZED', label: 'Supervisor Plan' },
-  { step: 3, name: 'SPECIALIST_DELEGATED', label: 'Specialist Dispatch' },
-  { step: 4, name: 'SKILL_EXECUTING', label: 'Skills Execution' },
-  { step: 5, name: 'MCP_DISPATCHED', label: 'MCP Sandbox Dispatched' },
-  { step: 6, name: 'DECIMAL_VERIFIED', label: 'Decimal Arithmetic' },
-  { step: 7, name: 'VERIFIER_PASSED', label: 'Verifier AI Audit' },
-  { step: 8, name: 'HUMAN_REVIEW_WAITING', label: 'HITL Review Gate' },
+  { step: 1, name: 'RUN_STARTED', label: 'Started' },
+  { step: 2, name: 'PLANNING_SYNTHESIZED', label: 'Workflow Plan' },
+  { step: 3, name: 'SPECIALIST_DELEGATED', label: 'Specialist Assigned' },
+  { step: 4, name: 'SKILL_EXECUTING', label: 'Analysis Running' },
+  { step: 5, name: 'MCP_DISPATCHED', label: 'Tools Running' },
+  { step: 6, name: 'DECIMAL_VERIFIED', label: 'Accuracy Check' },
+  { step: 7, name: 'VERIFIER_PASSED', label: 'Verification Check' },
+  { step: 8, name: 'HUMAN_REVIEW_WAITING', label: 'Awaiting Human Approval' },
   { step: 9, name: 'DECISION_APPLIED', label: 'Decision Applied' },
-  { step: 10, name: 'AUDIT_LOG_COMMITTED', label: 'Audit Log Committed' },
+  { step: 10, name: 'AUDIT_LOG_COMMITTED', label: 'Audit Log Saved' },
 ];
 
 export function AiOrchestrationPage() {
@@ -308,7 +308,7 @@ export function AiOrchestrationPage() {
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--text-primary)] flex items-center gap-2">
             <Cpu className="w-6 h-6 text-[var(--brand-primary)]" />
-            Multi-Agent AI Orchestration Dashboard
+            AI Workflows & Orchestration
           </h1>
           <p className="text-xs text-[var(--text-muted)] mt-1">
             Automated financial analysis workflows, specialist reviews, and approval history.
@@ -337,7 +337,7 @@ export function AiOrchestrationPage() {
               }}
             >
               <Zap className="w-3.5 h-3.5 mr-1.5" />
-              Dispatch Orchestration
+              Run New Workflow
             </Button>
           )}
         </div>
@@ -351,11 +351,10 @@ export function AiOrchestrationPage() {
         >
           <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
           <div>
-            <span className="font-semibold block mb-0.5">Auditor Mode Active</span>
+            <span className="font-semibold block mb-0.5">Read-Only Auditor Mode</span>
             <span className="leading-relaxed opacity-90">
-              Multi-agent orchestration runs, telemetry, skill invocations, and MCP audit trails are
-              visible in read-only inspection. Dispatching new workflows and signing off on human
-              review gates are blocked.
+              You can inspect workflow runs and audit logs. Running new workflows and approvals
+              are disabled for auditors.
             </span>
           </div>
         </div>
@@ -371,7 +370,7 @@ export function AiOrchestrationPage() {
               : 'text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]'
           }`}
         >
-          Orchestration Runs ({workflowRuns.length})
+          Workflow Runs ({workflowRuns.length})
         </button>
         <button
           onClick={() => setActiveTab('ARCHITECTURE')}
@@ -381,7 +380,7 @@ export function AiOrchestrationPage() {
               : 'text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]'
           }`}
         >
-          Agent Architecture (8 Specialists + Verifier)
+          Specialists & Roles
         </button>
         <button
           onClick={() => setActiveTab('TELEMETRY')}
@@ -391,10 +390,11 @@ export function AiOrchestrationPage() {
               : 'text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]'
           }`}
         >
-          Live Gemini Telemetry
+          System Status
         </button>
         <button
           onClick={() => setActiveTab('HITL')}
+          aria-label={`Human-in-the-Loop (${pendingHitlRuns.length})`}
           className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors ${
             activeTab === 'HITL'
               ? 'bg-[var(--brand-primary)] text-white shadow-xs'
@@ -402,7 +402,7 @@ export function AiOrchestrationPage() {
           }`}
         >
           <UserCheck className="w-3.5 h-3.5" />
-          Human-in-the-Loop ({pendingHitlRuns.length})
+          Approvals ({pendingHitlRuns.length})
         </button>
       </div>
 
@@ -419,7 +419,7 @@ export function AiOrchestrationPage() {
           <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-card)] shadow-xs overflow-hidden">
             <div className="p-4 border-b border-[var(--border-subtle)]">
               <h2 className="text-sm font-bold text-[var(--text-primary)]">
-                Autonomous Workflow Execution History
+                Workflow History
               </h2>
               <p className="text-[11px] text-[var(--text-muted)]">
                 Multi-agent runs with task classification, specialist delegators, and independent
@@ -444,9 +444,9 @@ export function AiOrchestrationPage() {
                 <table className="w-full text-xs text-left">
                   <thead className="bg-[var(--surface-elevated)]/60 text-[var(--text-muted)] uppercase text-[10px] tracking-wider border-b border-[var(--border-subtle)]">
                     <tr>
-                      <th className="py-3 px-4 font-semibold">Prompt Goal</th>
-                      <th className="py-3 px-4 font-semibold">Classification</th>
-                      <th className="py-3 px-4 font-semibold text-center">Specialists</th>
+                      <th className="py-3 px-4 font-semibold">Workflow Goal</th>
+                      <th className="py-3 px-4 font-semibold">Category</th>
+                      <th className="py-3 px-4 font-semibold text-center">Assigned Specialists</th>
                       <th className="py-3 px-4 font-semibold text-center">Status</th>
                       <th className="py-3 px-4 font-semibold text-center">Verifier Signoff</th>
                       <th className="py-3 px-4 font-semibold text-right">Dispatched</th>

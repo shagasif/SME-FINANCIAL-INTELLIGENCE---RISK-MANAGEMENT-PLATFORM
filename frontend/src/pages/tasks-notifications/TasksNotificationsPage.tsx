@@ -16,7 +16,12 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
 import { Skeleton } from '../../components/ui/LoadingSpinner';
-import { formatDate } from '../../utils/formatters';
+import {
+  formatDate,
+  formatRiskSeverity,
+  formatTaskStatus,
+  formatUserFacingText,
+} from '../../utils/formatters';
 import {
   TaskPriority,
   TaskStatus,
@@ -344,7 +349,7 @@ export function TasksNotificationsPage() {
           ) : tasks.length === 0 ? (
             <div className="py-16 text-center text-xs text-[var(--text-muted)]">
               <CheckCircle2 className="mx-auto h-8 w-8 text-emerald-500 opacity-60 mb-2" />
-              Zero pending follow-up tasks. Month-end compliance in good standing.
+              No pending follow-up tasks. Everything is up to date.
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -352,7 +357,7 @@ export function TasksNotificationsPage() {
                 <thead className="bg-[var(--surface-elevated)]/60 text-[var(--text-muted)] uppercase text-[10px] tracking-wider border-b border-[var(--border-subtle)]">
                   <tr>
                     <th className="py-3 px-4 font-semibold">Priority</th>
-                    <th className="py-3 px-4 font-semibold">Task Title & Details</th>
+                    <th className="py-3 px-4 font-semibold">Task</th>
                     <th className="py-3 px-4 font-semibold">Assigned To</th>
                     <th className="py-3 px-4 font-semibold text-center">Status</th>
                     <th className="py-3 px-4 font-semibold text-right">Due Date</th>
@@ -375,12 +380,14 @@ export function TasksNotificationsPage() {
                                 : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
                           }`}
                         >
-                          {task.priority}
+                          {formatRiskSeverity(task.priority)}
                         </span>
                       </td>
                       <td className="py-3 px-4 max-w-sm">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-semibold text-[var(--text-primary)]">{task.title}</span>
+                          <span className="font-semibold text-[var(--text-primary)]">
+                            {formatUserFacingText(task.title)}
+                          </span>
                           {task.relatedType === 'RISK_ALERT' && (
                             <a
                               href="/risk-center"
@@ -388,12 +395,12 @@ export function TasksNotificationsPage() {
                               title="Linked originating risk in Risk Center"
                             >
                               <ShieldAlert className="w-2.5 h-2.5" />
-                              Originating Risk Alert
+                              Linked Risk
                             </a>
                           )}
                         </div>
                         <div className="text-[11px] text-[var(--text-muted)] line-clamp-1 mt-0.5">
-                          {task.description}
+                          {formatUserFacingText(task.description)}
                         </div>
                       </td>
                       <td className="py-3 px-4">
@@ -418,7 +425,7 @@ export function TasksNotificationsPage() {
                                   : 'bg-slate-500/10 text-slate-500'
                           }`}
                         >
-                          {task.status}
+                          {formatTaskStatus(task.status)}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right text-[11px] text-[var(--text-muted)]">
@@ -484,7 +491,7 @@ export function TasksNotificationsPage() {
           {notifications.length === 0 ? (
             <div className="py-16 text-center text-xs text-[var(--text-muted)]">
               <Bell className="mx-auto h-8 w-8 text-[var(--text-muted)] opacity-50 mb-2" />
-              Zero notifications. Platform health nominal.
+              No notifications. Everything is in order.
             </div>
           ) : (
             notifications.map((notif) => (
@@ -504,10 +511,10 @@ export function TasksNotificationsPage() {
                   </div>
                   <div>
                     <h3 className="text-xs font-semibold text-[var(--text-primary)]">
-                      {notif.title}
+                      {formatUserFacingText(notif.title)}
                     </h3>
                     <p className="text-[11px] text-[var(--text-secondary)] mt-0.5">
-                      {notif.message}
+                      {formatUserFacingText(notif.message)}
                     </p>
                     <span className="text-[10px] text-[var(--text-muted)] mt-1 block">
                       {formatDate(notif.createdAt)}

@@ -140,4 +140,17 @@ describe('formatAssistantResponse', () => {
     expect(result.answer).toContain('• Review active risk alerts in Risk Center');
     expect(result.citations).toEqual(['1 Unreconciled payment · Reference: pay-1']);
   });
+
+  it('translates raw risk type codes in answers into business-friendly English', () => {
+    const result = formatAssistantResponse({
+      success: true,
+      data: {
+        answer: 'Risk identified: DUPLICATE_CANDIDATE detected alongside OVERDUE_RECEIVABLE.',
+      },
+    });
+
+    expect(result.answer).toBe(
+      'Risk identified: Possible Duplicate Charge detected alongside Overdue Customer Invoice.',
+    );
+  });
 });

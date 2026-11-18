@@ -872,7 +872,7 @@ export function InvoicesPayablesPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[var(--border-subtle)]">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--text-primary)]">
-            Invoices & Payables Management
+            Invoices & Bills
           </h1>
           <p className="text-xs text-[var(--text-muted)] mt-1">
             Manage customer invoices, supplier bills, and overdue balances.

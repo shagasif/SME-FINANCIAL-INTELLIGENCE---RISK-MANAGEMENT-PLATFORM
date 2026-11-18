@@ -261,7 +261,7 @@ export function FinMemoryPage() {
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--text-primary)] flex items-center gap-2">
             <BrainCircuit className="w-6 h-6 text-[var(--brand-primary)]" />
-            FinMemory Intelligence
+            Financial Snapshots
           </h1>
           <p className="text-xs text-[var(--text-muted)] mt-1">
             Saved financial snapshots and period-to-period comparisons.
@@ -290,7 +290,7 @@ export function FinMemoryPage() {
             disabled={snapshots.length < 2}
           >
             <GitCompare className="w-3.5 h-3.5 mr-1.5" />
-            Compare Shifts
+            Compare Periods
           </Button>
 
           {!isAuditor && canMutateLedger && (
@@ -303,7 +303,7 @@ export function FinMemoryPage() {
               }}
             >
               <Plus className="w-3.5 h-3.5 mr-1.5" />
-              Capture Snapshot
+              Save New Snapshot
             </Button>
           )}
         </div>
@@ -317,10 +317,10 @@ export function FinMemoryPage() {
         >
           <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
           <div>
-            <span className="font-semibold block mb-0.5">Auditor Mode Active</span>
+            <span className="font-semibold block mb-0.5">Read-Only Auditor Mode</span>
             <span className="leading-relaxed opacity-90">
-              Temporal memory lineage and differential audits are visible in read-only inspection.
-              Creating new snapshot commits is restricted.
+              You can view past snapshots and period comparisons. Saving new snapshots is disabled
+              for auditors.
             </span>
           </div>
         </div>
@@ -338,10 +338,10 @@ export function FinMemoryPage() {
         <div className="p-4 border-b border-[var(--border-subtle)] flex items-center justify-between">
           <div>
             <h2 className="text-sm font-bold text-[var(--text-primary)]">
-              Snapshot Archive ({snapshots.length} Committed Snapshots)
+              Saved Snapshots ({snapshots.length})
             </h2>
             <p className="text-[11px] text-[var(--text-muted)]">
-              Permanent immutable checkpoints indexed by fiscal period and timestamp
+              Saved financial records by month or period
             </p>
           </div>
         </div>
@@ -557,7 +557,7 @@ export function FinMemoryPage() {
                 Source Citations & Limitations
               </span>
               <p className="text-[11px] text-[var(--text-muted)]">
-                Indexed with cryptographic integrity for multi-agent reasoning.
+                Saved as a verified record for this financial period.
               </p>
               {inspectSnapshot.dataLimitations && inspectSnapshot.dataLimitations.length > 0 && (
                 <ul className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-2 list-disc pl-4 text-[11px] text-amber-800 dark:text-amber-300">
@@ -579,12 +579,11 @@ export function FinMemoryPage() {
             setIsCompareModalOpen(false);
             setComparisonResult(null);
           }}
-          title="Compare Snapshot Shifts"
+          title="Compare Snapshot Periods"
         >
           <div className="space-y-4 text-xs">
             <p className="text-xs text-[var(--text-muted)]">
-              Evaluate period-over-period financial metric shifts, directional improvements, and
-              automated audit observations.
+              Compare metrics between two periods to review business changes.
             </p>
 
             <form onSubmit={handleRunComparison} className="space-y-4">
@@ -661,7 +660,7 @@ export function FinMemoryPage() {
                         <th className="py-2.5 px-3">Metric</th>
                         <th className="py-2.5 px-3 text-right">Base</th>
                         <th className="py-2.5 px-3 text-right">Target</th>
-                        <th className="py-2.5 px-3 text-right">Shift (%)</th>
+                        <th className="py-2.5 px-3 text-right">Change (%)</th>
                         <th className="py-2.5 px-3 text-center">Status</th>
                       </tr>
                     </thead>
@@ -702,7 +701,7 @@ export function FinMemoryPage() {
                 {comparisonResult.keyObservations?.length > 0 && (
                   <div className="rounded-xl border border-[var(--brand-primary)]/20 bg-[var(--brand-primary)]/5 p-3 space-y-1">
                     <span className="font-semibold text-[var(--text-primary)] block">
-                      Automated Grounded Observations:
+                      Key Observations:
                     </span>
                     <ul className="list-disc pl-4 space-y-0.5 text-[11px] text-[var(--text-secondary)]">
                       {comparisonResult.keyObservations.map((obs, i) => (
@@ -722,12 +721,11 @@ export function FinMemoryPage() {
         <Modal
           isOpen={true}
           onClose={() => setIsCreateModalOpen(false)}
-          title="Capture FinMemory Snapshot"
+          title="Save Financial Snapshot"
         >
           <form onSubmit={handleCreateSnapshot} className="space-y-4 text-xs">
             <p className="text-xs text-[var(--text-muted)]">
-              Compute and freeze authoritative financial metrics, citation identifiers, and
-              completeness verification for the specified period.
+              Calculate and save verified financial metrics for the selected period.
             </p>
 
             {modalError && (

@@ -97,13 +97,13 @@ const platformModules: PlatformModule[] = [
     path: '/risk-center',
   },
   {
-    title: 'AI Orchestration',
+    title: 'AI Workflows',
     description: 'Coordinate specialized agents across financial workflows.',
     icon: BrainCircuit,
     path: '/ai-orchestration',
   },
   {
-    title: 'FinMemory',
+    title: 'Financial Snapshots',
     description: 'Capture historical financial snapshots and compare periods.',
     icon: Database,
     path: '/finmemory',
@@ -174,12 +174,12 @@ const sectionNavigation = [
 const footerModules: ModuleLink[] = [
   { label: 'Overview', path: '/overview' },
   { label: 'Cash Flow', path: '/cash-flow' },
-  { label: 'Invoices', path: '/invoices-payables' },
+  { label: 'Invoices & Bills', path: '/invoices-payables' },
   { label: 'Budgets', path: '/budgets' },
   { label: 'Analytics', path: '/analytics' },
   { label: 'Risk Center', path: '/risk-center' },
-  { label: 'FinMemory', path: '/finmemory' },
-  { label: 'AI Orchestration', path: '/ai-orchestration' },
+  { label: 'Financial Snapshots', path: '/finmemory' },
+  { label: 'AI Workflows', path: '/ai-orchestration' },
   { label: 'Financial Reports', path: '/reports' },
 ];
 

@@ -108,7 +108,7 @@ describe('AiOrchestrationPage Component', () => {
 
     render(<AiOrchestrationPage />);
 
-    expect(screen.getByText('Multi-Agent AI Orchestration Dashboard')).toBeInTheDocument();
+    expect(screen.getByText('AI Workflows & Orchestration')).toBeInTheDocument();
 
     await waitFor(() => {
       expect(
@@ -117,7 +117,7 @@ describe('AiOrchestrationPage Component', () => {
       expect(screen.getByText('EXPENSE_AUDIT')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Dispatch Orchestration')).toBeInTheDocument();
+    expect(screen.getByText('Run New Workflow')).toBeInTheDocument();
   });
 
   it('renders Auditor restriction and hides Dispatch Orchestration button', async () => {
@@ -160,8 +160,8 @@ describe('AiOrchestrationPage Component', () => {
 
     render(<AiOrchestrationPage />);
 
-    expect(screen.getByText('Auditor Mode Active')).toBeInTheDocument();
-    expect(screen.queryByText('Dispatch Orchestration')).not.toBeInTheDocument();
+    expect(screen.getByText('Read-Only Auditor Mode')).toBeInTheDocument();
+    expect(screen.queryByText('Run New Workflow')).not.toBeInTheDocument();
   });
 
   it('displays synthesizedResult, specialist outputs, Verifier AI report, citations, and failed/missing agent warnings inside HITL review modal', async () => {

@@ -48,7 +48,7 @@ describe('Sidebar Navigation Component', () => {
 
     expect(screen.getByText('Overview')).toBeInTheDocument();
     expect(screen.getByText('Transactions')).toBeInTheDocument();
-    expect(screen.getByText('Invoices & Payables')).toBeInTheDocument();
+    expect(screen.getByText('Invoices & Bills')).toBeInTheDocument();
     expect(screen.getByText('Budgets & Expenses')).toBeInTheDocument();
     expect(screen.getByText('Risk Center')).toBeInTheDocument();
     expect(screen.queryByText('AI Finance Assistant')).not.toBeInTheDocument();

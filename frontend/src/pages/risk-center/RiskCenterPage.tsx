@@ -17,7 +17,15 @@ import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Drawer } from '../../components/ui/Drawer';
 import { Skeleton } from '../../components/ui/LoadingSpinner';
-import { formatDate, formatEmbeddedAmountsInText } from '../../utils/formatters';
+import {
+  formatAgentType,
+  formatDate,
+  formatEmbeddedAmountsInText,
+  formatRiskSeverity,
+  formatRiskStatus,
+  formatRiskType,
+  formatUserFacingText,
+} from '../../utils/formatters';
 import {
   RiskAlertSeverity,
   RiskAlertStatus,
@@ -219,21 +227,21 @@ export function RiskCenterPage() {
         return (
           <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-bold text-rose-600 dark:text-rose-400">
             <Flame className="h-3 w-3" />
-            CRITICAL
+            {formatRiskSeverity(severity)}
           </span>
         );
       case RiskAlertSeverity.HIGH:
         return (
           <span className="inline-flex items-center gap-1 rounded-full bg-orange-500/10 px-2 py-0.5 text-[10px] font-bold text-orange-600 dark:text-orange-400">
             <AlertTriangle className="h-3 w-3" />
-            HIGH
+            {formatRiskSeverity(severity)}
           </span>
         );
       case RiskAlertSeverity.MEDIUM:
         return (
           <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400">
             <AlertCircle className="h-3 w-3" />
-            MEDIUM
+            {formatRiskSeverity(severity)}
           </span>
         );
       case RiskAlertSeverity.LOW:
@@ -241,7 +249,7 @@ export function RiskCenterPage() {
         return (
           <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-bold text-blue-600 dark:text-blue-400">
             <Info className="h-3 w-3" />
-            LOW
+            {formatRiskSeverity(severity)}
           </span>
         );
     }
@@ -250,51 +258,46 @@ export function RiskCenterPage() {
   const getStatusBadge = (status: RiskAlertStatus | string) => {
     switch (status) {
       case RiskAlertStatus.NEW:
-        return (
-          <span className="rounded bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-400">
-            NEW
-          </span>
-        );
       case 'OPEN':
         return (
           <span className="rounded bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-400">
-            OPEN
+            New Alert
           </span>
         );
       case RiskAlertStatus.ACKNOWLEDGED:
         return (
           <span className="rounded bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-blue-600 dark:text-blue-400">
-            ACKNOWLEDGED
+            Acknowledged
           </span>
         );
       case RiskAlertStatus.INVESTIGATING:
         return (
           <span className="rounded bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
-            INVESTIGATING
+            Under Review
           </span>
         );
       case 'ESCALATED':
         return (
           <span className="rounded bg-purple-500/10 px-2 py-0.5 text-[10px] font-semibold text-purple-600 dark:text-purple-400">
-            ESCALATED
+            Escalated
           </span>
         );
       case RiskAlertStatus.RESOLVED:
         return (
           <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-            RESOLVED
+            Resolved
           </span>
         );
       case RiskAlertStatus.DISMISSED:
         return (
           <span className="rounded bg-gray-500/10 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
-            DISMISSED
+            Dismissed
           </span>
         );
       default:
         return (
           <span className="rounded bg-gray-500/10 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
-            {String(status)}
+            {formatRiskStatus(status)}
           </span>
         );
     }
@@ -436,7 +439,7 @@ export function RiskCenterPage() {
         ) : filteredAlerts.length === 0 ? (
           <div className="py-16 text-center text-xs text-[var(--text-muted)]">
             <ShieldCheck className="mx-auto h-8 w-8 text-emerald-500 opacity-60 mb-2" />
-            Zero active risk alerts matching current filters. All financial streams normal.
+            No active risk alerts matching current filters. All business activity is normal.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -444,8 +447,8 @@ export function RiskCenterPage() {
               <thead className="bg-[var(--surface-elevated)]/60 text-[var(--text-muted)] uppercase text-[10px] tracking-wider border-b border-[var(--border-subtle)]">
                 <tr>
                   <th className="py-3 px-4 font-semibold">Severity</th>
-                  <th className="py-3 px-4 font-semibold">Rule Code</th>
-                  <th className="py-3 px-4 font-semibold">Anomaly Description</th>
+                  <th className="py-3 px-4 font-semibold">Risk Type</th>
+                  <th className="py-3 px-4 font-semibold">Description</th>
                   <th className="py-3 px-4 font-semibold text-center">Status</th>
                   <th className="py-3 px-4 font-semibold text-right">Detected</th>
                   <th className="py-3 px-4 font-semibold text-center">Actions</th>
@@ -458,15 +461,15 @@ export function RiskCenterPage() {
                     className="hover:bg-[var(--surface-elevated)]/40 transition-colors"
                   >
                     <td className="py-3 px-4">{getSeverityBadge(alert.severity)}</td>
-                    <td className="py-3 px-4 font-mono font-semibold text-[var(--brand-primary)]">
-                      {alert.ruleCode ?? alert.type}
+                    <td className="py-3 px-4 font-semibold text-[var(--brand-primary)]">
+                      {formatRiskType(alert.ruleCode ?? alert.type)}
                     </td>
                     <td className="py-3 px-4 max-w-md">
                       <div className="font-semibold text-[var(--text-primary)]">
-                        {formatEmbeddedAmountsInText(alert.title)}
+                        {formatUserFacingText(formatEmbeddedAmountsInText(alert.title))}
                       </div>
                       <div className="text-[11px] text-[var(--text-muted)] line-clamp-1 mt-0.5">
-                        {formatEmbeddedAmountsInText(alert.description ?? alert.explanation ?? '')}
+                        {formatUserFacingText(formatEmbeddedAmountsInText(alert.description ?? alert.explanation ?? ''))}
                       </div>
                     </td>
                     <td className="py-3 px-4 text-center">{getStatusBadge(alert.status)}</td>
@@ -480,8 +483,10 @@ export function RiskCenterPage() {
                           size="sm"
                           onClick={() => setInspectAlert(alert)}
                           className="h-7 px-2 text-[11px]"
+                          aria-label="Evidence Details"
+                          title="View risk details"
                         >
-                          Evidence
+                          Details
                         </Button>
                         {!isAuditor && canMutateLedger && (
                           <Button
@@ -494,8 +499,10 @@ export function RiskCenterPage() {
                               setTriageError(null);
                             }}
                             className="h-7 px-2 text-[11px]"
+                            aria-label="Triage Review"
+                            title="Review and take action"
                           >
-                            Triage
+                            Review
                           </Button>
                         )}
                       </div>
@@ -512,7 +519,7 @@ export function RiskCenterPage() {
       <Drawer
         isOpen={Boolean(inspectAlert)}
         onClose={() => setInspectAlert(null)}
-        title={`Anomaly Evidence: ${inspectAlert?.ruleCode || ''}`}
+        title={`Risk Details: ${formatRiskType(inspectAlert?.ruleCode || inspectAlert?.type || '')}`}
         width="lg"
       >
         {inspectAlert && (
@@ -539,10 +546,10 @@ export function RiskCenterPage() {
 
             <div className="space-y-1">
               <span className="font-bold text-sm text-[var(--text-primary)]">
-                {formatEmbeddedAmountsInText(inspectAlert.title)}
+                {formatUserFacingText(formatEmbeddedAmountsInText(inspectAlert.title))}
               </span>
               <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                {formatEmbeddedAmountsInText(inspectAlert.description ?? inspectAlert.explanation ?? '')}
+                {formatUserFacingText(formatEmbeddedAmountsInText(inspectAlert.description ?? inspectAlert.explanation ?? ''))}
               </p>
             </div>
 
@@ -720,15 +727,15 @@ export function RiskCenterPage() {
                       meta['orchestratedAgents'].length > 0 && (
                         <div>
                           <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--brand-primary)] block mb-1">
-                            Orchestrated AI Agents
+                            Assigned Specialists
                           </span>
                           <div className="flex flex-wrap gap-1">
                             {(meta['orchestratedAgents'] as string[]).map((agent) => (
                               <span
                                 key={agent}
-                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-[var(--surface-elevated)] text-[var(--text-primary)] border border-[var(--border-subtle)]"
+                                className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-[var(--surface-elevated)] text-[var(--text-primary)] border border-[var(--border-subtle)]"
                               >
-                                {agent}
+                                {formatAgentType(agent)}
                               </span>
                             ))}
                           </div>
@@ -739,7 +746,7 @@ export function RiskCenterPage() {
                       meta['aiCompletedTasks'].length > 0 && (
                         <div>
                           <span className="text-[10px] uppercase font-bold tracking-wider text-emerald-600 dark:text-emerald-400 block mb-0.5">
-                            AI Completed Tasks
+                            Completed AI Checks
                           </span>
                           <ul className="list-disc list-inside space-y-0.5 text-[11px] text-[var(--text-secondary)]">
                             {(meta['aiCompletedTasks'] as string[]).map((task, idx) => (
@@ -755,7 +762,7 @@ export function RiskCenterPage() {
                       meta['pendingHumanTasks'].length > 0 && (
                         <div>
                           <span className="text-[10px] uppercase font-bold tracking-wider text-amber-600 dark:text-amber-400 block mb-0.5">
-                            Remaining Human Tasks (Real-World Verification)
+                            Follow-up Actions Requiring Review
                           </span>
                           <ul className="list-disc list-inside space-y-0.5 text-[11px] text-[var(--text-secondary)]">
                             {(meta['pendingHumanTasks'] as string[]).map((task, idx) => (

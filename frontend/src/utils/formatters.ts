@@ -348,3 +348,129 @@ export function toTitleCasePartyName(value: string): string {
     )
     .join(' ');
 }
+
+export const RISK_TYPE_LABELS: Record<string, string> = {
+  DUPLICATE_CANDIDATE: 'Possible Duplicate Charge',
+  OVERDUE_RECEIVABLE: 'Overdue Customer Invoice',
+  CASH_SHORTFALL: 'Low Cash Warning',
+  BUDGET_OVERRUN: 'Budget Overrun',
+  UNUSUAL_AMOUNT: 'Unusual Amount',
+  UNUSUAL_FREQUENCY: 'Unusual Frequency',
+  CATEGORY_SHIFT: 'Spending Spike',
+  TIMING_CHANGE: 'Timing Change',
+  EXPENSE_OUTLIER: 'Unusual Expense',
+  REVENUE_DROP: 'Revenue Drop',
+  ANOMALY: 'Unusual Activity',
+};
+
+export const RISK_SEVERITY_LABELS: Record<string, string> = {
+  CRITICAL: 'Critical',
+  HIGH: 'High',
+  MEDIUM: 'Medium',
+  LOW: 'Low',
+  INFO: 'Info',
+};
+
+export const RISK_STATUS_LABELS: Record<string, string> = {
+  NEW: 'New Alert',
+  OPEN: 'New Alert',
+  ACKNOWLEDGED: 'Acknowledged',
+  INVESTIGATING: 'Under Review',
+  RESOLVED: 'Resolved',
+  DISMISSED: 'Dismissed',
+  ESCALATED: 'Escalated',
+};
+
+export const AGENT_TYPE_LABELS: Record<string, string> = {
+  SUPERVISOR_ORCHESTRATOR: 'Financial Supervisor',
+  SUPERVISOR: 'Financial Supervisor',
+  TRANSACTION_INTELLIGENCE: 'Transaction Reviewer',
+  FINANCE_DATA_ANALYST: 'Financial Data Analyst',
+  FORENSIC_AUDIT: 'Audit Specialist',
+  EXPENSE_ANOMALY_DETECTION: 'Expense Auditor',
+  FINANCIAL_ANALYST: 'Financial Analyst',
+  FINANCIAL_RISK_ASSESSMENT: 'Risk Assessor',
+  RISK_OFFICER: 'Risk Officer',
+  CASH_FLOW_FORECASTING: 'Cash Flow Forecaster',
+  SCENARIO_PLANNING: 'Scenario Planner',
+  STRATEGIC_RECOMMENDATION: 'Strategy Advisor',
+  FINANCIAL_REPORTING: 'Financial Reporter',
+  VERIFIER_AI: 'Verification Specialist',
+  TASK_MONITOR: 'Task Monitor',
+};
+
+export const TASK_STATUS_LABELS: Record<string, string> = {
+  PENDING: 'To Do',
+  OPEN: 'To Do',
+  IN_PROGRESS: 'In Progress',
+  COMPLETED: 'Completed',
+  CANCELLED: 'Dismissed',
+  RESOLVED: 'Completed',
+};
+
+export function formatRiskType(type?: string | null): string {
+  if (!type) return 'Risk Alert';
+  const clean = type.trim();
+  return (
+    RISK_TYPE_LABELS[clean] ||
+    RISK_TYPE_LABELS[clean.toUpperCase()] ||
+    clean
+      .replace(/_/g, ' ')
+      .toLowerCase()
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+  );
+}
+
+export function formatRiskSeverity(severity?: string | null): string {
+  if (!severity) return 'Medium';
+  const clean = severity.trim().toUpperCase();
+  return RISK_SEVERITY_LABELS[clean] || clean;
+}
+
+export function formatRiskStatus(status?: string | null): string {
+  if (!status) return 'New Alert';
+  const clean = status.trim().toUpperCase();
+  return RISK_STATUS_LABELS[clean] || clean;
+}
+
+export function formatAgentType(agent?: string | null): string {
+  if (!agent) return 'Specialist';
+  const clean = agent.trim();
+  return (
+    AGENT_TYPE_LABELS[clean] ||
+    AGENT_TYPE_LABELS[clean.toUpperCase()] ||
+    clean
+      .replace(/_/g, ' ')
+      .toLowerCase()
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+  );
+}
+
+export function formatTaskStatus(status?: string | null): string {
+  if (!status) return 'To Do';
+  const clean = status.trim().toUpperCase();
+  return TASK_STATUS_LABELS[clean] || clean;
+}
+
+export function formatUserFacingText(text?: string | null): string {
+  if (!text) return '';
+  let result = text;
+  for (const [code, label] of Object.entries(RISK_TYPE_LABELS)) {
+    const re = new RegExp(`\\b${code}\\b`, 'g');
+    result = result.replace(re, label);
+  }
+  for (const [code, label] of Object.entries(AGENT_TYPE_LABELS)) {
+    const re = new RegExp(`\\b${code}\\b`, 'g');
+    result = result.replace(re, label);
+  }
+  result = result
+    .replace(/\bHITL\b/g, 'Human Approval')
+    .replace(/\bHITL Review Gate\b/g, 'Human Approval')
+    .replace(/\bHUMAN_REVIEW_WAITING\b/g, 'Awaiting Human Approval')
+    .replace(/\bREQUIRES_HUMAN_REVIEW\b/g, 'Requires Human Approval')
+    .replace(/\bDECIMAL_VERIFIED\b/g, 'Accuracy Verified')
+    .replace(/\bVERIFIER_PASSED\b/g, 'Verified')
+    .replace(/\bMCP_DISPATCHED\b/g, 'Tool Executed');
+  return result;
+}
+

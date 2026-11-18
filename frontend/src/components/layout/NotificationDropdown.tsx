@@ -11,7 +11,12 @@ import {
   Info,
   X,
 } from 'lucide-react';
-import { formatDate } from '../../utils/formatters';
+import {
+  formatDate,
+  formatRiskSeverity,
+  formatRiskType,
+  formatUserFacingText,
+} from '../../utils/formatters';
 
 export interface AppNotification {
   id: string;
@@ -227,7 +232,7 @@ export function NotificationDropdown({
                           : 'font-semibold text-[var(--text-primary)]'
                       }`}
                     >
-                      {notif.title}
+                      {formatUserFacingText(notif.title)}
                     </span>
                     {!notif.isRead && (
                       <span className="w-2 h-2 rounded-full bg-[var(--brand-primary)] shrink-0" />
@@ -235,19 +240,19 @@ export function NotificationDropdown({
                   </div>
 
                   <p className="text-[11px] text-[var(--text-muted)] line-clamp-2 leading-relaxed mb-1.5">
-                    {notif.message}
+                    {formatUserFacingText(notif.message)}
                   </p>
 
                   <div className="flex items-center justify-between text-[10px] text-[var(--text-muted)]">
                     <div className="flex items-center gap-1.5">
                       <span
-                        className={`font-mono px-1.5 py-0.2 rounded border uppercase font-medium ${badge.badgeClass}`}
+                        className={`px-1.5 py-0.2 rounded border uppercase font-medium ${badge.badgeClass}`}
                       >
-                        {notif.severity || notif.priority || 'INFO'}
+                        {formatRiskSeverity(notif.severity || notif.priority || 'INFO')}
                       </span>
                       {notif.category && (
-                        <span className="font-mono text-[9px] text-[var(--text-muted)] truncate max-w-[120px]">
-                          {notif.category}
+                        <span className="text-[10px] text-[var(--text-muted)] truncate max-w-[140px]">
+                          {formatRiskType(notif.category)}
                         </span>
                       )}
                     </div>

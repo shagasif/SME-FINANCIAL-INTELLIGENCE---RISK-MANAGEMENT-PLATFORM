@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatAgentType,
   formatCurrency,
   formatEmbeddedAmountsInText,
   formatNumber,
   formatReportCurrency,
   formatReportText,
+  formatRiskSeverity,
+  formatRiskStatus,
+  formatRiskType,
   formatSignedCurrency,
+  formatTaskStatus,
+  formatUserFacingText,
 } from './formatters';
 
 describe('formatters', () => {
@@ -108,6 +114,41 @@ describe('formatters', () => {
       );
 
       expect(formatEmbeddedAmountsInText('Total: PKR 250,000.00')).toBe('Total: PKR 250,000');
+    });
+  });
+
+  describe('business-friendly enum formatters', () => {
+    it('formats raw technical risk type codes to clean English labels', () => {
+      expect(formatRiskType('DUPLICATE_CANDIDATE')).toBe('Possible Duplicate Charge');
+      expect(formatRiskType('OVERDUE_RECEIVABLE')).toBe('Overdue Customer Invoice');
+      expect(formatRiskType('CASH_SHORTFALL')).toBe('Low Cash Warning');
+      expect(formatRiskType('BUDGET_OVERRUN')).toBe('Budget Overrun');
+      expect(formatRiskType('CATEGORY_SHIFT')).toBe('Spending Spike');
+    });
+
+    it('formats risk severity and status to clean English labels', () => {
+      expect(formatRiskSeverity('CRITICAL')).toBe('Critical');
+      expect(formatRiskSeverity('HIGH')).toBe('High');
+      expect(formatRiskStatus('ACKNOWLEDGED')).toBe('Acknowledged');
+      expect(formatRiskStatus('INVESTIGATING')).toBe('Under Review');
+      expect(formatRiskStatus('DISMISSED')).toBe('Dismissed');
+    });
+
+    it('formats agent types and task statuses', () => {
+      expect(formatAgentType('SUPERVISOR_ORCHESTRATOR')).toBe('Financial Supervisor');
+      expect(formatAgentType('TRANSACTION_INTELLIGENCE')).toBe('Transaction Reviewer');
+      expect(formatAgentType('FORENSIC_AUDIT')).toBe('Audit Specialist');
+      expect(formatTaskStatus('OPEN')).toBe('To Do');
+      expect(formatTaskStatus('CANCELLED')).toBe('Dismissed');
+    });
+
+    it('replaces embedded technical codes and jargon with formatUserFacingText', () => {
+      expect(
+        formatUserFacingText('Detected DUPLICATE_CANDIDATE for vendor. HITL required.'),
+      ).toBe('Detected Possible Duplicate Charge for vendor. Human Approval required.');
+      expect(
+        formatUserFacingText('Workflow waiting at HUMAN_REVIEW_WAITING from SUPERVISOR_ORCHESTRATOR.'),
+      ).toBe('Workflow waiting at Awaiting Human Approval from Financial Supervisor.');
     });
   });
 });

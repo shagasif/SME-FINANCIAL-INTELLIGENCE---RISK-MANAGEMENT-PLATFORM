@@ -1171,7 +1171,7 @@ export function OverviewDashboardPage() {
             </span>
           </div>
           <p className="text-xs text-[var(--text-muted)] mt-1 flex items-center gap-2">
-            <span>Deterministic financial intelligence & continuous risk telemetry</span>
+            <span>Clear financial summary and business risk monitoring</span>
             <span>•</span>
             <span>Refreshed: {lastRefreshed.toLocaleTimeString()}</span>
           </p>
@@ -1209,12 +1209,11 @@ export function OverviewDashboardPage() {
           <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
           <div>
             <span className="font-semibold block mb-0.5">
-              Auditor Mode Active (Strict Read-Only)
+              Read-Only Auditor Mode
             </span>
             <span className="leading-relaxed opacity-90">
-              You are signed in under the Auditor profile. Financial mutations, approvals, and
-              report exports are blocked by backend RBAC policy (HTTP 403). All audit trails and
-              historical records are strictly immutable.
+              You are signed in as an Auditor. You have view-only access to transactions, reports,
+              and logs. Changes and approvals are disabled.
             </span>
           </div>
         </div>
@@ -1500,7 +1499,7 @@ export function OverviewDashboardPage() {
                 to="/cash-flow"
                 className="text-[11px] font-semibold text-[var(--accent-teal)] hover:underline inline-flex items-center gap-1"
               >
-                Forecasting Engine <ArrowRight className="w-3 h-3" />
+                Cash Flow Forecast <ArrowRight className="w-3 h-3" />
               </Link>
             </div>
 
@@ -1740,10 +1739,10 @@ export function OverviewDashboardPage() {
             <div className="flex items-center justify-between pb-3 border-b border-[var(--border-subtle)]">
               <div>
                 <h2 className="text-sm font-bold text-[var(--text-primary)]">
-                  Accounts Receivable Aging (AR)
+                  Unpaid Customer Invoices (Receivables)
                 </h2>
                 <p className="text-[11px] text-[var(--text-muted)]">
-                  Outstanding customer invoices categorized by days past due
+                  Customer invoices grouped by days past due
                 </p>
               </div>
               <Link
@@ -1758,7 +1757,7 @@ export function OverviewDashboardPage() {
               <div className="mt-3 space-y-3">
                 <div className="flex items-baseline justify-between text-xs">
                   <span className="font-semibold text-[var(--text-secondary)]">
-                    Total Outstanding AR
+                    Total Unpaid Invoices
                   </span>
                   <span className="font-mono font-bold text-base text-[var(--text-primary)] tabular-nums">
                     {formatCurrency(metrics.receivableAging.value.totalOutstanding, currency)}
@@ -1796,7 +1795,7 @@ export function OverviewDashboardPage() {
 
                 {Number(metrics.receivableAging.components?.draftCount || 0) > 0 && (
                   <p className="text-[11px] text-[var(--text-muted)] pt-1">
-                    Drafts excluded from AR ({metrics.receivableAging.components?.draftCount}):{' '}
+                    Draft invoices not included ({metrics.receivableAging.components?.draftCount}):{' '}
                     <span className="font-mono font-semibold text-[var(--text-secondary)]">
                       {formatCurrency(metrics.receivableAging.components?.draftTotal, currency)}
                     </span>
@@ -1820,10 +1819,10 @@ export function OverviewDashboardPage() {
             <div className="flex items-center justify-between pb-3 border-b border-[var(--border-subtle)]">
               <div>
                 <h2 className="text-sm font-bold text-[var(--text-primary)]">
-                  Accounts Payable Aging (AP)
+                  Unpaid Supplier Bills (Payables)
                 </h2>
                 <p className="text-[11px] text-[var(--text-muted)]">
-                  Outstanding supplier bills categorized by days past due
+                  Supplier bills grouped by days past due
                 </p>
               </div>
               <Link
@@ -1838,7 +1837,7 @@ export function OverviewDashboardPage() {
               <div className="mt-3 space-y-3">
                 <div className="flex items-baseline justify-between text-xs">
                   <span className="font-semibold text-[var(--text-secondary)]">
-                    Total Outstanding AP
+                    Total Unpaid Bills
                   </span>
                   <span className="font-mono font-bold text-base text-[var(--text-primary)] tabular-nums">
                     {formatCurrency(metrics.payableAging.value.totalOutstanding, currency)}
@@ -1876,7 +1875,7 @@ export function OverviewDashboardPage() {
 
                 {Number(metrics.payableAging.components?.draftCount || 0) > 0 && (
                   <p className="text-[11px] text-[var(--text-muted)] pt-1">
-                    Drafts excluded from AP ({metrics.payableAging.components?.draftCount}):{' '}
+                    Draft bills not included ({metrics.payableAging.components?.draftCount}):{' '}
                     <span className="font-mono font-semibold text-[var(--text-secondary)]">
                       {formatCurrency(metrics.payableAging.components?.draftTotal, currency)}
                     </span>

@@ -1,3 +1,5 @@
+import { formatUserFacingText } from './formatters';
+
 type JsonRecord = Record<string, unknown>;
 
 export type ExecutionTone = 'success' | 'warning' | 'error' | 'neutral';
@@ -22,7 +24,7 @@ const sourceLabels: Record<string, [string, string]> = {
   alertids: ['Risk alert', 'Risk alerts'],
   billids: ['Bill', 'Bills'],
   budgetids: ['Budget', 'Budgets'],
-  finmemorysnapshotids: ['FinMemory snapshot', 'FinMemory snapshots'],
+  finmemorysnapshotids: ['Financial snapshot', 'Financial snapshots'],
   forecastids: ['Forecast', 'Forecasts'],
   futuretransactionids: ['Scheduled transaction', 'Scheduled transactions'],
   invoiceids: ['Invoice', 'Invoices'],
@@ -31,7 +33,7 @@ const sourceLabels: Record<string, [string, string]> = {
   reportids: ['Report', 'Reports'],
   riskalertids: ['Risk alert', 'Risk alerts'],
   scenarioids: ['Scenario simulation', 'Scenario simulations'],
-  snapshotids: ['FinMemory snapshot', 'FinMemory snapshots'],
+  snapshotids: ['Financial snapshot', 'Financial snapshots'],
   transactionids: ['Transaction', 'Transactions'],
   unpostedpaymentrecordids: ['Unreconciled payment', 'Unreconciled payments'],
 };
@@ -343,12 +345,14 @@ export function formatAssistantResponse(response: unknown): AssistantResponse {
     asString(nestedData?.formulaVersion) ??
     asString(envelope.formulaVersion);
 
+  const rawAnswer =
+    answerCandidates.join('\n\n') ||
+    (String(payload.status ?? '').toUpperCase() === 'FAILED'
+      ? 'The analysis did not complete. Review the execution status below.'
+      : 'The workflow completed but did not return a financial summary.');
+
   return {
-    answer:
-      answerCandidates.join('\n\n') ||
-      (String(payload.status ?? '').toUpperCase() === 'FAILED'
-        ? 'The analysis did not complete. Review the execution status below.'
-        : 'The workflow completed but did not return a financial summary.'),
+    answer: formatUserFacingText(rawAnswer),
     citations: uniqueText([
       ...citations,
       ...countCitations,

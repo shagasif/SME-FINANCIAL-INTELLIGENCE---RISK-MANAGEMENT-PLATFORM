@@ -248,9 +248,9 @@ describe('OverviewDashboardPage Component', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Auditor Mode Active \(Strict Read-Only\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/Read-Only Auditor Mode/i)).toBeInTheDocument();
       expect(
-        screen.getByText(/Financial mutations, approvals, and report exports are blocked/i),
+        screen.getByText(/You are signed in as an Auditor/i),
       ).toBeInTheDocument();
     });
   });
@@ -578,7 +578,7 @@ describe('OverviewDashboardPage Component', () => {
       expect(screen.getByText(/15,000/)).toBeInTheDocument();
       expect(screen.getAllByText(/12,000/).length).toBeGreaterThanOrEqual(2);
     });
-    expect(screen.getByText(/Drafts excluded from AR \(1\):/i)).toBeInTheDocument();
+    expect(screen.getByText(/Draft invoices not included \(1\):/i)).toBeInTheDocument();
   });
 
   it('renders top KPI sparkline cards, interactive cash flow chart date filters, and right-side summary panels from backend transactions', async () => {

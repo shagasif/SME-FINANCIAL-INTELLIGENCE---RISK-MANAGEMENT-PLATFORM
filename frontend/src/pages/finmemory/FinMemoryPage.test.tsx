@@ -75,7 +75,7 @@ describe('FinMemoryPage Component', () => {
 
     render(<FinMemoryPage />);
 
-    expect(screen.getByText('FinMemory Intelligence')).toBeInTheDocument();
+    expect(screen.getByText('Financial Snapshots')).toBeInTheDocument();
     expect(screen.queryByText(/Episodic Financial Memory Architecture/i)).not.toBeInTheDocument();
 
     await waitFor(() => {
@@ -83,8 +83,8 @@ describe('FinMemoryPage Component', () => {
       expect(screen.getByText('98%')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Capture Snapshot')).toBeInTheDocument();
-    expect(screen.getByText('Compare Shifts')).toBeInTheDocument();
+    expect(screen.getByText('Save New Snapshot')).toBeInTheDocument();
+    expect(screen.getByText('Compare Periods')).toBeInTheDocument();
   });
 
   it('renders Auditor restriction and hides snapshot capture button', async () => {
@@ -130,8 +130,8 @@ describe('FinMemoryPage Component', () => {
 
     render(<FinMemoryPage />);
 
-    expect(screen.getByText('Auditor Mode Active')).toBeInTheDocument();
-    expect(screen.queryByText('Capture Snapshot')).not.toBeInTheDocument();
+    expect(screen.getByText('Read-Only Auditor Mode')).toBeInTheDocument();
+    expect(screen.queryByText('Save New Snapshot')).not.toBeInTheDocument();
   });
 
   it('renders successfully with live backend Prisma snapshot records having top-level metrics and no nested metrics object', async () => {
@@ -197,7 +197,7 @@ describe('FinMemoryPage Component', () => {
 
     render(<FinMemoryPage />);
 
-    expect(screen.getByText('FinMemory Intelligence')).toBeInTheDocument();
+    expect(screen.getByText('Financial Snapshots')).toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByText('2026-M11')).toBeInTheDocument();

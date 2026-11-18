@@ -78,11 +78,11 @@ describe('RiskCenterPage Component', () => {
 
     await waitFor(() => {
       expect(screen.getByText('High Single Transaction Outlier')).toBeInTheDocument();
-      expect(screen.getByText('UNUSUAL_AMOUNT')).toBeInTheDocument();
+      expect(screen.getByText('Unusual Amount')).toBeInTheDocument();
     });
 
     expect(screen.getByText('Run Anomaly Scan')).toBeInTheDocument();
-    expect(screen.getByText('Triage')).toBeInTheDocument();
+    expect(screen.getByText('Review')).toBeInTheDocument();
   });
 
   it('renders Auditor restriction and hides Run Anomaly Scan and Triage buttons', async () => {
@@ -429,11 +429,11 @@ describe('RiskCenterPage Component', () => {
     expect(screen.queryByText(/Active Telemetry Monitoring/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/automated surveillance is active/i)).not.toBeInTheDocument();
 
-    // Verify Orchestrated AI Agents and task separation between AI and Human
-    expect(screen.getByText('Orchestrated AI Agents')).toBeInTheDocument();
-    expect(screen.getByText('EXPENSE_ANOMALY_DETECTION')).toBeInTheDocument();
+    // Verify Assigned Specialists and task separation between AI and Human
+    expect(screen.getByText('Assigned Specialists')).toBeInTheDocument();
+    expect(screen.getByText('Expense Auditor')).toBeInTheDocument();
     expect(
-      screen.getByText('Remaining Human Tasks (Real-World Verification)'),
+      screen.getByText('Follow-up Actions Requiring Review'),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/Monitor this alert manually until automated monitoring is available/i),

@@ -29,7 +29,7 @@ export const MAIN_NAVIGATION_ITEMS: readonly NavigationItem[] = [
   },
   {
     id: 'invoices-payables',
-    label: 'Invoices & Payables',
+    label: 'Invoices & Bills',
     path: '/invoices-payables',
     iconName: 'FileText',
     allowedRoles: Object.values(RoleType),
@@ -61,11 +61,11 @@ export const MAIN_NAVIGATION_ITEMS: readonly NavigationItem[] = [
   },
   {
     id: 'finmemory',
-    label: 'FinMemory',
+    label: 'Financial Snapshots',
     path: '/finmemory',
     iconName: 'Database',
     allowedRoles: Object.values(RoleType),
-    badge: 'Memory',
+    badge: 'Snapshots',
     category: 'intelligence',
   },
   {
@@ -78,11 +78,11 @@ export const MAIN_NAVIGATION_ITEMS: readonly NavigationItem[] = [
   },
   {
     id: 'ai-orchestration',
-    label: 'AI Orchestrator',
+    label: 'AI Workflows',
     path: '/ai-orchestration',
     iconName: 'Cpu',
     allowedRoles: Object.values(RoleType),
-    badge: 'Multi-Agent',
+    badge: 'Workflows',
     category: 'ai',
   },
   {
