@@ -709,7 +709,7 @@ describe('RiskMonitoringService Triage Workflows', () => {
       expect(prisma.followUpTask.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           organizationId: orgId,
-          title: expect.stringContaining('Collect past-due customer receivable'),
+          title: expect.stringContaining('Collect past-due customer invoice'),
           priority: RiskSeverity.HIGH,
           assignedToId: 'usr-accountant-1', // resolved based on ACCOUNTANT role priority
           relatedEntityId: 'alert-overdue-1',

@@ -150,8 +150,8 @@ export class RiskMonitoringService {
       case RiskAlertType.OVERDUE_RECEIVABLE: {
         const amountStr = alert.metricValue ? DecimalMath.toFixed2(alert.metricValue) : '';
         return {
-          title: `Collect past-due customer receivable${amountStr ? ` ($${amountStr})` : ''}`,
-          description: `Customer invoice balance is past payment due date. Initiate outreach to customer accounts payable department, confirm receipt of invoice, and secure committed remittance date.`,
+          title: `Collect past-due customer invoice${amountStr ? ` ($${amountStr})` : ''}`,
+          description: `Customer invoice is past payment due date. Contact customer to confirm receipt and agree on payment date.`,
           priority: alert.severity,
           dueDate: addDays(3),
         };
@@ -161,8 +161,8 @@ export class RiskMonitoringService {
         const amountStr = alert.metricValue ? DecimalMath.toFixed2(alert.metricValue) : '';
         const vendor = firstTx?.['vendor'] ? String(firstTx['vendor']) : 'vendor';
         return {
-          title: `Audit suspected duplicate charge${amountStr ? ` of $${amountStr}` : ''} from ${vendor}`,
-          description: `Two identical expense entries were detected within 48 hours. Inspect bank/credit card statements, verify vendor invoice, and request a credit memo or refund if duplicated.`,
+          title: `Review possible duplicate payment${amountStr ? ` of $${amountStr}` : ''} to ${vendor}`,
+          description: `Two identical expense entries were detected within 48 hours. Check bank statements and invoices, and request a refund or credit if duplicated.`,
           priority: alert.severity,
           dueDate: addDays(2),
         };
@@ -171,8 +171,8 @@ export class RiskMonitoringService {
       case RiskAlertType.CASH_SHORTFALL: {
         const cashStr = alert.metricValue ? DecimalMath.toFixed2(alert.metricValue) : '';
         return {
-          title: 'Implement liquidity preservation controls & review AP disbursements',
-          description: `Available cash reserves (${cashStr ? `$${cashStr}` : 'critical level'}) have dropped below safety buffer. Review scheduled disbursements, expedite customer collections, and defer discretionary operating expenses.`,
+          title: 'Protect cash balance and review upcoming supplier bills',
+          description: `Cash balance (${cashStr ? `$${cashStr}` : 'low level'}) is below your safety cushion. Review scheduled bills, prioritize customer payments, and pause non-essential spending.`,
           priority: alert.severity,
           dueDate: addDays(1),
         };
@@ -180,8 +180,8 @@ export class RiskMonitoringService {
 
       case RiskAlertType.BUDGET_OVERRUN: {
         return {
-          title: `Remediate budget overrun: ${alert.title}`,
-          description: `${alert.explanation} Freeze discretionary spending in this category and review line-item expenditure with department manager.`,
+          title: `Review budget overspending: ${alert.title}`,
+          description: `${alert.explanation} Pause non-essential spending in this category and review costs with the department manager.`,
           priority: alert.severity,
           dueDate: addDays(4),
         };
@@ -189,8 +189,8 @@ export class RiskMonitoringService {
 
       case RiskAlertType.CATEGORY_SHIFT: {
         return {
-          title: `Review expenditure concentration in ${alert.title.split(' ')[2] || 'flagged category'}`,
-          description: `${alert.explanation} Verify that category concentration aligns with approved operating plan and contracts.`,
+          title: `Review higher spending in ${alert.title.split(' ')[2] || 'flagged category'}`,
+          description: `${alert.explanation} Confirm that this spending increase was planned and approved.`,
           priority: alert.severity,
           dueDate: addDays(5),
         };
@@ -200,8 +200,8 @@ export class RiskMonitoringService {
         const amountStr = alert.metricValue ? DecimalMath.toFixed2(alert.metricValue) : '';
         const vendor = firstTx?.['vendor'] ? String(firstTx['vendor']) : 'vendor';
         return {
-          title: `Verify contract authorization for high-value expense${amountStr ? ` ($${amountStr})` : ''}`,
-          description: `Outlier expense to ${vendor} detected. Confirm department purchase authorization, invoice terms, and verified delivery of goods or services.`,
+          title: `Check approval for unusual expense${amountStr ? ` ($${amountStr})` : ''} to ${vendor}`,
+          description: `Higher than normal expense to ${vendor} detected. Confirm department purchase approval and receipt of goods or services.`,
           priority: alert.severity,
           dueDate: addDays(3),
         };
@@ -211,8 +211,8 @@ export class RiskMonitoringService {
       case RiskAlertType.TIMING_CHANGE:
       default: {
         return {
-          title: `Investigate transaction pattern anomaly: ${alert.title}`,
-          description: `${alert.explanation} Cross-check source invoices and account movements to verify financial legitimacy.`,
+          title: `Review unusual transaction pattern: ${alert.title}`,
+          description: `${alert.explanation} Check invoices and account statements to ensure transactions are accurate.`,
           priority: alert.severity,
           dueDate: addDays(5),
         };
