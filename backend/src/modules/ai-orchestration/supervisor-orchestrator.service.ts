@@ -568,13 +568,18 @@ export class SupervisorOrchestratorService {
     const workflowStartMs = Date.now();
     const duringEvents: DuringHookEvent[] = [];
 
+    const effectivePrompt =
+      (params.dto.prompt && params.dto.prompt.trim()) ||
+      (params.dto.query && params.dto.query.trim()) ||
+      '';
+
     // STEP 1 & 2: Pre-Execution Hooks + Task Classification
     const preHookResult = await this.hooks.runPreExecutionHooks({
       organizationId: params.organizationId,
       userId: params.userId,
       userRole: params.userRole,
       isPlatformAdmin: params.isPlatformAdmin,
-      prompt: params.dto.prompt,
+      prompt: effectivePrompt,
     });
 
     const hasHistory = Boolean(params.dto.history && params.dto.history.length > 0);

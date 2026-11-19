@@ -61,6 +61,33 @@ export class AiOrchestrationController {
     });
   }
 
+  @Post('query')
+  @RateLimit({ windowMs: 60_000, maxRequests: 25 })
+  @Roles(
+    RoleType.PLATFORM_ADMIN,
+    RoleType.BUSINESS_OWNER,
+    RoleType.FINANCE_MANAGER,
+    RoleType.ACCOUNTANT,
+    RoleType.OPERATIONS_MANAGER,
+    RoleType.FINANCIAL_ANALYST,
+  )
+  @ApiOperation({
+    summary: 'Direct query to the AI Assistant and Multi-Agent workflow',
+  })
+  async directQuery(
+    @Param('orgId') orgId: string,
+    @Body() dto: ExecuteAiWorkflowDto,
+    @CurrentUser() user: AuthenticatedPrincipal,
+  ) {
+    return this.supervisor.executeWorkflow({
+      organizationId: orgId,
+      userId: user.userId,
+      userRole: user.organizationRole ?? RoleType.FINANCIAL_ANALYST,
+      isPlatformAdmin: user.isPlatformAdmin,
+      dto,
+    });
+  }
+
   @Get('workflows')
   @Roles(
     RoleType.PLATFORM_ADMIN,
@@ -233,5 +260,40 @@ export class AiOrchestrationController {
   })
   async getSandboxBoundaries() {
     return this.sandbox.getSecurityBoundaryDocumentation();
+  }
+}
+
+@ApiTags('AI Assistant Query Alias')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard, OrgRbacGuard, RateLimitGuard)
+@Controller({ path: 'organizations/:orgId/ai-assistant', version: '1' })
+export class AiAssistantController {
+  constructor(private readonly supervisor: SupervisorOrchestratorService) {}
+
+  @Post('query')
+  @RateLimit({ windowMs: 60_000, maxRequests: 25 })
+  @Roles(
+    RoleType.PLATFORM_ADMIN,
+    RoleType.BUSINESS_OWNER,
+    RoleType.FINANCE_MANAGER,
+    RoleType.ACCOUNTANT,
+    RoleType.OPERATIONS_MANAGER,
+    RoleType.FINANCIAL_ANALYST,
+  )
+  @ApiOperation({
+    summary: 'Query AI Assistant with conversational history and intent detection',
+  })
+  async queryAssistant(
+    @Param('orgId') orgId: string,
+    @Body() dto: ExecuteAiWorkflowDto,
+    @CurrentUser() user: AuthenticatedPrincipal,
+  ) {
+    return this.supervisor.executeWorkflow({
+      organizationId: orgId,
+      userId: user.userId,
+      userRole: user.organizationRole ?? RoleType.FINANCIAL_ANALYST,
+      isPlatformAdmin: user.isPlatformAdmin,
+      dto,
+    });
   }
 }

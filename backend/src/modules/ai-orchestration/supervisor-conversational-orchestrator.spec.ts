@@ -7,6 +7,8 @@ import {
   RoleType,
   VerificationStatus,
 } from '../../generated/prisma/client.js';
+import { ValidationPipe } from '@nestjs/common';
+import { ExecuteAiWorkflowDto } from './dto/ai-orchestration.dto.js';
 import { AuditService } from '../audit/audit.service.js';
 import { WorkflowHookService } from './hooks/workflow-hooks.service.js';
 import { AgentSandboxService } from './sandbox/agent-sandbox.service.js';
@@ -372,6 +374,70 @@ describe('SupervisorOrchestratorService - Conversational AI Assistant Behavior',
       expect(result.status).toBe(ExecutionStatus.COMPLETED);
       expect(result.answer).toContain('Gross margin is calculated');
       expect(result.answer).toContain('Revenue');
+    });
+  });
+
+  describe('6. ValidationPipe and ExecuteAiWorkflowDto whitelist enforcement', () => {
+    const pipe = new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: { enableImplicitConversion: true },
+    });
+
+    it('successfully validates DTO with prompt and nested history', async () => {
+      const validPayload = {
+        prompt: 'hello',
+        history: [
+          { sender: 'USER', text: 'hi' },
+          { sender: 'ASSISTANT', text: 'Hello! How can I help you today?' },
+        ],
+      };
+
+      const result = (await pipe.transform(validPayload, {
+        type: 'body',
+        metatype: ExecuteAiWorkflowDto,
+      })) as ExecuteAiWorkflowDto;
+
+      expect(result).toBeInstanceOf(ExecuteAiWorkflowDto);
+      expect(result.prompt).toBe('hello');
+      expect(result.history).toHaveLength(2);
+      expect(result.history![0].sender).toBe('USER');
+      expect(result.history![0].text).toBe('hi');
+    });
+
+    it('rejects forbidden non-whitelisted properties like unknownProperty', async () => {
+      const invalidPayload = {
+        prompt: 'hello',
+        unknownProperty: 'should not exist',
+      };
+
+      try {
+        await pipe.transform(invalidPayload, {
+          type: 'body',
+          metatype: ExecuteAiWorkflowDto,
+        });
+        throw new Error('Should have thrown BadRequestException');
+      } catch (err: any) {
+        const response = err.getResponse ? err.getResponse() : err;
+        const messages = Array.isArray(response.message) ? response.message : [response.message];
+        expect(messages).toContain('property unknownProperty should not exist');
+      }
+    });
+
+    it('validates and accepts query alias with history', async () => {
+      const validPayload = {
+        query: 'What is our current cash runway?',
+        history: [{ sender: 'USER', text: 'What is our current cash runway?' }],
+      };
+
+      const result = (await pipe.transform(validPayload, {
+        type: 'body',
+        metatype: ExecuteAiWorkflowDto,
+      })) as ExecuteAiWorkflowDto;
+
+      expect(result.query).toBe('What is our current cash runway?');
+      expect(result.history).toHaveLength(1);
     });
   });
 });

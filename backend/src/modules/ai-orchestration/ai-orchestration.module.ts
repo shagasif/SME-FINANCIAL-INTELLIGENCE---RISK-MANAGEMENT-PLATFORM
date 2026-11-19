@@ -9,7 +9,7 @@ import { InvoicesPayablesService } from '../invoices-payables/invoices-payables.
 import { ReportsModule } from '../reports/reports.module.js';
 import { RiskMonitoringModule } from '../risk-monitoring/risk-monitoring.module.js';
 import { ScenarioPlanningModule } from '../scenario-planning/scenario-planning.module.js';
-import { AiOrchestrationController } from './ai-orchestration.controller.js';
+import { AiAssistantController, AiOrchestrationController } from './ai-orchestration.controller.js';
 import { WorkflowHookService } from './hooks/workflow-hooks.service.js';
 import { McpIntegrationService } from './mcp/mcp-integration.service.js';
 import { ToolRegistryService } from './mcp/tool-registry.service.js';
@@ -30,7 +30,7 @@ import { SupervisorOrchestratorService } from './supervisor-orchestrator.service
     FinMemoryModule,
     ReportsModule,
   ],
-  controllers: [AiOrchestrationController],
+  controllers: [AiOrchestrationController, AiAssistantController],
   providers: [
     AgentSandboxService,
     WorkflowHookService,

@@ -1,25 +1,58 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsArray,
   IsEnum,
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 import { AgentType } from '../../../generated/prisma/client.js';
 
-export class ExecuteAiWorkflowDto {
+export class ChatMessageHistoryDto {
   @ApiProperty({
+    example: 'USER',
+    description: 'Role or identifier of message sender (e.g., USER or ASSISTANT)',
+  })
+  @IsString()
+  @IsNotEmpty()
+  sender!: string;
+
+  @ApiProperty({
+    example: 'What is our current cash runway?',
+    description: 'Text content of the conversational turn',
+  })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
+  text!: string;
+}
+
+export class ExecuteAiWorkflowDto {
+  @ApiPropertyOptional({
     example:
       'Analyze our current cash flow, liquidity runway, overdue receivables, anomalous expenses, and recommend actions for the next 30 days.',
   })
+  @IsOptional()
   @IsString()
   @MinLength(1)
   @MaxLength(2000)
-  prompt!: string;
+  prompt?: string;
+
+  @ApiPropertyOptional({
+    example: 'What is our current cash runway?',
+    description: 'Alternative query property alias for prompt',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2000)
+  query?: string;
 
   @ApiPropertyOptional({
     enum: AgentType,
@@ -40,11 +73,13 @@ export class ExecuteAiWorkflowDto {
 
   @ApiPropertyOptional({
     description: 'Recent conversation history for conversational context awareness',
-    isArray: true,
+    type: () => [ChatMessageHistoryDto],
   })
   @IsOptional()
   @IsArray()
-  history?: Array<{ sender: string; text: string }>;
+  @ValidateNested({ each: true })
+  @Type(() => ChatMessageHistoryDto)
+  history?: ChatMessageHistoryDto[];
 }
 
 export class InvokeMcpToolRequestDto {
