@@ -60,3 +60,7 @@ Thumbs.db
 .cache/
 .chrome-test-profile*
 .vercel/
+
+# Scratch & test data
+scratch/
+test-data/
