@@ -12,7 +12,7 @@ import {
   TrendingUp,
   Wallet,
   Zap,
-} from 'lucide-react';
+} from '../../components/ui/MaterialSymbol';
 import { useAuth } from '../../context/useAuth';
 import { RoleType } from '../../types/auth.types';
 import { apiGet, apiPost, ApiClientError } from '../../services/apiClient';

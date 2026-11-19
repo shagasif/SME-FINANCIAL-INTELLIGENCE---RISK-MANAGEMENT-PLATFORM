@@ -16,7 +16,7 @@ import {
   ShieldAlert,
   TrendingUp,
   Wallet,
-} from 'lucide-react';
+} from '../../components/ui/MaterialSymbol';
 import {
   Area,
   AreaChart,
@@ -865,7 +865,7 @@ function CashFlowChartTooltip({ active, payload, label, currency }: CustomToolti
               </div>
               <span className="font-mono text-[11px] font-bold tabular-nums text-[var(--text-primary)]">
                 {entry.dataKey === 'netCashFlow' && isPositive ? '+' : ''}
-                {formatCurrency(entry.value, currency, 0)}
+                {formatCurrency(entry.value, currency)}
               </span>
             </div>
           );
@@ -1592,7 +1592,7 @@ export function OverviewDashboardPage() {
                 Period Inflows
               </span>
               <span className="font-mono font-bold text-xs text-[var(--text-primary)] tabular-nums mt-0.5 block truncate">
-                {formatCurrency(periodSummary.totalInflows, currency, 0)}
+                {formatCurrency(periodSummary.totalInflows, currency)}
               </span>
             </div>
             <div className="p-2 rounded-xl bg-[var(--surface-canvas)] border border-[var(--border-subtle)]">
@@ -1600,7 +1600,7 @@ export function OverviewDashboardPage() {
                 Period Outflows
               </span>
               <span className="font-mono font-bold text-xs text-[var(--text-primary)] tabular-nums mt-0.5 block truncate">
-                {formatCurrency(periodSummary.totalOutflows, currency, 0)}
+                {formatCurrency(periodSummary.totalOutflows, currency)}
               </span>
             </div>
             <div className="p-2 rounded-xl bg-[var(--surface-canvas)] border border-[var(--border-subtle)]">
@@ -1615,7 +1615,7 @@ export function OverviewDashboardPage() {
                 }`}
               >
                 {periodSummary.totalNet >= 0 ? '+' : ''}
-                {formatCurrency(periodSummary.totalNet, currency, 0)}
+                {formatCurrency(periodSummary.totalNet, currency)}
               </span>
             </div>
           </div>
@@ -1787,7 +1787,7 @@ export function OverviewDashboardPage() {
                         {b.category}
                       </span>
                       <span className="font-mono font-semibold text-[11px] text-[var(--text-primary)] mt-0.5 block truncate">
-                        {formatCurrency(b.amount, currency, 0)}
+                        {formatCurrency(b.amount, currency)}
                       </span>
                     </div>
                   ))}
@@ -1867,7 +1867,7 @@ export function OverviewDashboardPage() {
                         {b.category}
                       </span>
                       <span className="font-mono font-semibold text-[11px] text-[var(--text-primary)] mt-0.5 block truncate">
-                        {formatCurrency(b.amount, currency, 0)}
+                        {formatCurrency(b.amount, currency)}
                       </span>
                     </div>
                   ))}

@@ -10,7 +10,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Zap,
-} from 'lucide-react';
+} from '../../components/ui/MaterialSymbol';
 import { useAuth } from '../../context/useAuth';
 import { apiGet, apiPost, ApiClientError } from '../../services/apiClient';
 import { Button } from '../../components/ui/Button';
@@ -19,6 +19,7 @@ import { Drawer } from '../../components/ui/Drawer';
 import { Skeleton } from '../../components/ui/LoadingSpinner';
 import {
   formatAgentType,
+  formatCurrency,
   formatDate,
   formatEmbeddedAmountsInText,
   formatRiskSeverity,
@@ -590,7 +591,7 @@ export function RiskCenterPage() {
                             </td>
                             <td className="py-1.5 px-3 text-[var(--text-muted)]">{t['date']}</td>
                             <td className="py-1.5 px-3 font-semibold text-[var(--text-primary)]">
-                              {t['currency']} {t['amount']}
+                              {formatCurrency(t['amount'], t['currency'])}
                             </td>
                             <td className="py-1.5 px-3 text-[var(--text-secondary)]">
                               {t['vendor'] && t['vendor'] !== 'N/A' ? `${t['vendor']} · ` : ''}{t['category']}

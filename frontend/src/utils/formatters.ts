@@ -45,39 +45,49 @@ export function formatNumber(
 
 /**
  * Formats a financial amount with currency symbol and clean decimal formatting.
- * When fractionDigits is omitted, whole amounts omit decimals and fractional
- * amounts display 2 decimal places.
+ * Always displays exactly 2 decimal places with comma thousand separators
+ * using Intl.NumberFormat (e.g. PKR 9,400.00, $500.00).
  */
 export function formatCurrency(
   amount: string | number | null | undefined,
   currency = 'USD',
-  fractionDigits?: number,
+  fractionDigits = 2,
 ): string {
   if (amount === null || amount === undefined || amount === '') {
     return '—';
   }
 
-  const num =
-    typeof amount === 'number' ? amount : Number.parseFloat(String(amount).replace(/,/g, ''));
-  if (Number.isNaN(num)) {
+  let num: number;
+  let targetCurrency = (currency || 'USD').trim().toUpperCase();
+
+  if (typeof amount === 'number') {
+    num = amount;
+  } else {
+    const str = String(amount).trim();
+    if ((!currency || currency === 'USD') && /\b([A-Z]{3})\b/.test(str)) {
+      const match = str.match(/\b([A-Z]{3})\b/);
+      if (match) {
+        targetCurrency = match[1].toUpperCase();
+      }
+    }
+    const sanitized = str.replace(/[^0-9.-]/g, '');
+    num = Number.parseFloat(sanitized);
+  }
+
+  if (!Number.isFinite(num)) {
     return String(amount);
   }
 
-  let digits: number;
-  let valueToFormat = num;
-
-  if (fractionDigits === undefined) {
-    const rounded = Math.round((num + Number.EPSILON) * 100) / 100;
-    valueToFormat = Object.is(rounded, -0) ? 0 : rounded;
-    digits = Math.abs(valueToFormat - Math.trunc(valueToFormat)) < 1e-9 ? 0 : 2;
-  } else {
-    digits = fractionDigits;
-  }
+  const digits =
+    typeof fractionDigits === 'number' && Number.isFinite(fractionDigits) ? fractionDigits : 2;
+  const factor = 10 ** digits;
+  const rounded = Math.round((num + Number.EPSILON) * factor) / factor;
+  const valueToFormat = Object.is(rounded, -0) ? 0 : rounded;
 
   try {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency,
+      currency: targetCurrency,
       minimumFractionDigits: digits,
       maximumFractionDigits: digits,
     }).format(valueToFormat);
@@ -86,24 +96,27 @@ export function formatCurrency(
       minimumFractionDigits: digits,
       maximumFractionDigits: digits,
     }).format(valueToFormat);
-    return `${currency} ${formattedNum}`;
+    return `${targetCurrency} ${formattedNum}`;
   }
 }
 
 /**
  * Formats a monetary value with an explicit '+' prefix for strictly positive numbers.
+ * Always displays exactly 2 decimal places with comma thousand separators.
  */
 export function formatSignedCurrency(
   amount: string | number | null | undefined,
   currency = 'USD',
-  fractionDigits?: number,
+  fractionDigits = 2,
 ): string {
   if (amount === null || amount === undefined || amount === '') {
     return '—';
   }
   const num =
-    typeof amount === 'number' ? amount : Number.parseFloat(String(amount).replace(/,/g, ''));
-  if (Number.isNaN(num)) {
+    typeof amount === 'number'
+      ? amount
+      : Number.parseFloat(String(amount).replace(/[^0-9.-]/g, ''));
+  if (!Number.isFinite(num)) {
     return String(amount);
   }
   const formatted = formatCurrency(num, currency, fractionDigits);
@@ -112,18 +125,21 @@ export function formatSignedCurrency(
 
 /**
  * Normalizes raw decimal amounts embedded in AI summaries, alerts, and report prose
- * (e.g. `2615400.0000` -> `2,615,400`, `1250.5000` -> `1,250.50`, `PKR 250,000.00` -> `PKR 250,000`).
+ * (e.g. `2615400.0000` -> `2,615,400.00`, `1250.5000` -> `1,250.50`, `PKR 250,000.00` -> `PKR 250,000.00`).
  */
 export function formatEmbeddedAmountsInText(text: string): string {
   if (!text) return text;
   return text.replace(
-    /(?<![\d.,-])(\d{1,3}(?:,\d{3})+|\d+)\.(\d{2,4})(?![\d.])/g,
+    /(?<![\d.,-])(\d{1,3}(?:,\d{3})+|\d+)\.(\d{2,})(?![\d.])/g,
     (_match, intPart: string, fracPart: string) => {
       const parsed = Number.parseFloat(`${intPart.replace(/,/g, '')}.${fracPart}`);
       if (Number.isNaN(parsed)) {
         return _match;
       }
-      return formatNumber(parsed, 2);
+      return new Intl.NumberFormat('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(parsed);
     },
   );
 }
@@ -136,13 +152,27 @@ export function formatReportCurrency(
     return '—';
   }
 
-  const num =
-    typeof amount === 'number' ? amount : Number.parseFloat(String(amount).replace(/,/g, ''));
+  let num: number;
+  let code = currency.trim().toUpperCase();
+
+  if (typeof amount === 'number') {
+    num = amount;
+  } else {
+    const str = String(amount).trim();
+    if ((!currency || currency === 'USD') && /\b([A-Z]{3})\b/.test(str)) {
+      const match = str.match(/\b([A-Z]{3})\b/);
+      if (match) {
+        code = match[1].toUpperCase();
+      }
+    }
+    const sanitized = str.replace(/[^0-9.-]/g, '');
+    num = Number.parseFloat(sanitized);
+  }
+
   if (!Number.isFinite(num)) {
     return String(amount);
   }
 
-  const code = currency.trim().toUpperCase();
   const formatted = new Intl.NumberFormat('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -227,7 +257,7 @@ export function formatReportText(text: string, fallbackCurrency = 'USD'): string
     .replace(/\b([A-Z]{3})\s*(-?\d[\d,]*(?:\.\d+)?)([kKmMbB])?\b/g, protectCurrency)
     .replace(/([$€£₹])\s*(-?\d[\d,]*(?:\.\d+)?)([kKmMbB])?\b/g, protectSymbol)
     .replace(
-      /\b([A-Z]{3}\s+)?(-?\d[\d,]*\.\d{2,4})(?!\d|\.\d|[%x])/g,
+      /\b([A-Z]{3}\s+)?(-?\d[\d,]*\.\d{2,})(?!\d|\.\d|[%x])/g,
       (match, code: string | undefined, amount: string) =>
         code ? match : protectBareCurrency(match, amount),
     );

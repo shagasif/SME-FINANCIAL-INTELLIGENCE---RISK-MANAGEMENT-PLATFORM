@@ -11,7 +11,7 @@ import {
   Sparkles,
   Trash2,
   Upload,
-} from 'lucide-react';
+} from '../../components/ui/MaterialSymbol';
 import { Button } from '../../components/ui/Button';
 import { FORM_LABEL_CLASS, Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
@@ -690,12 +690,8 @@ export function DocumentImportModal({
                     const matchCurr = (match.currency || currency || orgCurrency || '')
                       .trim()
                       .toUpperCase();
-                    const hasFractional = !Number.isNaN(numVal) && Math.abs(numVal % 1) > 0.0001;
                     const formattedAmt = !Number.isNaN(numVal)
-                      ? `${matchCurr ? `${matchCurr} ` : ''}${new Intl.NumberFormat('en-US', {
-                          minimumFractionDigits: hasFractional ? 2 : 0,
-                          maximumFractionDigits: 2,
-                        }).format(numVal)}`
+                      ? formatCurrency(numVal, matchCurr)
                       : '';
 
                     let messageText = match.reason;

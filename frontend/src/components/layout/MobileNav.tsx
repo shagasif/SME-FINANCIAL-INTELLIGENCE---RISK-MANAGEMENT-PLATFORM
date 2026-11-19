@@ -19,7 +19,7 @@ import {
   TrendingUp,
   User as UserIcon,
   X,
-} from 'lucide-react';
+} from '../ui/MaterialSymbol';
 import { MAIN_NAVIGATION_ITEMS } from '../../config/navigation.config';
 import { useAuth } from '../../context/useAuth';
 import { useTheme } from '../../hooks/useTheme';

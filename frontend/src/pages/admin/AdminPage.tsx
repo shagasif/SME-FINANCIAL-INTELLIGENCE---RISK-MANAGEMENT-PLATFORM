@@ -11,7 +11,7 @@ import {
   ShieldAlert,
   UserPlus,
   Users,
-} from 'lucide-react';
+} from '../../components/ui/MaterialSymbol';
 import { useAuth } from '../../context/useAuth';
 import { apiGet, apiPatch, apiPost, ApiClientError } from '../../services/apiClient';
 import { Button } from '../../components/ui/Button';

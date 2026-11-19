@@ -39,11 +39,16 @@ describe('formatters', () => {
   });
 
   describe('formatCurrency', () => {
-    it('omits unnecessary decimals on whole amounts and preserves currency', () => {
-      expect(formatCurrency('2615400.0000', 'PKR')).toBe('PKR\u00a02,615,400');
-      expect(formatCurrency('597100.0000', 'USD')).toBe('$597,100');
-      expect(formatCurrency('0.0000', 'USD')).toBe('$0');
-      expect(formatCurrency('1250.0000', 'USD')).toBe('$1,250');
+    it('always shows exactly 2 decimal places with comma separators and preserves currency', () => {
+      expect(formatCurrency('2615400.0000', 'PKR')).toBe('PKR\u00a02,615,400.00');
+      expect(formatCurrency('597100.0000', 'USD')).toBe('$597,100.00');
+      expect(formatCurrency('0.0000', 'USD')).toBe('$0.00');
+      expect(formatCurrency('1250.0000', 'USD')).toBe('$1,250.00');
+      expect(formatCurrency('9400.0000', 'PKR')).toBe('PKR\u00a09,400.00');
+      expect(formatCurrency('PKR 9400.0000')).toBe('PKR\u00a09,400.00');
+      expect(formatCurrency('PKR 150000.56789')).toBe('PKR\u00a0150,000.57');
+      expect(formatCurrency('PKR 500')).toBe('PKR\u00a0500.00');
+      expect(formatCurrency('500', 'USD')).toBe('$500.00');
     });
 
     it('shows 2 decimals when meaningful fractional values are present', () => {
@@ -95,25 +100,27 @@ describe('formatters', () => {
   });
 
   describe('formatSignedCurrency', () => {
-    it('prefixes strictly positive amounts with + and omits .00 on whole numbers', () => {
-      expect(formatSignedCurrency('1500.0000', 'USD')).toBe('+$1,500');
+    it('prefixes strictly positive amounts with + and always displays 2 decimal places', () => {
+      expect(formatSignedCurrency('1500.0000', 'USD')).toBe('+$1,500.00');
       expect(formatSignedCurrency('1500.5000', 'USD')).toBe('+$1,500.50');
-      expect(formatSignedCurrency('-500.0000', 'USD')).toBe('-$500');
-      expect(formatSignedCurrency('0.0000', 'USD')).toBe('$0');
+      expect(formatSignedCurrency('-500.0000', 'USD')).toBe('-$500.00');
+      expect(formatSignedCurrency('0.0000', 'USD')).toBe('$0.00');
     });
   });
 
   describe('formatEmbeddedAmountsInText', () => {
-    it('formats raw decimal numbers in AI summaries and report prose without touching dates or IDs', () => {
+    it('formats raw decimal numbers in AI summaries and report prose with exactly 2 decimals and separators', () => {
       expect(
         formatEmbeddedAmountsInText(
           'Cash balance is PKR 2615400.0000 with overdue AR 0.0000 and fee 1250.5000 on 2026-11-12 (v1.0.0).',
         ),
       ).toBe(
-        'Cash balance is PKR 2,615,400 with overdue AR 0 and fee 1,250.50 on 2026-11-12 (v1.0.0).',
+        'Cash balance is PKR 2,615,400.00 with overdue AR 0.00 and fee 1,250.50 on 2026-11-12 (v1.0.0).',
       );
 
-      expect(formatEmbeddedAmountsInText('Total: PKR 250,000.00')).toBe('Total: PKR 250,000');
+      expect(formatEmbeddedAmountsInText('Total: PKR 250,000.00')).toBe('Total: PKR 250,000.00');
+      expect(formatEmbeddedAmountsInText('PKR 9400.0000')).toBe('PKR 9,400.00');
+      expect(formatEmbeddedAmountsInText('PKR 150000.56789')).toBe('PKR 150,000.57');
     });
   });
 

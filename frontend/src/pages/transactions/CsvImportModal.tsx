@@ -12,7 +12,7 @@ import {
   Loader2,
   Sparkles,
   Upload,
-} from 'lucide-react';
+} from '../../components/ui/MaterialSymbol';
 import { Modal } from '../../components/ui/Modal';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';

@@ -10,7 +10,7 @@ import {
   Moon,
   Sun,
   User as UserIcon,
-} from 'lucide-react';
+} from '../ui/MaterialSymbol';
 import { useAuth } from '../../context/useAuth';
 import { useTheme } from '../../hooks/useTheme';
 import { apiGet, apiPatch } from '../../services/apiClient';

@@ -17,7 +17,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { AlertCircle, Maximize2 } from 'lucide-react';
+import { AlertCircle, Maximize2 } from '../../components/ui/MaterialSymbol';
 import { formatCurrency, formatPercentage } from '../../utils/formatters';
 import { Modal } from '../../components/ui/Modal';
 import { Button } from '../../components/ui/Button';

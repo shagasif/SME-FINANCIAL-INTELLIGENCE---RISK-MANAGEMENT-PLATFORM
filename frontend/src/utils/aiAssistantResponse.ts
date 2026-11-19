@@ -1,4 +1,4 @@
-import { formatUserFacingText } from './formatters';
+import { formatCurrency, formatUserFacingText } from './formatters';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -61,11 +61,7 @@ function isOrchestrationLog(value: string): boolean {
 function formatFourDecimalAmount(rawAmount: string, currency?: string): string {
   const num = Number(rawAmount);
   if (!Number.isFinite(num)) return rawAmount;
-  const formatted = num.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  return currency ? `${currency} ${formatted}` : formatted;
+  return formatCurrency(num, currency || 'USD');
 }
 
 function detectBaseCurrency(findings: unknown[]): string | undefined {

@@ -9,7 +9,7 @@ import {
   ChevronUp,
   Info,
   RefreshCw,
-} from 'lucide-react';
+} from '../../components/ui/MaterialSymbol';
 import { useAuth } from '../../context/useAuth';
 import { apiGet, ApiClientError } from '../../services/apiClient';
 import { Button } from '../../components/ui/Button';
@@ -1040,9 +1040,9 @@ export function AnalyticsPage() {
                               {item.label}
                             </div>
                             <div className="text-[10px] text-[var(--text-muted)] font-mono">
-                              {item.classification} • {item.currency} {Number(item.nativeAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              {item.classification} • {formatCurrency(item.nativeAmount, item.currency)}
                               {item.currency !== (inspectMetric.result.currency || metricsData?.currency) && (
-                                <span> ({reportingCurrency} {Number(item.convertedAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
+                                <span> ({formatCurrency(item.convertedAmount, reportingCurrency)})</span>
                               )}
                             </div>
                             <div className="text-[9px] text-[var(--text-muted)] font-mono truncate max-w-xs">
@@ -1079,7 +1079,7 @@ export function AnalyticsPage() {
                               {item.label}
                             </div>
                             <div className="text-[10px] text-[var(--text-muted)] font-mono">
-                              {item.classification} • {item.currency} {Number(item.nativeAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              {item.classification} • {formatCurrency(item.nativeAmount, item.currency)}
                             </div>
                             <div className="text-[9px] text-[var(--text-muted)] font-mono truncate max-w-xs">
                               ID: {item.id}

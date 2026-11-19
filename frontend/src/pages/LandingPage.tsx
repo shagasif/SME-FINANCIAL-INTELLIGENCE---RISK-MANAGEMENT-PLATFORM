@@ -34,8 +34,8 @@ import {
   TrendingUp,
   Wallet,
   X,
-  type LucideIcon,
-} from 'lucide-react';
+  type MaterialIcon,
+} from '../components/ui/MaterialSymbol';
 import { useAuth } from '../context/useAuth';
 import { useTheme } from '../hooks/useTheme';
 
@@ -50,7 +50,7 @@ type LoginRedirectState = { from: { pathname: string } };
 type PlatformModule = {
   title: string;
   description: string;
-  icon: LucideIcon;
+  icon: MaterialIcon;
   path: string;
 };
 

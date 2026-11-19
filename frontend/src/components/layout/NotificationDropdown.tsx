@@ -10,7 +10,7 @@ import {
   ExternalLink,
   Info,
   X,
-} from 'lucide-react';
+} from '../ui/MaterialSymbol';
 import {
   formatDate,
   formatRiskSeverity,

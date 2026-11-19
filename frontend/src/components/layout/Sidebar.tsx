@@ -17,7 +17,7 @@ import {
   ShieldAlert,
   Sliders,
   TrendingUp,
-} from 'lucide-react';
+} from '../ui/MaterialSymbol';
 import { MAIN_NAVIGATION_ITEMS } from '../../config/navigation.config';
 import { useAuth } from '../../context/useAuth';
 import { RoleType } from '../../types/auth.types';

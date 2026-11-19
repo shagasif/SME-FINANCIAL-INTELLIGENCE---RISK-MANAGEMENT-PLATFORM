@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { AlertCircle, Edit3, History, Plus, RefreshCw, ShieldAlert, Trash2 } from 'lucide-react';
+import { AlertCircle, Edit3, History, Plus, RefreshCw, ShieldAlert, Trash2 } from '../../components/ui/MaterialSymbol';
 import { useAuth } from '../../context/useAuth';
 import { apiGet, apiPatch, apiPost, ApiClientError } from '../../services/apiClient';
 import { Button } from '../../components/ui/Button';

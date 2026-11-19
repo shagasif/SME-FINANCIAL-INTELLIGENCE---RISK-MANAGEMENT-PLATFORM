@@ -15,7 +15,7 @@ import {
   TrendingUp,
   Wallet,
   X,
-} from 'lucide-react';
+} from '../../components/ui/MaterialSymbol';
 import { useAuth } from '../../context/useAuth';
 import { apiGet, ApiClientError, authStorage } from '../../services/apiClient';
 import { Button } from '../../components/ui/Button';

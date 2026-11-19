@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Mail, KeyRound, Moon, Sun } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowRight, CheckCircle2, Mail, KeyRound, Moon, Sun } from '../../components/ui/MaterialSymbol';
 import { apiPost, ApiClientError } from '../../services/apiClient';
 import { useTheme } from '../../hooks/useTheme';
 import { AuthPageBackground } from '../../components/auth/AuthPageBackground';

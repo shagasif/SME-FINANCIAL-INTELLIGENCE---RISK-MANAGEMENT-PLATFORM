@@ -409,7 +409,7 @@ describe('DocumentImportModal & InvoicesPayablesPage Document Import UI Refineme
             totalAmount: '55000.0000',
             currency: 'PKR',
             status: 'DRAFT',
-            reason: 'This file is already saved as Invoice INV-SB-2026-101 (Draft) for PKR 55,000.',
+            reason: 'This file is already saved as Invoice INV-SB-2026-101 (Draft) for PKR 55,000.00.',
           },
         ],
       },
@@ -437,7 +437,7 @@ describe('DocumentImportModal & InvoicesPayablesPage Document Import UI Refineme
 
     expect(await screen.findByText('Duplicate Document Detected')).toBeInTheDocument();
     expect(
-      screen.getByText('This file is already saved as Invoice INV-SB-2026-101 (Draft) for PKR 55,000.'),
+      screen.getByText(/This file is already saved as Invoice INV-SB-2026-101 \(Draft\) for PKR\s*55,000\.00\./),
     ).toBeInTheDocument();
     expect(screen.queryByText(/\[FILE_CHECKSUM\]/i)).not.toBeInTheDocument();
     // Verified badge is not shown for duplicate/blocked save

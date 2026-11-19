@@ -14,7 +14,7 @@ import {
   ShieldAlert,
   Trash2,
   Upload,
-} from 'lucide-react';
+} from '../../components/ui/MaterialSymbol';
 import { useAuth } from '../../context/useAuth';
 import { apiGet, apiPatch, apiPost, ApiClientError } from '../../services/apiClient';
 import { Button } from '../../components/ui/Button';
@@ -1055,7 +1055,7 @@ export function InvoicesPayablesPage() {
             <div className="p-2.5 rounded-xl bg-[var(--surface-canvas)] border border-[var(--border-subtle)]">
               <span className="text-[10px] text-[var(--text-muted)] uppercase block">Current</span>
               <span className="tabular-nums font-bold text-sm mt-0.5 block truncate">
-                {formatCurrency(getAgingBucketAmount(currentAging, 'CURRENT'), agingCurrency, 0)}
+                {formatCurrency(getAgingBucketAmount(currentAging, 'CURRENT'), agingCurrency)}
               </span>
             </div>
             <div className="p-2.5 rounded-xl bg-[var(--surface-canvas)] border border-[var(--border-subtle)]">
@@ -1066,7 +1066,6 @@ export function InvoicesPayablesPage() {
                 {formatCurrency(
                   getAgingBucketAmount(currentAging, '1_TO_30_DAYS'),
                   agingCurrency,
-                  0,
                 )}
               </span>
             </div>
@@ -1078,7 +1077,6 @@ export function InvoicesPayablesPage() {
                 {formatCurrency(
                   getAgingBucketAmount(currentAging, '31_TO_60_DAYS'),
                   agingCurrency,
-                  0,
                 )}
               </span>
             </div>
@@ -1088,7 +1086,6 @@ export function InvoicesPayablesPage() {
                 {formatCurrency(
                   getAgingBucketAmount(currentAging, '61_TO_90_DAYS'),
                   agingCurrency,
-                  0,
                 )}
               </span>
             </div>
@@ -1098,7 +1095,6 @@ export function InvoicesPayablesPage() {
                 {formatCurrency(
                   getAgingBucketAmount(currentAging, 'OVER_90_DAYS'),
                   agingCurrency,
-                  0,
                 )}
               </span>
             </div>

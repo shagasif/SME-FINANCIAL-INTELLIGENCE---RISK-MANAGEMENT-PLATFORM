@@ -132,10 +132,10 @@ describe('formatAssistantResponse', () => {
     });
 
     expect(result.answer).toContain(
-      '30-day (Optimistic) forecast projects closing cash of PKR 2,615,829.96 from an opening balance of PKR 2,615,499.96 (minimum cash: PKR 2,615,499.96; no liquidity warning).',
+      '30-day (Optimistic) forecast projects closing cash of PKR\u00a02,615,829.96 from an opening balance of PKR\u00a02,615,499.96 (minimum cash: PKR\u00a02,615,499.96; no liquidity warning).',
     );
     expect(result.answer).toContain(
-      'Financial analysis across 2 accounts and 51 transactions. Operating cash flow: PKR 612,200.00, Working capital: PKR 2,615,400.00, Current ratio: unavailable.',
+      'Financial analysis across 2 accounts and 51 transactions. Operating cash flow: PKR\u00a0612,200.00, Working capital: PKR\u00a02,615,400.00, Current ratio: unavailable.',
     );
     expect(result.answer).toContain('• Review active risk alerts in Risk Center');
     expect(result.citations).toEqual(['1 Unreconciled payment · Reference: pay-1']);

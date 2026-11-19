@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { AlertCircle, Plus } from 'lucide-react';
+import { AlertCircle, Plus } from '../../components/ui/MaterialSymbol';
 import { Modal } from '../../components/ui/Modal';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';

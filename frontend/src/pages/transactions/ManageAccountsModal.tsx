@@ -6,7 +6,7 @@ import {
   CheckCircle2,
   Plus,
   Wallet,
-} from 'lucide-react';
+} from '../../components/ui/MaterialSymbol';
 import { Modal } from '../../components/ui/Modal';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';

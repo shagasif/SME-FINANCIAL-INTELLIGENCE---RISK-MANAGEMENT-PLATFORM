@@ -333,7 +333,7 @@ describe('AiOrchestrationPage Component', () => {
 
     // 2. Individual specialist outputs & recommendations
     expect(
-      modal.getByText(/Operating cash flow is PKR 85,000 with payables of PKR 35,000/i),
+      modal.getByText(/Operating cash flow is PKR\s*85,000(\.00)? with payables of PKR\s*35,000(\.00)?/i),
     ).toBeInTheDocument();
     expect(
       modal.getByText(/Schedule vendor payment from primary PKR bank account/i),
@@ -535,7 +535,7 @@ describe('AiOrchestrationPage Component', () => {
 
     // Finance Data Analyst structured summary & notes
     expect(
-      modal.getByText(/Extracted INVOICE INV-SB-2026-101 for Al-Madina Traders \(PKR\s*55,000, 2 line item\(s\)\)/i),
+      modal.getByText(/Extracted INVOICE INV-SB-2026-101 for Al-Madina Traders \(PKR\s*55,000(\.00)?, 2 line item\(s\)\)/i),
     ).toBeInTheDocument();
     expect(modal.getByText(/Total amount derived from extracted subtotal \+ tax/i)).toBeInTheDocument();
 

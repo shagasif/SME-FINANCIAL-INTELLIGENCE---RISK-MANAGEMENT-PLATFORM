@@ -9,7 +9,7 @@ import {
   Send,
   User,
   X,
-} from 'lucide-react';
+} from '../../components/ui/MaterialSymbol';
 import { useAuth } from '../../context/useAuth';
 import { apiPost, ApiClientError } from '../../services/apiClient';
 import { Button } from '../../components/ui/Button';
