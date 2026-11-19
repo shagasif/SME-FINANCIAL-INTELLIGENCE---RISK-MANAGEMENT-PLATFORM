@@ -550,7 +550,7 @@ export function LandingPage() {
             to="/"
             className="flex min-w-0 items-center gap-1.5 sm:gap-2.5 rounded-lg"
           >
-            <SmeLogo className="h-[20px] sm:h-8 w-auto shrink-0 drop-shadow-md" />
+            <SmeLogo className="h-[20px] sm:h-7 w-auto shrink-0 drop-shadow-md" />
             <span className="min-w-0 flex flex-col items-center justify-center">
               <span className="block text-[13px] sm:text-base font-bold tracking-tight leading-none text-slate-950 dark:text-white whitespace-nowrap">
                 Financial Intel
