@@ -115,9 +115,15 @@ export function AiAssistantPage({
     try {
       let raw: unknown;
 
+      const recentHistory = messages.slice(-6).map((m) => ({
+        sender: m.sender,
+        text: m.text,
+      }));
+
       try {
         raw = await apiPost<unknown>(`/v1/organizations/${activeOrgId}/ai/workflows/execute`, {
           prompt: q,
+          history: recentHistory,
         });
       } catch (workflowError) {
         if (

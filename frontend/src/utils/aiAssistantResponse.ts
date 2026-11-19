@@ -296,14 +296,17 @@ export function formatAssistantResponse(response: unknown): AssistantResponse {
     asString(payload.answer),
     asString(nestedData?.answer),
     asString(envelope.answer),
+    asString(synthesized.answer),
   ].filter((answer): answer is string => typeof answer === 'string' && !isOrchestrationLog(answer));
   const specialistSummaries = extractSpecialistSummaries(synthesized, payload);
   const executiveSummary = asString(synthesized.executiveSummary);
-  const answerCandidates = uniqueText([
-    ...directAnswers,
-    ...specialistSummaries,
-    ...(executiveSummary && !isOrchestrationLog(executiveSummary) ? [executiveSummary] : []),
-  ]);
+  const answerCandidates =
+    directAnswers.length > 0
+      ? uniqueText(directAnswers)
+      : uniqueText([
+          ...specialistSummaries,
+          ...(executiveSummary && !isOrchestrationLog(executiveSummary) ? [executiveSummary] : []),
+        ]);
 
   const sourceRecordIds =
     asRecord(synthesized.sourceRecordIds) ??

@@ -153,4 +153,57 @@ describe('formatAssistantResponse', () => {
       'Risk identified: Possible Duplicate Charge detected alongside Overdue Customer Invoice.',
     );
   });
+
+  it('prioritizes direct answers concisely without appending raw multi-paragraph specialist findings', () => {
+    const result = formatAssistantResponse({
+      success: true,
+      data: {
+        id: 'wf-concise-1',
+        status: 'COMPLETED',
+        verificationStatus: 'APPROVED',
+        answer: 'Your current cash runway is 18.5 months based on active liquid cash reserves.',
+        synthesizedResult: {
+          answer: 'Your current cash runway is 18.5 months based on active liquid cash reserves.',
+          executiveSummary: 'Your current cash runway is 18.5 months based on active liquid cash reserves.',
+          specialistFindings: [
+            {
+              agentType: 'FINANCE_DATA_ANALYST',
+              skillResults: [
+                {
+                  summary: 'Deterministic financial analysis completed across 10 accounts and 200 transactions. Operating cash flow: 25000.0000...',
+                },
+              ],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(result.answer).toBe('Your current cash runway is 18.5 months based on active liquid cash reserves.');
+    expect(result.answer).not.toContain('Deterministic financial analysis');
+  });
+
+  it('renders conversational greetings and polite responses cleanly', () => {
+    const greetingResult = formatAssistantResponse({
+      success: true,
+      data: {
+        id: 'wf-greeting-1',
+        status: 'COMPLETED',
+        verificationStatus: 'APPROVED',
+        answer: 'Hello! How can I help you with your business financials and operations today?',
+      },
+    });
+    expect(greetingResult.answer).toBe('Hello! How can I help you with your business financials and operations today?');
+
+    const thanksResult = formatAssistantResponse({
+      success: true,
+      data: {
+        id: 'wf-thanks-1',
+        status: 'COMPLETED',
+        verificationStatus: 'APPROVED',
+        answer: "You're welcome! Let me know if you need any other financial insights or analysis.",
+      },
+    });
+    expect(thanksResult.answer).toBe("You're welcome! Let me know if you need any other financial insights or analysis.");
+  });
 });
