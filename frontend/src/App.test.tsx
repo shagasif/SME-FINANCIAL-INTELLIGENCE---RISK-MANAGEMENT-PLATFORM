@@ -68,7 +68,6 @@ describe('LandingPage', () => {
     ).not.toBeInTheDocument();
     expect(screen.queryByText('Interactive Dashboard Preview')).not.toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: 'SME Financial Intel home' })).toHaveLength(2);
-    expect(screen.getByText('Financial Intelligence & Risk Platform')).toBeInTheDocument();
     expect(container.querySelectorAll('#modules a.group')).toHaveLength(9);
     expect(container.querySelector('#modules')).not.toHaveTextContent(/\b0[1-9]\b/);
     expect(screen.queryAllByText('Explore module')).toHaveLength(0);
@@ -136,7 +135,7 @@ describe('LandingPage', () => {
     ).toHaveLength(platformRoutes.length);
     expect(within(footer).queryByLabelText('Email address')).not.toBeInTheDocument();
     expect(within(footer).queryByRole('button', { name: 'Subscribe' })).not.toBeInTheDocument();
-    expect(within(footer).getByText('SME', { exact: true })).toBeVisible();
+    expect(within(footer).queryByText('SME', { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByText('SFI', { exact: true })).not.toBeInTheDocument();
     expect(within(footer).getByText('All systems operational')).toBeVisible();
     expect(footer.querySelector('#legal-notice')).toHaveTextContent(

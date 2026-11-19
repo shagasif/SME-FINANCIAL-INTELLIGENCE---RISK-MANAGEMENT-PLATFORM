@@ -8,6 +8,7 @@ import { AuthPageBackground } from '../../components/auth/AuthPageBackground';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
+import { SmeLogo } from '../../components/ui/SmeLogo';
 
 const COUNTRIES = [
   { value: 'Pakistan', label: 'Pakistan (PKR)' },
@@ -149,13 +150,13 @@ export function RegisterPage() {
       </button>
 
       <div className="relative z-10 text-center sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-[var(--accent-primary)] text-white font-bold text-xl shadow-lg mb-4">
-          SME
+        <div className="inline-flex items-center justify-center mb-4">
+          <SmeLogo className="h-[42px] w-auto drop-shadow-xl" />
         </div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-          Get Started with SME Financial Intel
+        <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap">
+          Clarity &amp; Risk Platform
         </h1>
-        <p className="mt-1.5 text-xs text-slate-600 dark:text-white/60">
+        <p className="mt-1.5 text-xs sm:text-sm text-slate-600 dark:text-white/60">
           Set up your company workspace to manage cash flow, budgets, and financial risks.
         </p>
       </div>

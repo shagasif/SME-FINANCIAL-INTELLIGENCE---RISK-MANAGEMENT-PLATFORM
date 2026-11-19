@@ -49,7 +49,7 @@ describe('LoginPage Component', () => {
     );
 
     expect(
-      screen.getByRole('heading', { name: 'Financial Intelligence & Risk Platform' }),
+      screen.getByRole('heading', { name: 'Clarity & Risk Platform' }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText(/Work Email Address/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Password$/i, { selector: 'input' })).toBeInTheDocument();

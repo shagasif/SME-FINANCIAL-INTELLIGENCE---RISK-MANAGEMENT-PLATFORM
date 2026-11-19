@@ -29,7 +29,7 @@ describe('RegisterPage Component', () => {
     );
 
     expect(
-      screen.getByRole('heading', { name: 'Get Started with SME Financial Intel' }),
+      screen.getByRole('heading', { name: 'Clarity & Risk Platform' }),
     ).toBeInTheDocument();
     expect(
       screen.getByText(

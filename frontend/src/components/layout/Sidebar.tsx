@@ -21,6 +21,7 @@ import {
 import { MAIN_NAVIGATION_ITEMS } from '../../config/navigation.config';
 import { useAuth } from '../../context/useAuth';
 import { RoleType } from '../../types/auth.types';
+import { SmeLogo } from '../ui/SmeLogo';
 
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
   LayoutDashboard,
@@ -56,21 +57,19 @@ export function Sidebar() {
       <div className="h-16 flex items-center justify-between px-4 border-b border-[var(--border-subtle)]">
         {!isCollapsed ? (
           <div className="flex items-center gap-2.5 overflow-hidden">
-            <div className="w-8 h-8 rounded-lg bg-[var(--accent-primary)] text-[var(--surface-header-text)] flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
-              SME
-            </div>
+            <SmeLogo className="h-8 w-auto shrink-0 drop-shadow-xs" />
             <div className="flex flex-col truncate">
-              <span className="font-bold text-sm tracking-tight text-[var(--text-primary)] truncate">
+              <span className="text-base font-bold tracking-tight leading-none text-[var(--text-primary)] truncate">
                 Financial Intel
               </span>
-              <span className="text-[10px] font-medium text-[var(--text-muted)] tracking-wider uppercase">
-                Risk Platform
+              <span className="block text-[8.5px] font-semibold tracking-[0.02em] uppercase opacity-75 text-[var(--text-muted)] mt-1 whitespace-nowrap">
+                CLARITY &amp; RISK PLATFORM
               </span>
             </div>
           </div>
         ) : (
-          <div className="mx-auto w-8 h-8 rounded-lg bg-[var(--accent-primary)] text-[var(--surface-header-text)] flex items-center justify-center font-bold text-sm shadow-xs">
-            S
+          <div className="mx-auto flex items-center justify-center">
+            <SmeLogo variant="square" className="w-8 h-8 drop-shadow-xs" />
           </div>
         )}
 

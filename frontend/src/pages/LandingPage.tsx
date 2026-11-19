@@ -10,6 +10,7 @@ import {
 import { Link } from 'react-router-dom';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { SmeLogo } from '../components/ui/SmeLogo';
 import {
   Activity,
   ArrowDownRight,
@@ -250,11 +251,12 @@ function PrimaryLink({
   compact?: boolean;
   className?: string;
 }) {
+  const displayClass = className.includes('hidden') ? '' : 'inline-flex';
   return (
     <Link
       to={to}
       state={state}
-      className={`group inline-flex items-center justify-center gap-2 ${compact ? 'min-h-8 rounded-md px-1.5 py-1 text-[10px] sm:min-h-10 sm:rounded-lg sm:px-4 sm:py-2 sm:text-sm' : 'min-h-12 rounded-xl px-5 py-3 text-sm'} bg-[var(--landing-accent)] font-semibold text-white shadow-lg shadow-indigo-900/20 transition hover:-translate-y-0.5 hover:bg-[var(--landing-accent-hover)] focus-visible:outline-offset-4 ${className}`}
+      className={`group ${displayClass} items-center justify-center gap-2 ${compact ? 'min-h-8 rounded-lg px-3 py-1.5 text-xs sm:min-h-10 sm:rounded-lg sm:px-4 sm:py-2 sm:text-sm' : 'min-h-12 rounded-xl px-5 py-3 text-sm'} bg-[var(--landing-accent)] font-semibold text-white shadow-lg shadow-indigo-900/20 transition hover:-translate-y-0.5 hover:bg-[var(--landing-accent-hover)] focus-visible:outline-offset-4 ${className}`}
     >
       {children}
       <ArrowRight
@@ -542,26 +544,24 @@ export function LandingPage() {
       className="landing-page-theme min-h-screen overflow-hidden bg-[var(--landing-page-bg)] text-slate-900 selection:bg-blue-200 selection:text-slate-950 dark:bg-[var(--landing-page-bg)]"
     >
       <header className="sticky top-0 z-50 bg-[var(--landing-header-bg)] backdrop-blur-xl">
-        <div className="mx-auto flex min-h-14 max-w-7xl items-center justify-between gap-1 px-2.5 sm:min-h-[4.5rem] sm:gap-3 sm:px-6 lg:px-8">
+        <div className="mx-auto flex min-h-14 max-w-7xl items-center justify-between gap-3 px-3 sm:min-h-[4.5rem] sm:gap-4 sm:px-6 lg:px-8">
           <Link
             aria-label="SME Financial Intel home"
             to="/"
-            className="flex min-w-0 items-center gap-1.5 rounded-lg sm:gap-2.5"
+            className="flex min-w-0 items-center gap-1.5 sm:gap-2.5 rounded-lg"
           >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-sky-500 text-[8px] font-black tracking-wide text-white shadow-md shadow-blue-900/15 sm:h-10 sm:w-10 sm:text-[10px]">
-              SME
-            </span>
-            <span className="min-w-0 leading-tight">
-              <span className="block whitespace-normal text-sm font-bold tracking-tight text-slate-950 dark:text-white sm:text-xl">
-                SME Financial Intel
+            <SmeLogo className="h-[20px] sm:h-8 w-auto shrink-0 drop-shadow-md" />
+            <span className="min-w-0 flex flex-col items-center justify-center">
+              <span className="block text-[13px] sm:text-base font-bold tracking-tight leading-none text-slate-950 dark:text-white whitespace-nowrap">
+                Financial Intel
               </span>
-              <span className="hidden text-[10px] font-medium text-slate-500 dark:text-slate-400 sm:block">
-                Financial Intelligence &amp; Risk Management Platform
+              <span className="block text-[5.9px] sm:text-[8.5px] font-semibold tracking-[0.025em] sm:tracking-[0.02em] uppercase opacity-75 text-slate-500 dark:text-slate-400 leading-none mt-0.5 sm:mt-1 whitespace-nowrap text-center">
+                CLARITY &amp; RISK PLATFORM
               </span>
             </span>
           </Link>
 
-          <nav aria-label="Main navigation" className="hidden items-center gap-5 xl:flex">
+          <nav aria-label="Main navigation" className="hidden items-center gap-5 lg:flex">
             {sectionNavigation.map(({ label, href }) => (
               <a key={href} href={href} className={linkStyle}>
                 {label}
@@ -569,12 +569,12 @@ export function LandingPage() {
             ))}
           </nav>
 
-          <div className="flex shrink-0 items-center gap-1 sm:gap-3">
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             <button
               type="button"
               onClick={toggleTheme}
               aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-              className="hidden h-10 w-10 items-center justify-center rounded-xl border border-[var(--landing-border)] bg-[var(--landing-card-bg)] text-slate-600 transition hover:border-blue-300 hover:text-slate-950 dark:border-slate-800 dark:bg-[var(--landing-card-bg)] dark:text-slate-300 sm:inline-flex"
+              className="hidden h-10 w-10 items-center justify-center rounded-xl border border-[var(--landing-border)] bg-[var(--landing-card-bg)] text-slate-600 transition hover:border-blue-300 hover:text-slate-950 dark:border-slate-800 dark:bg-[var(--landing-card-bg)] dark:text-slate-300 lg:inline-flex"
             >
               {theme === 'dark' ? (
                 <Sun aria-hidden="true" className="h-4 w-4" />
@@ -584,7 +584,7 @@ export function LandingPage() {
             </button>
             <Link
               to="/login"
-              className="hidden rounded-xl px-2 py-2 text-sm font-semibold text-slate-600 transition hover:text-blue-700 dark:text-slate-300 sm:inline-flex"
+              className="hidden rounded-xl px-2 py-2 text-sm font-semibold text-slate-600 transition hover:text-blue-700 dark:text-slate-300 lg:inline-flex"
             >
               Login
             </Link>
@@ -592,7 +592,7 @@ export function LandingPage() {
               to={getStartedPath}
               state={getStartedState}
               compact
-              className="[&>svg]:hidden sm:[&>svg]:inline-flex"
+              className="hidden lg:inline-flex lg:px-4 lg:py-2 lg:text-sm"
             >
               Get Started
             </PrimaryLink>
@@ -602,7 +602,7 @@ export function LandingPage() {
               aria-expanded={isMenuOpen}
               aria-controls="mobile-navigation"
               onClick={() => setIsMenuOpen((open) => !open)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-[var(--landing-border)] bg-[var(--landing-card-bg)] text-slate-600 sm:h-10 sm:w-10 xl:hidden dark:border-slate-800 dark:bg-[var(--landing-card-bg)] dark:text-slate-300"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-[var(--landing-border)] bg-[var(--landing-card-bg)] text-slate-600 sm:h-10 sm:w-10 lg:hidden dark:border-slate-800 dark:bg-[var(--landing-card-bg)] dark:text-slate-300"
             >
               {isMenuOpen ? (
                 <X aria-hidden="true" className="h-4 w-4" />
@@ -616,7 +616,7 @@ export function LandingPage() {
           <nav
             id="mobile-navigation"
             aria-label="Mobile navigation"
-            className="bg-[var(--landing-header-bg)] px-4 py-3 xl:hidden"
+            className="bg-[var(--landing-header-bg)] px-4 py-3 lg:hidden"
           >
             <div className="mx-auto flex max-w-7xl flex-col items-center gap-1">
               {sectionNavigation.map(({ label, href }) => (
@@ -636,7 +636,7 @@ export function LandingPage() {
                   closeMenu();
                 }}
                 aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-[var(--landing-card-hover)] sm:hidden"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-blue-700 dark:text-slate-300 dark:hover:bg-[var(--landing-card-hover)] lg:hidden"
               >
                 {theme === 'dark' ? (
                   <Sun aria-hidden="true" className="h-4 w-4" />
@@ -901,19 +901,16 @@ export function LandingPage() {
                 aria-label="SME Financial Intel home"
                 className="inline-flex items-center gap-2.5"
               >
-                <span
-                  aria-hidden="true"
-                  className="landing-footer-brand-mark rounded-md px-2 py-1 text-sm font-bold tracking-tight"
-                >
-                  SME
-                </span>
-                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-white">
-                  SME Financial Intel
+                <SmeLogo theme="dark" className="h-[29.5px] w-auto shrink-0 drop-shadow-xs" />
+                <span className="flex flex-col justify-center">
+                  <span className="text-[18px] font-bold tracking-tight leading-none text-white">
+                    Financial Intel
+                  </span>
+                  <span className="block text-[8.5px] font-semibold tracking-[0.02em] uppercase opacity-75 text-[#a49db4] mt-1 whitespace-nowrap">
+                    CLARITY &amp; RISK PLATFORM
+                  </span>
                 </span>
               </Link>
-              <p className="mt-2 text-sm text-[#817b8f]">
-                Financial Intelligence &amp; Risk Platform
-              </p>
               <h2 className="mt-6 max-w-md text-2xl font-medium leading-[1.05] tracking-[-0.045em] text-white sm:text-3xl">
                 Financial clarity for growing businesses.
               </h2>

@@ -23,6 +23,7 @@ import {
 import { MAIN_NAVIGATION_ITEMS } from '../../config/navigation.config';
 import { useAuth } from '../../context/useAuth';
 import { useTheme } from '../../hooks/useTheme';
+import { SmeLogo } from '../ui/SmeLogo';
 import { RoleType } from '../../types/auth.types';
 
 const ICON_MAP: Record<string, typeof LayoutDashboard> = {
@@ -79,13 +80,16 @@ export function MobileNav({ isOpen, onClose }: MobileNavProps) {
       {/* Drawer */}
       <div className="relative w-4/5 max-w-xs bg-[var(--surface-sidebar)] text-[var(--text-primary)] border-r border-[var(--border-subtle)] flex flex-col justify-between z-10 shadow-2xl">
         <div className="h-16 flex items-center justify-between px-4 border-b border-[var(--border-subtle)]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[var(--accent-primary)] text-[var(--surface-header-text)] flex items-center justify-center font-bold text-sm shadow-xs">
-              SME
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            <SmeLogo className="h-6 sm:h-8 w-auto shrink-0 drop-shadow-xs" />
+            <div className="flex flex-col">
+              <span className="text-sm sm:text-base font-bold leading-none text-[var(--text-primary)] whitespace-nowrap">
+                Financial Intel
+              </span>
+              <span className="block text-[7.5px] sm:text-[8.5px] font-semibold tracking-[0.02em] uppercase opacity-75 text-[var(--text-muted)] mt-0.5 sm:mt-1 whitespace-nowrap">
+                CLARITY &amp; RISK PLATFORM
+              </span>
             </div>
-            <span className="font-bold text-sm tracking-tight text-[var(--text-primary)]">
-              Financial Intel
-            </span>
           </div>
           <button
             onClick={onClose}
