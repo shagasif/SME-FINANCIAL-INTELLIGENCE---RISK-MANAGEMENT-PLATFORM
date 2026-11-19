@@ -148,9 +148,11 @@ describe('FloatingAiAssistant', () => {
       await screen.findByText(answers[index]);
     }
 
-    expect(screen.getAllByText('Verified across 1 specialist agent')).toHaveLength(2);
-    fireEvent.click(screen.getAllByText('Verified across 1 specialist agent')[1]);
-    expect(screen.getByText('1 Account · Reference: acc-2')).toBeInTheDocument();
+    expect(screen.getByText(answers[0])).toBeInTheDocument();
+    expect(screen.getByText(answers[1])).toBeInTheDocument();
+    expect(screen.queryByText(/Verified across/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/specialist agent/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Audit references/i)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Close AI Finance Assistant chat' }));
     fireEvent.click(screen.getByRole('button', { name: 'Open AI Finance Assistant chat' }));

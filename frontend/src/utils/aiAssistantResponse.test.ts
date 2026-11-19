@@ -40,7 +40,10 @@ describe('formatAssistantResponse', () => {
 
     expect(result.answer).toBe('Cash runway is 8.4 months; working capital is PKR 385,000.00.');
     expect(result.answer).not.toContain('CASH_FLOW_FORECASTING');
-    expect(result.execution.label).toBe('Verified across 2 specialist agents');
+    expect(result.answer).not.toContain('specialist');
+    expect(result.answer).not.toContain('Verified across');
+    expect(result.execution.label).toBe('Verified');
+    expect(result.execution.label).not.toContain('specialist');
     expect(result.execution.workflowId).toBe('workflow-123');
     expect(result.citations).toEqual([
       '2 Accounts · References: acc-1, acc-2',
@@ -71,7 +74,7 @@ describe('formatAssistantResponse', () => {
       citations: ['invoiceIds: 4 records'],
     });
 
-    expect(result.answer).toBe('The analysis did not complete. Review the execution status below.');
+    expect(result.answer).toBe('The financial analysis could not be completed.');
     expect(result.execution.label).toBe('Execution failed');
     expect(result.execution.tone).toBe('error');
     expect(result.citations).toEqual(['4 Invoices']);
@@ -164,13 +167,15 @@ describe('formatAssistantResponse', () => {
         answer: 'Your current cash runway is 18.5 months based on active liquid cash reserves.',
         synthesizedResult: {
           answer: 'Your current cash runway is 18.5 months based on active liquid cash reserves.',
-          executiveSummary: 'Your current cash runway is 18.5 months based on active liquid cash reserves.',
+          executiveSummary:
+            'Your current cash runway is 18.5 months based on active liquid cash reserves.',
           specialistFindings: [
             {
               agentType: 'FINANCE_DATA_ANALYST',
               skillResults: [
                 {
-                  summary: 'Deterministic financial analysis completed across 10 accounts and 200 transactions. Operating cash flow: 25000.0000...',
+                  summary:
+                    'Deterministic financial analysis completed across 10 accounts and 200 transactions. Operating cash flow: 25000.0000...',
                 },
               ],
             },
@@ -179,7 +184,9 @@ describe('formatAssistantResponse', () => {
       },
     });
 
-    expect(result.answer).toBe('Your current cash runway is 18.5 months based on active liquid cash reserves.');
+    expect(result.answer).toBe(
+      'Your current cash runway is 18.5 months based on active liquid cash reserves.',
+    );
     expect(result.answer).not.toContain('Deterministic financial analysis');
   });
 
@@ -193,7 +200,9 @@ describe('formatAssistantResponse', () => {
         answer: 'Hello! How can I help you with your business financials and operations today?',
       },
     });
-    expect(greetingResult.answer).toBe('Hello! How can I help you with your business financials and operations today?');
+    expect(greetingResult.answer).toBe(
+      'Hello! How can I help you with your business financials and operations today?',
+    );
 
     const thanksResult = formatAssistantResponse({
       success: true,
@@ -204,6 +213,22 @@ describe('formatAssistantResponse', () => {
         answer: "You're welcome! Let me know if you need any other financial insights or analysis.",
       },
     });
-    expect(thanksResult.answer).toBe("You're welcome! Let me know if you need any other financial insights or analysis.");
+    expect(thanksResult.answer).toBe(
+      "You're welcome! Let me know if you need any other financial insights or analysis.",
+    );
+  });
+
+  it('removes Verified across X specialist agents phrases from user-facing answers', () => {
+    const result = formatAssistantResponse({
+      success: true,
+      data: {
+        answer: 'Verified across 2 specialist agents. Your current cash runway is 14.5 months.',
+        verificationStatus: 'APPROVED',
+        verifierReport: { verificationPassed: true },
+      },
+    });
+    expect(result.answer).toBe('Your current cash runway is 14.5 months.');
+    expect(result.answer).not.toContain('Verified across');
+    expect(result.answer).not.toContain('specialist agent');
   });
 });

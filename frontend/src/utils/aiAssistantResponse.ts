@@ -53,9 +53,22 @@ function asStringArray(value: unknown): string[] {
 }
 
 function isOrchestrationLog(value: string): boolean {
-  return /^(?:completed\s+[A-Z][A-Z0-9_]*\s+across\s+\d+\s+specialist|classified as\s+[A-Z0-9_]+|analysis verified(?: and executed)?(?: across multi-agent sandboxes)?|no usable agent findings available|partial workflow findings)/i.test(
+  return /^(?:completed\s+[A-Z][A-Z0-9_]*\s+across\s+\d+\s+specialist|classified as\s+[A-Z0-9_]+|analysis verified(?: and executed)?(?: across multi-agent sandboxes)?|no usable agent findings available|partial workflow findings|(?:analysis\s+)?verified\s+across\s+\d+\s+specialist)/i.test(
     value.trim(),
   );
+}
+
+function cleanDirectAnswer(rawAnswer: string): string {
+  const cleaned = rawAnswer
+    .replace(/(?:analysis\s+)?verified\s+across\s+\d+\s+specialist\s+agents?(?:\(s\))?\.?\s*/gi, '')
+    .replace(
+      /completed\s+[A-Z0-9_]+\s+across\s+\d+\s+specialist\s+agents?(?:\(s\))?(?:\s+and\s+verifier\s+ai)?\.?\s*/gi,
+      '',
+    )
+    .replace(/\b\d+\s+specialist\s+agents?(?:\(s\))?\b/gi, '')
+    .replace(/^[:·,–—]\s*/, '')
+    .trim();
+  return cleaned;
 }
 
 function formatFourDecimalAmount(rawAmount: string, currency?: string): string {
@@ -81,7 +94,11 @@ function detectBaseCurrency(findings: unknown[]): string | undefined {
   return undefined;
 }
 
-function humanizeSkillSummary(summary: string, resultRecord: JsonRecord, fallbackCurrency?: string): string {
+function humanizeSkillSummary(
+  summary: string,
+  resultRecord: JsonRecord,
+  fallbackCurrency?: string,
+): string {
   const assumptions = asRecord(resultRecord.assumptions);
   const currency =
     asString(assumptions?.baseCurrency) ?? asString(resultRecord.currency) ?? fallbackCurrency;
@@ -217,7 +234,7 @@ function specialistNames(synthesized: JsonRecord, payload: JsonRecord): string[]
 function executionStatus(
   payload: JsonRecord,
   synthesized: JsonRecord,
-  specialistCount: number,
+  _specialistCount: number,
   failedCount: number,
   verifier: JsonRecord,
 ): Pick<AssistantExecutionDetails, 'label' | 'tone' | 'details'> {
@@ -233,27 +250,21 @@ function executionStatus(
   if (verifier.arithmeticVerified === true) details.push('Arithmetic checks passed');
   if (verifier.citationsVerified === true) details.push('Source references checked');
   if (humanReviewRequired) details.push('Human review required');
-  if (failedCount > 0) details.push(`${failedCount} specialist checks did not complete`);
+  if (failedCount > 0) details.push('Some automated checks did not complete');
 
   if (status === 'FAILED' || status === 'ERROR') {
     return { label: 'Execution failed', tone: 'error', details };
   }
   if (failedCount > 0) {
     return {
-      label: `Partial results · ${failedCount} specialist checks failed`,
+      label: 'Partial results · review required',
       tone: 'warning',
       details,
     };
   }
   if (verificationPassed && verificationStatus === 'APPROVED') {
-    const agentText =
-      specialistCount === 1 ? '1 specialist agent' : `${specialistCount} specialist agents`;
     return {
-      label: humanReviewRequired
-        ? `Verified across ${agentText} · review required`
-        : specialistCount > 0
-          ? `Verified across ${agentText}`
-          : 'Verified',
+      label: humanReviewRequired ? 'Verified · review required' : 'Verified',
       tone: humanReviewRequired ? 'warning' : 'success',
       details,
     };
@@ -297,9 +308,21 @@ export function formatAssistantResponse(response: unknown): AssistantResponse {
     asString(nestedData?.answer),
     asString(envelope.answer),
     asString(synthesized.answer),
-  ].filter((answer): answer is string => typeof answer === 'string' && !isOrchestrationLog(answer));
-  const specialistSummaries = extractSpecialistSummaries(synthesized, payload);
-  const executiveSummary = asString(synthesized.executiveSummary);
+  ]
+    .filter((answer): answer is string => typeof answer === 'string')
+    .map(cleanDirectAnswer)
+    .filter((answer) => answer.length > 0 && !isOrchestrationLog(answer));
+
+  const specialistSummaries = extractSpecialistSummaries(synthesized, payload)
+    .map(cleanDirectAnswer)
+    .filter((summary) => summary.length > 0 && !isOrchestrationLog(summary));
+
+  const rawExecSummary = asString(synthesized.executiveSummary);
+  const executiveSummary =
+    rawExecSummary && !isOrchestrationLog(rawExecSummary)
+      ? cleanDirectAnswer(rawExecSummary)
+      : undefined;
+
   const answerCandidates =
     directAnswers.length > 0
       ? uniqueText(directAnswers)
@@ -347,7 +370,7 @@ export function formatAssistantResponse(response: unknown): AssistantResponse {
   const rawAnswer =
     answerCandidates.join('\n\n') ||
     (String(payload.status ?? '').toUpperCase() === 'FAILED'
-      ? 'The analysis did not complete. Review the execution status below.'
+      ? 'The financial analysis could not be completed.'
       : 'The workflow completed but did not return a financial summary.');
 
   return {

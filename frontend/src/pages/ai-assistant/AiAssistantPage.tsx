@@ -270,53 +270,6 @@ export function AiAssistantPage({
               }`}
             >
               <p className="whitespace-pre-line break-words [overflow-wrap:anywhere]">{msg.text}</p>
-
-              {msg.execution && (
-                <details className="mt-2 border-t border-[var(--border-subtle)] pt-2">
-                  <summary
-                    className={`inline-flex max-w-full cursor-pointer list-none rounded-full border px-2 py-1 text-[10px] font-medium ${
-                      msg.execution.tone === 'success'
-                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                        : msg.execution.tone === 'warning'
-                          ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
-                          : msg.execution.tone === 'error'
-                            ? 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300'
-                            : 'border-[var(--border-subtle)] bg-[var(--surface-elevated)] text-[var(--text-secondary)]'
-                    }`}
-                  >
-                    <span className="truncate">{msg.execution.label}</span>
-                  </summary>
-                  <div className="mt-2 space-y-1 text-[10px] text-[var(--text-muted)]">
-                    {msg.execution.workflowId && (
-                      <p className="break-all">
-                        Workflow reference:{' '}
-                        <span className="font-mono">{msg.execution.workflowId}</span>
-                      </p>
-                    )}
-                    {msg.execution.details.map((detail) => (
-                      <p key={detail}>{detail}</p>
-                    ))}
-                    {msg.execution.latencyMs !== undefined && (
-                      <p>Response time: {msg.execution.latencyMs} ms</p>
-                    )}
-                    {msg.execution.formulaVersion && (
-                      <p>Calculation version: {msg.execution.formulaVersion}</p>
-                    )}
-                    {msg.citations && msg.citations.length > 0 && (
-                      <div className="border-t border-[var(--border-subtle)] pt-1.5">
-                        <span className="font-semibold text-[var(--text-secondary)]">
-                          Audit references
-                        </span>
-                        {msg.citations.map((citation) => (
-                          <p key={citation} className="break-words [overflow-wrap:anywhere]">
-                            {citation}
-                          </p>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </details>
-              )}
             </div>
           </div>
         ))}
