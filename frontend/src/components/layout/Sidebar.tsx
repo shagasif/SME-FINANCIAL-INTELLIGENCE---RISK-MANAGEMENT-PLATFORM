@@ -56,13 +56,13 @@ export function Sidebar() {
       {/* Brand Header */}
       <div className="h-16 flex items-center justify-between px-4 border-b border-[var(--border-subtle)]">
         {!isCollapsed ? (
-          <div className="flex items-center gap-2.5 overflow-hidden">
-            <SmeLogo className="h-8 w-auto shrink-0 drop-shadow-xs" />
+          <div className="flex items-center gap-2 overflow-hidden">
+            <SmeLogo className="h-6 w-auto shrink-0 drop-shadow-xs" />
             <div className="flex flex-col truncate">
-              <span className="text-base font-bold tracking-tight leading-none text-[var(--text-primary)] truncate">
+              <span className="text-[13.5px] font-bold tracking-tight leading-none whitespace-nowrap text-[var(--text-primary)]">
                 Financial Intel
               </span>
-              <span className="block text-[8.5px] font-semibold tracking-[0.02em] uppercase opacity-75 text-[var(--text-muted)] mt-1 whitespace-nowrap">
+              <span className="block text-[7px] font-semibold tracking-[0.01em] uppercase whitespace-nowrap opacity-75 text-[var(--text-muted)] mt-0.5">
                 CLARITY &amp; RISK PLATFORM
               </span>
             </div>
