@@ -17,7 +17,7 @@ export class ExecuteAiWorkflowDto {
       'Analyze our current cash flow, liquidity runway, overdue receivables, anomalous expenses, and recommend actions for the next 30 days.',
   })
   @IsString()
-  @MinLength(3)
+  @MinLength(1)
   @MaxLength(2000)
   prompt!: string;
 
@@ -37,6 +37,14 @@ export class ExecuteAiWorkflowDto {
   @IsInt()
   @IsIn([7, 30, 60, 90])
   horizonDays?: 7 | 30 | 60 | 90 = 30;
+
+  @ApiPropertyOptional({
+    description: 'Recent conversation history for conversational context awareness',
+    isArray: true,
+  })
+  @IsOptional()
+  @IsArray()
+  history?: Array<{ sender: string; text: string }>;
 }
 
 export class InvokeMcpToolRequestDto {

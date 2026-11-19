@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import {
   AgentType,
   ExecutionStatus,
@@ -11,7 +11,11 @@ import { PrismaService } from '../../database/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { ExecuteAiWorkflowDto } from './dto/ai-orchestration.dto.js';
 import { DuringHookEvent, WorkflowHookService } from './hooks/workflow-hooks.service.js';
-import { AiMediaAttachment, AiModelUsageMetrics } from './model-provider/ai-model-provider.service.js';
+import {
+  AiMediaAttachment,
+  AiModelProviderService,
+  AiModelUsageMetrics,
+} from './model-provider/ai-model-provider.service.js';
 import type { DocumentTargetType } from '../document-import/document-parser.util.js';
 import { AgentSandboxService } from './sandbox/agent-sandbox.service.js';
 import { AgentSkillsRegistryService } from './skills/agent-skills-registry.service.js';
@@ -27,6 +31,30 @@ import {
   type CanonicalFinancialRecord,
 } from './document-db-reconciler.util.js';
 
+export type MessageIntent = 'GREETING' | 'THANKS' | 'IRRELEVANT' | 'BUSINESS_QUERY';
+
+export interface GroundedFinancialFacts {
+  baseCurrency: string;
+  operatingCashFlow?: unknown;
+  workingCapital?: unknown;
+  currentRatio?: unknown;
+  quickRatio?: unknown;
+  grossMargin?: unknown;
+  expenseGrowth?: unknown;
+  cashRunway?: unknown;
+  receivablesOverdueTotal?: unknown;
+  payablesOverdueTotal?: unknown;
+  budgetCount?: unknown;
+  endingCashBalance?: unknown;
+  projectedNetCashFlow?: unknown;
+  liquidityWarning?: boolean;
+  activeAlertsCount?: unknown;
+  highSeverityCount?: unknown;
+  riskScores?: Record<string, unknown>;
+  anomalousExpensesCount?: unknown;
+  topSpenderCount?: unknown;
+}
+
 @Injectable()
 export class SupervisorOrchestratorService {
   private readonly inFlightPostSaveKeys = new Set<string>();
@@ -37,7 +65,380 @@ export class SupervisorOrchestratorService {
     private readonly sandbox: AgentSandboxService,
     private readonly skillsRegistry: AgentSkillsRegistryService,
     private readonly audit: AuditService,
+    @Optional() private readonly modelProvider?: AiModelProviderService,
   ) {}
+
+  /**
+   * Detects conversational intent (Greetings, Politeness/Thanks, Irrelevant, or Business Query).
+   */
+  detectMessageIntent(prompt: string, hasHistory = false): MessageIntent {
+    const clean = prompt.trim();
+    const lower = clean.toLowerCase();
+    const stripped = lower.replace(/^[!?,.:;\s]+|[!?,.:;\s]+$/g, '').trim();
+
+    // 1. Greetings: Hi, Hello, Hey, Good morning/afternoon/evening, etc.
+    const greetingExact =
+      /^(hi|hello|hey|heya|howdy|greetings|good morning|good afternoon|good evening|good day)(?: (?:there|assistant|team|ai|bot))?$/i;
+    if (greetingExact.test(stripped)) {
+      return 'GREETING';
+    }
+
+    // 2. Thanks: Thanks, Thank you, Thx, Ty, Much appreciated, etc.
+    const thanksExact =
+      /^(thanks|thank you|many thanks|thx|ty|much appreciated|appreciate it)(?:\b.*)?$/i;
+    if (thanksExact.test(stripped)) {
+      return 'THANKS';
+    }
+
+    // 3. Business / Financial Relevance
+    if (this.isBusinessRelevant(lower, hasHistory)) {
+      return 'BUSINESS_QUERY';
+    }
+
+    // 4. Irrelevant (Out of Scope)
+    return 'IRRELEVANT';
+  }
+
+  /**
+   * Evaluates if a query relates to SME financial intelligence and business operations.
+   */
+  isBusinessRelevant(lowerPrompt: string, hasHistory = false): boolean {
+    if (hasHistory) {
+      const contextualFollowUps = [
+        'why',
+        'how',
+        'how so',
+        'how is that calculated',
+        'how is this calculated',
+        'how is it calculated',
+        'explain',
+        'can you explain',
+        'what about',
+        'which ones',
+        'details',
+        'more details',
+        'tell me more',
+        'breakdown',
+        'who owes',
+        'what should we do',
+        'what does that mean',
+      ];
+      const stripped = lowerPrompt.replace(/^[!?,.:;\s]+|[!?,.:;\s]+$/g, '').trim();
+      if (contextualFollowUps.some((cf) => stripped === cf || stripped.startsWith(cf + ' '))) {
+        return true;
+      }
+    }
+
+    const businessTerms = [
+      'cash', 'flow', 'runway', 'liquidity', 'burn', 'balance', 'bank', 'account',
+      'working capital', 'share capital', 'equity capital', 'venture capital', 'capex',
+      'capital expenditure', 'revenue', 'sales', 'income', 'earning', 'profit',
+      'loss', 'margin', 'ebitda', 'expense', 'spend', 'spending', 'cost', 'bill',
+      'payable', 'payables', 'vendor', 'supplier', 'purchase', 'invoice', 'invoices',
+      'receivable', 'receivables', 'overdue', 'customer', 'client', 'debt', 'debtor',
+      'collection', 'ratio', 'metric', 'kpi', 'financial', 'finance', 'report',
+      'statement', 'ledger', 'p&l', 'audit', 'reconcil', 'budget', 'forecast',
+      'projection', 'variance', 'scenario', 'what-if', 'what if', 'risk', 'alert',
+      'anomaly', 'anomalous', 'duplicate', 'unusual', 'warning', 'shortfall',
+      'business', 'operation', 'payroll', 'salary', 'tax', 'vat', 'gst', 'asset',
+      'liability', 'equity', 'document', 'csv', 'import', 'upload', 'currency',
+      'pkr', 'usd', 'eur', 'gbp', 'performance', 'growth', 'health', 'recommend',
+      'recommendation', 'strategy', 'optimize', 'decision', 'aging', 'payment',
+      'paid', 'unpaid', 'due', 'money', 'fund', 'investment', 'loan', 'transaction',
+      'transactions'
+    ];
+
+    return businessTerms.some((term) => {
+      const regex = new RegExp(`\\b${term.replace('-', '[- ]')}\\b`, 'i');
+      return regex.test(lowerPrompt);
+    });
+  }
+
+  buildConversationalAnswer(intent: 'GREETING' | 'THANKS' | 'IRRELEVANT', prompt: string): string {
+    const lower = prompt.toLowerCase();
+    if (intent === 'GREETING') {
+      if (lower.includes('good morning')) {
+        return 'Good morning! How can I assist you with your business financials and operations today?';
+      }
+      if (lower.includes('good afternoon')) {
+        return 'Good afternoon! How can I assist you with your business financials and operations today?';
+      }
+      if (lower.includes('good evening')) {
+        return 'Good evening! How can I assist you with your business financials and operations today?';
+      }
+      return 'Hello! How can I help you with your business financials and operations today?';
+    }
+
+    if (intent === 'THANKS') {
+      return "You're welcome! Let me know if you need any other financial insights or analysis.";
+    }
+
+    return "I am your business finance assistant. I can only assist with queries related to your organization's financial data, reports, transactions, alerts, expenses, cash flow, and business operations.";
+  }
+
+  private formatAmount(val: unknown, currency = 'PKR'): string {
+    if (val === null || val === undefined || val === 'UNSUPPORTED') return 'unavailable';
+    const num = typeof val === 'number' ? val : Number(val);
+    if (!Number.isFinite(num)) return String(val);
+    return `${currency} ${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+
+  private formatPercent(val: unknown): string {
+    if (val === null || val === undefined || val === 'UNSUPPORTED') return 'unavailable';
+    const num = typeof val === 'number' ? val : Number(val);
+    if (!Number.isFinite(num)) return String(val);
+    return `${num.toFixed(2)}%`;
+  }
+
+  private extractGroundedFacts(
+    specialistOutputs: Array<Record<string, unknown>>,
+  ): GroundedFinancialFacts {
+    const facts: GroundedFinancialFacts = {
+      baseCurrency: 'PKR',
+    };
+
+    for (const output of specialistOutputs) {
+      const skillResults = Array.isArray(output.skillResults) ? output.skillResults : [];
+      for (const rawSr of skillResults) {
+        if (!rawSr || typeof rawSr !== 'object') continue;
+        const sr = rawSr as Record<string, unknown>;
+
+        const assumptions = sr.assumptions as Record<string, unknown> | undefined;
+        if (typeof assumptions?.baseCurrency === 'string') {
+          facts.baseCurrency = assumptions.baseCurrency;
+        } else if (typeof sr.currency === 'string') {
+          facts.baseCurrency = sr.currency;
+        }
+
+        const km = sr.keyMetrics as Record<string, unknown> | undefined;
+        if (km && typeof km === 'object') {
+          if (km.operatingCashFlow !== undefined) facts.operatingCashFlow = km.operatingCashFlow;
+          if (km.workingCapital !== undefined) facts.workingCapital = km.workingCapital;
+          if (km.currentRatio !== undefined) facts.currentRatio = km.currentRatio;
+          if (km.quickRatio !== undefined) facts.quickRatio = km.quickRatio;
+          if (km.grossMargin !== undefined) facts.grossMargin = km.grossMargin;
+          if (km.expenseGrowth !== undefined) facts.expenseGrowth = km.expenseGrowth;
+          if (km.cashRunway !== undefined) facts.cashRunway = km.cashRunway;
+        }
+
+        if (sr.receivablesOverdueTotal !== undefined) facts.receivablesOverdueTotal = sr.receivablesOverdueTotal;
+        if (sr.payablesOverdueTotal !== undefined) facts.payablesOverdueTotal = sr.payablesOverdueTotal;
+        if (sr.budgetCount !== undefined) facts.budgetCount = sr.budgetCount;
+
+        if (sr.runwayMonths !== undefined) facts.cashRunway = sr.runwayMonths;
+        if (sr.projectedEndingCash !== undefined) facts.endingCashBalance = sr.projectedEndingCash;
+        if (sr.endingCashBalance !== undefined) facts.endingCashBalance = sr.endingCashBalance;
+        if (sr.projectedNetCashFlow !== undefined) facts.projectedNetCashFlow = sr.projectedNetCashFlow;
+        if (sr.liquidityWarning !== undefined) facts.liquidityWarning = Boolean(sr.liquidityWarning);
+
+        if (sr.activeAlertsCount !== undefined) facts.activeAlertsCount = sr.activeAlertsCount;
+        if (sr.highSeverityCount !== undefined) facts.highSeverityCount = sr.highSeverityCount;
+        if (sr.riskScores && typeof sr.riskScores === 'object') facts.riskScores = sr.riskScores as Record<string, unknown>;
+
+        if (sr.anomalousExpensesCount !== undefined) facts.anomalousExpensesCount = sr.anomalousExpensesCount;
+        if (sr.topSpenderCount !== undefined) facts.topSpenderCount = sr.topSpenderCount;
+      }
+    }
+
+    return facts;
+  }
+
+  private buildDeterministicDirectAnswer(
+    prompt: string,
+    facts: GroundedFinancialFacts,
+    history?: Array<{ sender: string; text: string }>,
+  ): string {
+    const lower = prompt.toLowerCase();
+
+    // 1. Follow-up Context Questions (Why? How is that calculated? Can you explain?)
+    const isFollowUp = /\b(why|how is (?:that|this|it) calculated|can you explain|breakdown|explain|tell me more|what does that mean)\b/i.test(prompt);
+    if (isFollowUp && history && history.length > 0) {
+      const priorText = history
+        .slice(-4)
+        .map((m) => m.text.toLowerCase())
+        .join(' ');
+
+      if (priorText.includes('runway') || priorText.includes('burn')) {
+        return 'Cash runway is calculated by dividing your available liquid cash balance by your average monthly net burn rate.';
+      }
+      if (priorText.includes('margin')) {
+        return 'Gross margin is calculated as ((Revenue - Cost of Goods Sold) / Revenue) × 100%.';
+      }
+      if (priorText.includes('working capital')) {
+        return 'Working capital is calculated as Current Assets minus Current Liabilities.';
+      }
+      if (priorText.includes('current ratio') || priorText.includes('quick ratio')) {
+        return 'Current ratio is Current Assets divided by Current Liabilities. Quick ratio excludes inventory and less liquid assets.';
+      }
+      if (priorText.includes('operating cash flow') || priorText.includes('cash flow')) {
+        return 'Operating cash flow is determined from net operational cash inflows minus operational cash outflows for the period.';
+      }
+      if (priorText.includes('overdue') || priorText.includes('receivable')) {
+        return 'Overdue receivables represent all unpaid customer invoices where the payment due date has passed.';
+      }
+      if (priorText.includes('payable') || priorText.includes('bill')) {
+        return 'Overdue payables represent all unpaid vendor bills whose payment due dates have passed.';
+      }
+      if (priorText.includes('alert') || priorText.includes('risk')) {
+        return 'Risk alerts are generated by deterministic rules evaluating liquidity shortages, overdue payment aging, and anomalous expenditure patterns.';
+      }
+      return 'This metric is computed deterministically from your verified accounting records, invoices, and bank transactions.';
+    }
+
+    // 2. Cash Runway
+    if (/\b(runway|cash runway|months of runway)\b/i.test(lower)) {
+      if (facts.cashRunway !== undefined && facts.cashRunway !== null && facts.cashRunway !== 'UNSUPPORTED') {
+        const num = Number(facts.cashRunway);
+        const val = Number.isFinite(num) ? num.toFixed(1) : String(facts.cashRunway);
+        return `Your current cash runway is ${val} months based on active liquid cash reserves.`;
+      }
+      return 'Cash runway data is currently unavailable due to insufficient transaction history or baseline reserves.';
+    }
+
+    // 3. Cash Balance / Projected Cash / Ending Cash
+    if (/\b(cash balance|ending cash|projected cash|closing cash|how much cash)\b/i.test(lower)) {
+      if (facts.endingCashBalance !== undefined && facts.endingCashBalance !== null && facts.endingCashBalance !== 'UNSUPPORTED') {
+        return `Projected closing cash balance is ${this.formatAmount(facts.endingCashBalance, facts.baseCurrency)}.`;
+      }
+      if (facts.projectedNetCashFlow !== undefined && facts.projectedNetCashFlow !== 'UNSUPPORTED') {
+        return `Projected net cash flow is ${this.formatAmount(facts.projectedNetCashFlow, facts.baseCurrency)}.`;
+      }
+      return 'Cash balance projections are currently unavailable.';
+    }
+
+    // 4. Operating Cash Flow
+    if (/\b(operating cash flow|ocf)\b/i.test(lower)) {
+      if (facts.operatingCashFlow !== undefined && facts.operatingCashFlow !== 'UNSUPPORTED') {
+        return `Operating cash flow is ${this.formatAmount(facts.operatingCashFlow, facts.baseCurrency)}.`;
+      }
+      return 'Operating cash flow data is currently unavailable.';
+    }
+
+    // 5. Working Capital
+    if (/\b(working capital)\b/i.test(lower)) {
+      if (facts.workingCapital !== undefined && facts.workingCapital !== 'UNSUPPORTED') {
+        return `Net working capital is ${this.formatAmount(facts.workingCapital, facts.baseCurrency)}.`;
+      }
+      return 'Working capital data is currently unavailable.';
+    }
+
+    // 6. Gross Margin
+    if (/\b(gross margin|margin|margins|profit margin)\b/i.test(lower)) {
+      if (facts.grossMargin !== undefined && facts.grossMargin !== 'UNSUPPORTED') {
+        return `Current gross margin is ${this.formatPercent(facts.grossMargin)}.`;
+      }
+      return 'Gross margin data is currently unavailable.';
+    }
+
+    // 7. Liquidity Ratios (Current / Quick)
+    if (/\b(current ratio|quick ratio|liquidity ratio|acid test)\b/i.test(lower)) {
+      if (facts.currentRatio !== undefined || facts.quickRatio !== undefined) {
+        const cr = facts.currentRatio !== 'UNSUPPORTED' && facts.currentRatio !== undefined ? Number(facts.currentRatio).toFixed(2) : 'unavailable';
+        const qr = facts.quickRatio !== 'UNSUPPORTED' && facts.quickRatio !== undefined ? Number(facts.quickRatio).toFixed(2) : 'unavailable';
+        return `Current ratio is ${cr} and quick ratio is ${qr}.`;
+      }
+      return 'Liquidity ratio data is currently unavailable.';
+    }
+
+    // 8. Overdue Receivables / Invoices
+    if (/\b(overdue|receivable|receivables|unpaid invoices?|who owes)\b/i.test(lower)) {
+      if (facts.receivablesOverdueTotal !== undefined) {
+        return `Total overdue receivables are ${this.formatAmount(facts.receivablesOverdueTotal, facts.baseCurrency)}.`;
+      }
+      return 'Overdue receivables data is currently unavailable.';
+    }
+
+    // 9. Overdue Payables / Bills
+    if (/\b(payable|payables|bills?|vendor bills?)\b/i.test(lower)) {
+      if (facts.payablesOverdueTotal !== undefined) {
+        return `Total overdue payables are ${this.formatAmount(facts.payablesOverdueTotal, facts.baseCurrency)}.`;
+      }
+      return 'Payables data is currently unavailable.';
+    }
+
+    // 10. Risk Alerts
+    if (/\b(risk|risks|alerts?|warning|warnings)\b/i.test(lower)) {
+      if (facts.activeAlertsCount !== undefined) {
+        const high = typeof facts.highSeverityCount === 'number' ? facts.highSeverityCount : 0;
+        return `There are ${facts.activeAlertsCount} active risk alert(s) detected (${high} high severity).`;
+      }
+      return 'Risk monitoring reports no active critical alerts.';
+    }
+
+    // 11. Expense Anomalies
+    if (/\b(anomal|unusual expense|duplicate)\b/i.test(lower)) {
+      if (facts.anomalousExpensesCount !== undefined) {
+        return `There are ${facts.anomalousExpensesCount} anomalous expense flag(s) identified in the current period.`;
+      }
+      return 'Expense analysis detected no anomalous spending flags.';
+    }
+
+    // 12. General overview
+    const parts: string[] = [];
+    if (facts.cashRunway !== undefined && facts.cashRunway !== null && facts.cashRunway !== 'UNSUPPORTED') {
+      const num = Number(facts.cashRunway);
+      const val = Number.isFinite(num) ? num.toFixed(1) : String(facts.cashRunway);
+      parts.push(`cash runway is ${val} months`);
+    }
+    if (facts.operatingCashFlow !== undefined && facts.operatingCashFlow !== 'UNSUPPORTED') {
+      parts.push(`operating cash flow is ${this.formatAmount(facts.operatingCashFlow, facts.baseCurrency)}`);
+    }
+    if (facts.receivablesOverdueTotal !== undefined) {
+      parts.push(`overdue receivables total ${this.formatAmount(facts.receivablesOverdueTotal, facts.baseCurrency)}`);
+    }
+    if (facts.activeAlertsCount !== undefined) {
+      parts.push(`${facts.activeAlertsCount} active risk alert(s)`);
+    }
+
+    if (parts.length > 0) {
+      return `Current financial overview: ${parts.join(', ')}.`;
+    }
+    return 'Financial analysis completed with verified metrics from your accounting data.';
+  }
+
+  private async synthesizeDirectBusinessAnswer(params: {
+    organizationId: string;
+    prompt: string;
+    specialistOutputs: Array<Record<string, unknown>>;
+    history?: Array<{ sender: string; text: string }>;
+  }): Promise<string> {
+    const facts = this.extractGroundedFacts(params.specialistOutputs);
+    const deterministicAnswer = this.buildDeterministicDirectAnswer(
+      params.prompt,
+      facts,
+      params.history,
+    );
+
+    if (this.modelProvider) {
+      try {
+        const aiResult = await this.modelProvider.executeStructuredTask({
+          organizationId: params.organizationId,
+          agentType: AgentType.SUPERVISOR_ORCHESTRATOR,
+          skillId: 'skill.conversational-direct-synthesis',
+          systemInstructions:
+            'You are the SME Business Financial Intelligence Assistant. Provide a direct, concise, factual answer to the user prompt using ONLY the provided verified deterministic evidence. Do NOT add unnecessary introductions, repeated points, or unsolicited recommendations. Keep response to 1-3 sentences. If data is not available, state that clearly.',
+          userPrompt: params.prompt,
+          deterministicEvidence: {
+            ...facts,
+            conversationHistory: params.history ?? [],
+          },
+          requiredOutputKeys: ['answer'],
+          deterministicSynthesisBuilder: () => ({
+            answer: deterministicAnswer,
+          }),
+        });
+
+        const synthAnswer = aiResult.structuredOutput?.answer;
+        if (typeof synthAnswer === 'string' && synthAnswer.trim().length > 0) {
+          return synthAnswer.trim();
+        }
+      } catch {
+        // Fall back cleanly to deterministic direct answer
+      }
+    }
+
+    return deterministicAnswer;
+  }
 
   /**
    * Classifies a user request and selects the appropriate specialist agents.
@@ -175,6 +576,93 @@ export class SupervisorOrchestratorService {
       isPlatformAdmin: params.isPlatformAdmin,
       prompt: params.dto.prompt,
     });
+
+    const hasHistory = Boolean(params.dto.history && params.dto.history.length > 0);
+    const messageIntent = this.detectMessageIntent(preHookResult.sanitizedPrompt, hasHistory);
+
+    if (
+      messageIntent === 'GREETING' ||
+      messageIntent === 'THANKS' ||
+      messageIntent === 'IRRELEVANT'
+    ) {
+      const taskClassification =
+        messageIntent === 'GREETING'
+          ? 'CONVERSATIONAL_GREETING'
+          : messageIntent === 'THANKS'
+            ? 'CONVERSATIONAL_POLITENESS'
+            : 'OUT_OF_SCOPE_QUERY';
+
+      const conversationalAnswer = this.buildConversationalAnswer(
+        messageIntent,
+        preHookResult.sanitizedPrompt,
+      );
+
+      const verifierReport = {
+        verificationPassed: true,
+        arithmeticVerified: true,
+        citationsVerified: true,
+        nonFraudComplianceVerified: true,
+        checkedSpecialistCount: 0,
+      };
+
+      const synthesizedResult = {
+        answer: conversationalAnswer,
+        executiveSummary: conversationalAnswer,
+        taskClassification,
+        selectedSpecialistAgents: [],
+        specialistFindings: [],
+        verifierAudit: verifierReport,
+        humanReviewRequired: false,
+        sourceRecordIds: {},
+      };
+
+      const workflowRun = await this.prisma.workflowRun.create({
+        data: {
+          organizationId: params.organizationId,
+          requestedByUserId: params.userId,
+          prompt: preHookResult.sanitizedPrompt,
+          taskClassification,
+          selectedAgents: [] as unknown as Prisma.InputJsonValue,
+          executionMode: 'FAST_CONVERSATIONAL',
+          status: ExecutionStatus.COMPLETED,
+          verificationStatus: VerificationStatus.APPROVED,
+          humanReviewRequired: false,
+          preHookLog: preHookResult as unknown as Prisma.InputJsonValue,
+          synthesizedResult: synthesizedResult as unknown as Prisma.InputJsonValue,
+          verifierReport: verifierReport as unknown as Prisma.InputJsonValue,
+          sourceRecordIds: {} as unknown as Prisma.InputJsonValue,
+          modelUsageSummary: {
+            invocationsCount: 0,
+            totalTokens: 0,
+            totalEstimatedCostUsd: '0.000000',
+            records: [],
+          } as unknown as Prisma.InputJsonValue,
+          durationMs: Date.now() - workflowStartMs,
+          completedAt: new Date(),
+        },
+      });
+
+      await this.audit.record({
+        organizationId: params.organizationId,
+        actorUserId: params.userId,
+        actorRole: params.userRole,
+        action: 'AI_CONVERSATIONAL_QUERY_COMPLETED',
+        resourceType: 'WORKFLOW_RUN',
+        resourceId: workflowRun.id,
+        status: 'SUCCESS',
+        details: {
+          intent: messageIntent,
+          taskClassification,
+          prompt: preHookResult.sanitizedPrompt,
+        },
+      });
+
+      return {
+        ...workflowRun,
+        answer: conversationalAnswer,
+        agentRuns: [],
+      };
+    }
 
     const { taskClassification, selectedSpecialistAgents } = this.classifyTaskAndSelectAgents(
       preHookResult.sanitizedPrompt,
@@ -436,9 +924,17 @@ export class SupervisorOrchestratorService {
         finalSourceRecordIds[k] = Array.from(set);
       }
 
+      const directAnswer = await this.synthesizeDirectBusinessAnswer({
+        organizationId: params.organizationId,
+        prompt: preHookResult.sanitizedPrompt,
+        specialistOutputs,
+        history: params.dto.history,
+      });
+
       // STEP 9: Consolidate Results & Execute Post-Execution Hooks
       const synthesizedResult = {
-        executiveSummary: `Completed ${taskClassification} across ${selectedSpecialistAgents.length} specialist agent(s) and Verifier AI Agent.`,
+        answer: directAnswer,
+        executiveSummary: directAnswer,
         taskClassification,
         selectedSpecialistAgents,
         specialistFindings: specialistOutputs,
@@ -513,7 +1009,10 @@ export class SupervisorOrchestratorService {
         },
       });
 
-      return completedWorkflow;
+      return {
+        ...completedWorkflow,
+        answer: directAnswer,
+      };
     } catch (error) {
       await this.hooks.runErrorHooks({
         workflowRunId: workflowRun.id,

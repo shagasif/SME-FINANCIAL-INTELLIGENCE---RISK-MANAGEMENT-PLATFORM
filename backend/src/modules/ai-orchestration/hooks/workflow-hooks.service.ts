@@ -127,9 +127,9 @@ export class WorkflowHookService {
       }
     }
 
-    if (!params.prompt || params.prompt.trim().length < 3) {
+    if (!params.prompt || params.prompt.trim().length < 1) {
       throw new BadRequestException(
-        'Pre-hook failed: workflow prompt must be at least 3 characters',
+        'Pre-hook failed: workflow prompt must not be empty',
       );
     }
 
